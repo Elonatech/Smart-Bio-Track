@@ -1,8 +1,61 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  extensions = [postgis]
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  HR_ADMIN
+  TEAM_LEAD
+  EMPLOYEE
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model Department {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employees User[]
+}
+
+model Office {
+  id                   String   @id @default(uuid())
+  name                 String
+  latitude             Float
+  longitude            Float
+  geofenceRadiusMeters Int      @default(100)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  employees User[]
+}
+
+model User {
+  id           String     @id @default(uuid())
+  employeeId   String     @unique
+  name         String
+  email        String     @unique
+  passwordHash String
+  role         UserRole   @default(EMPLOYEE)
+  status       UserStatus @default(ACTIVE)
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  officeId     String?
+  office       Office?    @relation(fields: [officeId], references: [id])
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 }
