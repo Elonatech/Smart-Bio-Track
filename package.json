@@ -7,12 +7,15 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:seed": "tsx prisma/seed.ts"
   },
   "devDependencies": {
     "dotenv": "^17.4.2",
+    "dotenv-cli": "^11.0.0",
     "prettier": "^3.7.4",
     "prisma": "^7.9.1",
+    "tsx": "^4.22.4",
     "turbo": "^2.10.8",
     "typescript": "5.9.2"
   },
