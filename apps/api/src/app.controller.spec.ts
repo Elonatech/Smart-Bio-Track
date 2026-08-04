@@ -6,10 +6,10 @@ import { PrismaService } from './prisma/prisma.service';
 describe('AppController', () => {
   let appController: AppController;
 
-  const mockPrismaService: Partial<PrismaService> = {
-    user: { count: jest.fn() } as unknown as PrismaService['user'],
-    department: { count: jest.fn() } as unknown as PrismaService['department'],
-    office: { count: jest.fn() } as unknown as PrismaService['office'],
+  const mockPrismaService = {
+    user: { count: jest.fn() },
+    department: { count: jest.fn() },
+    office: { count: jest.fn() },
   };
 
   beforeEach(async () => {
