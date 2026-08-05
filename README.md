@@ -55,21 +55,43 @@ Read [ARCHITECTURE.md](./ARCHITECTURE.md) for the repo map, then skim:
 
 ### 7. Create a branch and open a PR
 
-Never commit directly to `main`. For each piece of work:
+> **⚠️ Never push directly to `main`.** All work happens on a feature branch and lands on `main` only through a reviewed pull request. This isn't enforced by GitHub yet on this repo — it's on trust, so please follow it.
+
+Before you start any task, pull the latest `main` and branch off it:
 
 ```sh
 git checkout main
 git pull origin main
-git checkout -b feat/short-description   # or fix/..., chore/..., docs/...
+git checkout -b <type>/<short-description>
 ```
 
-Work, commit with clear messages (this repo follows Conventional Commits: `feat:`, `fix:`, `chore:`, etc.), then:
+Branch name format: `<type>/<short-description>`, all lowercase, words separated by hyphens.
+
+- `type` is one of: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`
+- `short-description` is a few words describing the task, not your name
+
+Examples:
 
 ```sh
-git push -u origin feat/short-description
+git checkout -b feat/patient-vitals-dashboard
+git checkout -b fix/login-redirect-loop
+git checkout -b docs/api-setup-guide
 ```
 
-Open a pull request into `main` on GitHub, request a review, and merge only once it's approved and CI passes.
+You don't need to put your name in the branch name — git already tracks authorship on every commit via your configured git identity (`git config user.name` / `user.email`), and GitHub shows who pushed each branch and opened each PR automatically. Just make sure your local git is set up with your real name/email:
+
+```sh
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+```
+
+Work, commit with clear messages (this repo follows Conventional Commits: `feat:`, `fix:`, `chore:`, etc.), then push your branch (never `main`):
+
+```sh
+git push -u origin <type>/<short-description>
+```
+
+Open a pull request into `main` on GitHub, request a review, and merge only once it's approved. Delete the branch after it's merged.
 
 ### 8. Before pushing
 
