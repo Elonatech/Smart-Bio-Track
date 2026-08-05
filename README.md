@@ -1,26 +1,91 @@
-# Turborepo starter
+# SmartBioTrack
 
-This Turborepo starter is maintained by the Turborepo core team.
+A pnpm/Turborepo monorepo: NestJS API (`apps/api`) + Next.js web app (`apps/web`), backed by Postgres/PostGIS via Prisma on Neon.
 
-## Using this example
+## Onboarding
 
-Run the following command:
+### 1. Prerequisites
+
+- Node >= 18
+- [pnpm](https://pnpm.io/installation) (repo is pinned to `pnpm@9.0.0`)
+- Access to the shared Neon database connection string (ask a teammate — never commit it)
+
+### 2. Clone and install
 
 ```sh
-npx create-turbo@latest
+git clone https://github.com/<org>/smartbiotrack.git
+cd smartbiotrack
+pnpm install
+```
+
+`pnpm install` runs `postinstall` automatically, which generates the Prisma client.
+
+### 3. Environment variables
+
+Copy the env template and fill in the values you're given (DB URL, etc.):
+
+```sh
+cp .env.production .env
+```
+
+`.env` is gitignored — get real values from a teammate via a secrets manager, not Slack/email in plaintext.
+
+### 4. Set up the database
+
+```sh
+npx prisma migrate dev
+pnpm db:seed
+```
+
+### 5. Run the apps
+
+```sh
+pnpm dev              # runs all apps via turbo
+pnpm dev --filter=api # just the NestJS API
+pnpm dev --filter=web # just the Next.js web app
+```
+
+### 6. Before you start changing code
+
+Read [ARCHITECTURE.md](./ARCHITECTURE.md) for the repo map, then skim:
+
+- `apps/api` — NestJS backend (controllers/services/modules per feature, Prisma for data access)
+- `apps/web` — Next.js frontend
+- `packages/` — shared code: `@repo/ui`, `@repo/types`, `@repo/validation`, `@repo/utils`, `@repo/eslint-config`, `@repo/typescript-config`
+
+### 7. Create a branch and open a PR
+
+Never commit directly to `main`. For each piece of work:
+
+```sh
+git checkout main
+git pull origin main
+git checkout -b feat/short-description   # or fix/..., chore/..., docs/...
+```
+
+Work, commit with clear messages (this repo follows Conventional Commits: `feat:`, `fix:`, `chore:`, etc.), then:
+
+```sh
+git push -u origin feat/short-description
+```
+
+Open a pull request into `main` on GitHub, request a review, and merge only once it's approved and CI passes.
+
+### 8. Before pushing
+
+```sh
+pnpm lint
+pnpm check-types
 ```
 
 ## What's inside?
 
-This Turborepo includes the following packages/apps:
-
-### Apps and Packages
-
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+- `apps/api`: [NestJS](https://nestjs.com/) API, Prisma ORM, Postgres/PostGIS on Neon
+- `apps/web`: [Next.js](https://nextjs.org/) app
+- `@repo/ui`: shared React component library
+- `@repo/types`, `@repo/validation`, `@repo/utils`: shared TypeScript code
+- `@repo/eslint-config`: shared `eslint` configurations
+- `@repo/typescript-config`: shared `tsconfig.json`s
 
 Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
 
