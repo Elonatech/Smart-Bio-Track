@@ -26,7 +26,7 @@ export class DepartmentsService {
   }
 
   findAll() {
-    return this.prisma.department.findMan
+    return this.prisma.department.findMany();
   }
 
   async findOne(id: string) {
