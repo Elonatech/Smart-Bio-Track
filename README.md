@@ -14,7 +14,7 @@ A pnpm/Turborepo monorepo: NestJS API (`apps/api`) + Next.js web app (`apps/web`
 
 ```sh
 git clone https://github.com/<org>/smartbiotrack.git
-cd smartbiotrack
+cd Smart-Bio-Track
 pnpm install
 ```
 
