@@ -11,6 +11,7 @@ import {
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { Roles } from './roles.decorator';
@@ -18,6 +19,11 @@ import { Roles } from './roles.decorator';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Post('register-organization')
+  registerOrganization(@Body() dto: CreateOrganizationDto) {
+    return this.authService.createOrganization(dto);
+  }
 
   @Post('register')
   register(@Body() dto: RegisterDto) {
@@ -38,7 +44,9 @@ export class AuthController {
 
   // Placeholder for a protected route to demonstrate JWT authentication
   @Get('me')
-  @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('SUPER_ADMIN', 'HR_ADMIN')
   me(@Req() req: { user: unknown }) {
     return req.user;
   }

@@ -24,4 +24,3 @@ POST /auth/refresh
 {
   "refreshToken": "{refreshToken value from register or login response}"
 }
-

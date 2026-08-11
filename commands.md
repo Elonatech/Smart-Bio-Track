@@ -60,8 +60,6 @@ npx prisma migrate dev --name <short_description_of_change> --create-only
 <!-- 3. Apply the (now hand-edited) migration: -->
 npx prisma migrate dev
 
-
-
 <!-- ============================================================= -->
 <!-- HOW TO: add a new column to a model that already has rows -->
 <!-- (e.g. adding `email` to Organization, `phone` to User, etc.) -->
@@ -129,3 +127,8 @@ npx prisma migrate deploy
 <!-- anything new, just catching your own local DB up to what's already there. -->
 pnpm install
 npx prisma migrate dev
+
+<!-- Configure the access Token automatically in Postman -->
+const res = pm.response.json();
+pm.environment.set("accessToken", res.accessToken);
+pm.environment.set("refreshToken", res.refreshToken);

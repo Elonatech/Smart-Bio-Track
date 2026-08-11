@@ -14,6 +14,7 @@ import {
   JWT_REFRESH_SECRET,
   JWT_REFRESH_EXPIRY,
 } from './jwt/jwt.contants';
+import { CreateOrganizationDto } from './dto/create-organization.dto';
 
 @Injectable()
 export class AuthService {
@@ -22,11 +23,94 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
+  async createOrganization(dto: CreateOrganizationDto) {
+    const {
+      organizationName,
+      adminEmployeeId,
+      adminName,
+      email,
+      password,
+      confirmPassword,
+    } = dto;
+
+    // Basic validation
+    if (password !== confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const existingOrgByName = await this.prisma.organization.findUnique({
+      where: { name: organizationName },
+    });
+
+    if (existingOrgByName) {
+      throw new BadRequestException(
+        'An organization with this name already exists',
+      );
+    }
+
+    const existingOrgByEmail = await this.prisma.organization.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (existingOrgByEmail) {
+      throw new BadRequestException(
+        'An organization with this email already exists',
+      );
+    }
+
+    const existingUserByEmail = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (existingUserByEmail) {
+      throw new BadRequestException('A user with this email already exists');
+    }
+
+    const existingUserByEmployeeId = await this.prisma.user.findUnique({
+      where: { employeeId: adminEmployeeId },
+    });
+
+    if (existingUserByEmployeeId) {
+      throw new BadRequestException(
+        'A user with this employee ID already exists',
+      );
+    }
+
+    const passwordHash = await argon2.hash(password);
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const organization = await tx.organization.create({
+        data: {
+          name: organizationName,
+          email: normalizedEmail,
+        },
+      });
+
+      return tx.user.create({
+        data: {
+          employeeId: adminEmployeeId,
+          name: adminName,
+          email: normalizedEmail,
+          passwordHash,
+          role: 'SUPER_ADMIN',
+          status: 'ACTIVE',
+          organizationId: organization.id,
+        },
+      });
+    });
+
+    return this.issueTokens(user.id, user.email, user.role);
+  }
+
+  // Register
   async register(dto: RegisterDto) {
     const {
       employeeId,
       name,
       email,
+      organizationId,
       password,
       confirmPassword,
       role,

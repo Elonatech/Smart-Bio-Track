@@ -13,14 +13,22 @@ export class CreateOrganizationDto {
   @MinLength(3, {
     message: 'Organization name must be at least 3 characters long',
   })
-  name: string;
+  organizationName: string;
+
+  @IsString()
+  @IsNotEmpty()
+  adminEmployeeId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  adminName: string;
 
   @IsEmail()
   @IsNotEmpty()
   email: string;
 
   @IsNotEmpty()
-  @MinLength(6, { message: 'Password must be at least 6 characters long' })
+  @MinLength(8, { message: 'Password must be at least 8 characters long' })
   @Matches(PASSWORD_REGEX, {
     message:
       'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
@@ -28,7 +36,7 @@ export class CreateOrganizationDto {
   password: string;
 
   @IsNotEmpty()
-  @MinLength(6, { message: 'Password must be at least 6 characters long' })
+  @MinLength(8, { message: 'Password must be at least 8 characters long' })
   @Matches(PASSWORD_REGEX, {
     message:
       'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
