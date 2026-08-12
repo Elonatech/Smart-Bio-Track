@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
+import { isAxiosError } from "axios";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, type LoginFormValues } from "@/lib/validation/auth";
 import { appClient } from "@/lib/api-client";
@@ -73,9 +74,9 @@ export default function LoginPage() {
       // backend's own error message if it sent one (matching the
       // spec's { success: false, message, error } shape), otherwise
       // fall back to a generic message.
-      const message =
-        (error as any)?.response?.data?.message ??
-        "Something went wrong. Please try again.";
+      const message = isAxiosError<{ message?: string }>(error)
+        ? (error.response?.data?.message ?? "Something went wrong. Please try again.")
+        : "Something went wrong. Please try again.";
       setServerError(message);
     } finally {
       setIsSubmitting(false);
