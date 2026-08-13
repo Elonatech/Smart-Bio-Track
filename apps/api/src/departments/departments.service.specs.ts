@@ -44,7 +44,7 @@ describe('DepartmentsService', () => {
       });
 
       await expect(
-        service.create({ name: 'Engineering', organizationId: 'org-1' }),
+        service.create({ name: 'Engineering' }, 'org-1'),
       ).rejects.toThrow('ConflictException');
 
       expect(mockPrismaService.department.create).not.toHaveBeenCalled();
