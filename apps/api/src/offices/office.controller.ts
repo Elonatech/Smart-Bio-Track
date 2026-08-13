@@ -9,15 +9,19 @@ import {
   UseGuards,
   Req,
 } from '@nestjs/common';
-import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
-import { RolesGuard } from 'src/auth/roles.guard';
-import { Roles } from 'src/auth/roles.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '@prisma/client';
 import { OfficesService } from './office.service';
 import { CreateOfficeDto } from './dto/create-office.dto';
 import { UpdateOfficeDto } from './dto/update-office.dto';
 
-@Controller('api/offices')
+interface AuthenticatedRequest {
+  user: { id: string; email: string; role: UserRole; organizationId: string };
+}
+
+@Controller('offices')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OfficeController {
   constructor(private readonly officeService: OfficesService) {}
@@ -25,7 +29,7 @@ export class OfficeController {
   @Post()
   @Roles(UserRole.SUPER_ADMIN, UserRole.HR_ADMIN)
   create(
-    @Req() req: { user: { organizationId: string } },
+    @Req() req: AuthenticatedRequest,
     @Body() createOfficeDto: CreateOfficeDto,
   ) {
     return this.officeService.create({
@@ -35,24 +39,32 @@ export class OfficeController {
   }
 
   @Get()
-  findAll() {
-    return this.officeService.findAll();
+  findAll(@Req() req: AuthenticatedRequest) {
+    return this.officeService.findAll(req.user.organizationId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.officeService.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.officeService.findOne(id, req.user.organizationId);
   }
 
   @Put(':id')
   @Roles(UserRole.SUPER_ADMIN, UserRole.HR_ADMIN)
-  update(@Param('id') id: string, @Body() updateOfficeDto: UpdateOfficeDto) {
-    return this.officeService.update(id, updateOfficeDto);
+  update(
+    @Param('id') id: string,
+    @Body() updateOfficeDto: UpdateOfficeDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.officeService.update(
+      id,
+      updateOfficeDto,
+      req.user.organizationId,
+    );
   }
 
   @Delete(':id')
   @Roles(UserRole.SUPER_ADMIN)
-  remove(@Param('id') id: string) {
-    return this.officeService.delete(id);
+  remove(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.officeService.delete(id, req.user.organizationId);
   }
 }

@@ -34,13 +34,13 @@ export class OfficesService {
     }
   }
 
-  async findAll() {
-    return this.prisma.office.findMany();
+  async findAll(organizationId: string) {
+    return this.prisma.office.findMany({ where: { organizationId } });
   }
 
-  async findOne(id: string) {
-    const office = await this.prisma.office.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId: string) {
+    const office = await this.prisma.office.findFirst({
+      where: { id, organizationId },
     });
 
     if (!office) {
@@ -50,14 +50,12 @@ export class OfficesService {
     return office;
   }
 
-  async update(id: string, updateOfficeDto: UpdateOfficeDto) {
-    const existingOffice = await this.prisma.office.findUnique({
-      where: { id },
-    });
-
-    if (!existingOffice) {
-      throw new NotFoundException('Office not found');
-    }
+  async update(
+    id: string,
+    updateOfficeDto: UpdateOfficeDto,
+    organizationId: string,
+  ) {
+    await this.findOne(id, organizationId); // ensures it exists AND belongs to the caller's org
 
     return this.prisma.office.update({
       where: { id },
@@ -67,14 +65,8 @@ export class OfficesService {
     });
   }
 
-  async delete(id: string) {
-    const existingOffice = await this.prisma.office.findUnique({
-      where: { id },
-    });
-
-    if (!existingOffice) {
-      throw new NotFoundException('Office not found');
-    }
+  async delete(id: string, organizationId: string) {
+    await this.findOne(id, organizationId);
 
     return this.prisma.office.delete({
       where: { id },
