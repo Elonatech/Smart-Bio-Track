@@ -13,7 +13,7 @@ export class DepartmentsService {
 
   async create(dto: CreateDepartmentDto, organizationId: string) {
     const existingDepartment = await this.prisma.department.findUnique({
-      where: { organizationId_name: { organizationId, name: dto.name } },
+      where: { name: dto.name },
     });
     if (existingDepartment) {
       throw new ConflictException(
