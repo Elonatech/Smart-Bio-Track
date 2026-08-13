@@ -13,11 +13,11 @@ export class DepartmentsService {
 
   async create(dto: CreateDepartmentDto, organizationId: string) {
     const existingDepartment = await this.prisma.department.findUnique({
-      where: { name: createDepartmentDto.name },
+      where: { organizationId_name: { organizationId, name: dto.name } },
     });
     if (existingDepartment) {
       throw new ConflictException(
-        `Department with name ${createDepartmentDto.name} already exists`,
+        `Department with name ${dto.name} already exists`,
       );
     }
     return this.prisma.department.create({
