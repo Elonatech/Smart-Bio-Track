@@ -5,11 +5,12 @@ import { create } from "zustand";
 // If you type a role anywhere that isn't in this list, TypeScript will
 // error at compile time instead of letting a typo slip into production.
 export type UserRole =
-  | "employee"
-  | "hr-admin"
-  | "team-lead"
-  | "org-super-admin"
-  | "platform-admin";
+  | "EMPLOYEE"
+  | "HR_ADMIN"
+  | "TEAM_LEAD"
+  | "SUPER_ADMIN"
+  | "PLATFORM_ADMIN";
+
 
 // Shape of the user object we keep in memory once someone is logged in.
 // This should mirror (a subset of) whatever your backend's /auth/login
@@ -34,6 +35,7 @@ interface AuthState {
 
   // ---- ACTIONS ----
   login: (user: AuthUser, accessToken: string) => void;
+  register: (user: AuthUser, accessToken: string) => void;
   logout: () => void;
   hydrate: () => void;
 }
@@ -58,6 +60,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   //    in-memory Zustand store does not).
   // 2. Updates the in-memory store so the UI re-renders immediately
   //    (e.g. redirecting away from the login page).
+
+  register : (user, accessToken) => {
+    localStorage.setItem("accessToken", accessToken);
+    localStorage.setItem("user", JSON.stringify(user));
+    set({ user, accessToken, isAuthenticated: true });
+  },
+
   login: (user, accessToken) => {
     localStorage.setItem("accessToken", accessToken);
     localStorage.setItem("user", JSON.stringify(user)); // localStorage only stores strings, so we serialize the object
