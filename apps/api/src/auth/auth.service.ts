@@ -173,15 +173,15 @@ export class AuthService {
 
     const user = await this.prisma.user.create({
       data: {
-        employeeId: dto.employeeId,
-        name: dto.name,
+        employeeId,
+        name,
         email: normalizedEmail,
         passwordHash,
-        role: dto.role || 'EMPLOYEE',
+        role: role || 'EMPLOYEE',
         status: 'ACTIVE',
-        organizationId: dto.organizationId,
-        departmentId: dto.departmentId,
-        officeId: dto.officeId,
+        organizationId,
+        departmentId,
+        officeId,
       },
     });
 

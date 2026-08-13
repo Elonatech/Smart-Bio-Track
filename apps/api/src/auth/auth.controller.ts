@@ -46,7 +46,6 @@ export class AuthController {
   @Get('me')
   // @UseGuards(JwtAuthGuard)
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('SUPER_ADMIN', 'HR_ADMIN')
   me(@Req() req: { user: unknown }) {
     return req.user;
   }

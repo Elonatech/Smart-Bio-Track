@@ -132,3 +132,6 @@ npx prisma migrate dev
 const res = pm.response.json();
 pm.environment.set("accessToken", res.accessToken);
 pm.environment.set("refreshToken", res.refreshToken);
+
+<!-- Check for ESLint -->
+pnpm --filter api exec tsc --noEmit -p tsconfig.json
