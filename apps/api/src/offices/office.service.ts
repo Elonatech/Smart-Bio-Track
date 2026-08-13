@@ -6,28 +6,32 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOfficeDto } from './dto/create-office.dto';
 import { UpdateOfficeDto } from './dto/update-office.dto';
+import { Prisma, Office } from '@prisma/client';
 
 @Injectable()
 export class OfficesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(createOfficeDto: CreateOfficeDto & { organizationId: string }) {
-    const existingOffice = await this.prisma.office.findFirst({
-      where: {
-        organizationId: createOfficeDto.organizationId,
-        name: createOfficeDto.name,
-      },
-    });
-
-    if (existingOffice) {
-      throw new ConflictException('Office with this name already exists');
+  async create(
+    dto: CreateOfficeDto & { organizationId: string },
+  ): Promise<Office> {
+    const name = dto.name.trim();
+    try {
+      return await this.prisma.office.create({
+        data: {
+          ...dto,
+          name,
+        },
+      });
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException(`Office with name ${name} already exists`);
+      }
+      throw e;
     }
-
-    return this.prisma.office.create({
-      data: {
-        ...createOfficeDto,
-      },
-    });
   }
 
   async findAll() {
