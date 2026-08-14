@@ -5,24 +5,32 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { isAxiosError } from "axios";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Mail, Lock, ShieldCheck, Fingerprint, MonitorSmartphone } from "lucide-react";
 import { loginSchema, type LoginFormValues } from "@/lib/validation/auth";
-import { appClient } from "@/lib/api-client";
+import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 
-// This is the shape we EXPECT the backend to return on a successful
-// login. Matches the PRTS spec's standard API response envelope:
-// { success, message, data }. Adjust this if your backend team's
-// actual response shape ends up different.
+// The ACTUAL current shape of POST /api/auth/login — just the token
+// pair, no user object and no {success, message, data} envelope. Your
+// colleague's own engineering notes flag the envelope as a known,
+// not-yet-fixed gap against the PRTS spec — once a global response
+// interceptor adds it, this interface (and the .accessToken /
+// .refreshToken access below) is the only thing that needs to change.
 interface LoginResponse {
-  success: boolean;
-  message: string;
-  data: {
-    user: AuthUser;
-    accessToken: string;
-  };
+  accessToken: string;
+  refreshToken: string;
+}
+
+// GET /api/auth/me's current shape — notably missing `name`, since the
+// backend doesn't send it back yet. Flagged to your backend colleague;
+// until then, `name` is left undefined (see AuthUser in auth-store.ts,
+// where it's optional for exactly this reason).
+interface MeResponse {
+  id: string;
+  email: string;
+  role: AuthUser["role"];
+  organizationId: string | null;
 }
 
 export default function LoginPage() {
@@ -66,31 +74,44 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await appClient.post<LoginResponse>(
+      const { data } = await appClient.post<LoginResponse>(
         "/auth/login",
         values
       );
+      const { accessToken, refreshToken } = data;
 
-      const { user, accessToken } = response.data.data;
+      // The login response itself has no user info — fetch it
+      // separately using the token we just received. appClient's
+      // request interceptor (see api-client.ts) reads accessToken
+      // from localStorage, so we need it written before this call;
+      // simplest is to just pass it explicitly here rather than
+      // relying on interceptor timing.
+      const me = await appClient.get<MeResponse>("/auth/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      const user: AuthUser = {
+        id: me.data.id,
+        email: me.data.email,
+        role: me.data.role,
+        organizationId: me.data.organizationId,
+        // name intentionally omitted — /auth/me doesn't return it yet
+      };
 
       // Save the session (localStorage + in-memory store) — see
       // auth-store.ts for exactly what this does.
-      login(user, accessToken);
+      login(user, accessToken, refreshToken);
 
-      // Send the user somewhere useful post-login. Since role-specific
-      // dashboards aren't built yet, this points at the app root for
-      // now — swap this for real per-role routing once those exist
-      // (e.g. redirect employees to /employee, HR to /hr, etc.).
-      router.push("/");
+      // TEMPORARY: role-specific dashboards don't exist yet, so every
+      // login lands on /onboarding for now regardless of role. Replace
+      // with real per-role routing once those dashboards exist (e.g.
+      // employees -> /employee, HR -> /hr, based on user.role).
+      router.push("/onboarding");
     } catch (error) {
-      // Axios throws on non-2xx responses. We try to surface the
-      // backend's own error message if it sent one (matching the
-      // spec's { success: false, message, error } shape), otherwise
-      // fall back to a generic message.
-      const message = isAxiosError<{ message?: string }>(error)
-        ? (error.response?.data?.message ?? "Something went wrong. Please try again.")
-        : "Something went wrong. Please try again.";
-      setServerError(message);
+      // extractErrorMessage handles the backend's inconsistent error
+      // shapes (plain string, class-validator array, or the doubly-
+      // wrapped NestJS HttpException object) — see api-client.ts.
+      setServerError(extractErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }

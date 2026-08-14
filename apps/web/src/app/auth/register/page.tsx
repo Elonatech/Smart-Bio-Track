@@ -3,20 +3,27 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { isAxiosError } from "axios";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Building2, User, Mail, Lock, ShieldCheck } from "lucide-react";
+import { Building2, User, IdCard, Mail, Lock, ShieldCheck } from "lucide-react";
 import { registerSchema, type RegisterFormValues } from "@/lib/validation/auth";
-import { appClient } from "@/lib/api-client";
+import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 
+// The ACTUAL current shape of POST /api/auth/register-organization —
+// just the token pair, no envelope, no user object. Same situation as
+// login's response — see the comment there for the full explanation.
 interface RegisterResponse {
-  success: boolean;
-  message: string;
-  data: {
-    user: AuthUser;
-    accessToken: string;
-  };
+  accessToken: string;
+  refreshToken: string;
+}
+
+// GET /api/auth/me's shape — no `name` field yet. Doesn't matter here
+// though, unlike login: we already have adminName from the form itself.
+interface MeResponse {
+  id: string;
+  email: string;
+  role: AuthUser["role"];
+  organizationId: string | null;
 }
 
 export default function RegisterPage() {
@@ -43,22 +50,38 @@ export default function RegisterPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await appClient.post<RegisterResponse>(
-        "/auth/register",
+      // Deliberately NOT /auth/register — that endpoint is a stopgap
+      // for adding a user to an ALREADY-existing org (what Invite
+      // Acceptance will use later). Sign Up creates a brand-new org +
+      // its first Super Admin, which is register-organization.
+      const { data } = await appClient.post<RegisterResponse>(
+        "/auth/register-organization",
         values
       );
+      const { accessToken, refreshToken } = data;
 
-      const { user, accessToken } = response.data.data;
-      registerUser(user, accessToken);
+      const me = await appClient.get<MeResponse>("/auth/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      const user: AuthUser = {
+        id: me.data.id,
+        name: values.adminName, // we already have this from the form; /auth/me doesn't return it
+        email: me.data.email,
+        role: me.data.role,
+        organizationId: me.data.organizationId,
+      };
+
+      registerUser(user, accessToken, refreshToken);
 
       // A brand-new org lands in onboarding, not a dashboard that
       // assumes offices/work rules already exist.
       router.push("/onboarding");
     } catch (error) {
-      const message = isAxiosError<{ message?: string }>(error)
-        ? error.response?.data?.message ?? "Something went wrong. Please try again."
-        : "Something went wrong. Please try again.";
-      setServerError(message);
+      // extractErrorMessage handles the backend's inconsistent error
+      // shapes (plain string, class-validator array, or the doubly-
+      // wrapped NestJS HttpException object) — see api-client.ts.
+      setServerError(extractErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -76,7 +99,6 @@ export default function RegisterPage() {
           aria-hidden
           className="pointer-events-none absolute -left-16 -bottom-16 h-[16rem] w-[16rem] rounded-full border border-white/20"
         />
-
 
         <div
           aria-hidden
@@ -181,7 +203,34 @@ export default function RegisterPage() {
 
             <div>
               <label
-                htmlFor="workEmail"
+                htmlFor="adminEmployeeId"
+                className="block text-sm font-medium text-heading mb-1"
+              >
+                Your employee ID
+              </label>
+              <div className="relative">
+                <IdCard
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral"
+                  strokeWidth={1.75}
+                />
+                <input
+                  id="adminEmployeeId"
+                  type="text"
+                  placeholder="e.g. ELN-0001"
+                  {...register("adminEmployeeId")}
+                  className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              {errors.adminEmployeeId && (
+                <p className="mt-1 text-sm text-alert">
+                  {errors.adminEmployeeId.message}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label
+                htmlFor="email"
                 className="block text-sm font-medium text-heading mb-1"
               >
                 Work email
@@ -192,15 +241,15 @@ export default function RegisterPage() {
                   strokeWidth={1.75}
                 />
                 <input
-                  id="workEmail"
+                  id="email"
                   type="email"
-                  {...register("workEmail")}
+                  {...register("email")}
                   className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
-              {errors.workEmail && (
+              {errors.email && (
                 <p className="mt-1 text-sm text-alert">
-                  {errors.workEmail.message}
+                  {errors.email.message}
                 </p>
               )}
             </div>
