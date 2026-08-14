@@ -11,16 +11,16 @@ import { Transform, TransformFnParams } from 'class-transformer';
 
 export class CreateOfficeDto {
   @IsString()
-  @MinLength(3)
+  @MinLength(3, { message: 'Name must be at least 3 characters long' })
   @Transform(({ value }: TransformFnParams) =>
     typeof value === 'string' ? value.trim() : (value as string),
   )
   name!: string;
 
-  @IsNumber()
+  @IsNumber({}, { message: 'Latitude must be a number' })
   latitude!: number;
 
-  @IsNumber()
+  @IsNumber({}, { message: 'Longitude must be a number' })
   longitude!: number;
 
   @IsOptional()

@@ -58,6 +58,8 @@ model Office {
   updatedAt            DateTime @updatedAt
 
   employees User[]
+
+  @@unique([organizationId, name])
 }
 
 model User {

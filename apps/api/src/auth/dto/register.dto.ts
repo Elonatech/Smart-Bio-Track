@@ -12,19 +12,19 @@ import { PASSWORD_REGEX } from '@smartbiotrack/constants';
 
 export class RegisterDto {
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({}, { message: 'Employee ID is required' })
   employeeId: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({}, { message: 'Name is required' })
   name: string;
 
   @IsEmail()
-  @IsNotEmpty()
+  @IsNotEmpty({}, { message: 'Email is required' })
   email: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({}, { message: 'Organization ID is required' })
   organizationId: string;
 
   @IsNotEmpty()
