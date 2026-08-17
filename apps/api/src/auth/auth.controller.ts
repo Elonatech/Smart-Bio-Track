@@ -12,6 +12,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
+import { CompleteRegistrationDto } from './dto/complete-registration.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { Roles } from './roles.decorator';
@@ -30,6 +31,14 @@ export class AuthController {
     return this.authService.register(dto);
   }
 
+  // Second half of the provisioning flow — the invitee redeems the activation
+  // token an admin issued them and sets their own password.
+  @Post('complete-registration')
+  @HttpCode(HttpStatus.OK)
+  completeRegistration(@Body() dto: CompleteRegistrationDto) {
+    return this.authService.completeRegistration(dto);
+  }
+
   @Post('login')
   @HttpCode(HttpStatus.OK)
   login(@Body() dto: LoginDto) {
@@ -42,10 +51,9 @@ export class AuthController {
     return this.authService.refresh(refreshToken);
   }
 
-  // Placeholder for a protected route to demonstrate JWT authentication
+  // Returns the authenticated caller's own profile — available to every role
   @Get('me')
-  // @UseGuards(JwtAuthGuard)
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard)
   me(@Req() req: { user: unknown }) {
     return req.user;
   }

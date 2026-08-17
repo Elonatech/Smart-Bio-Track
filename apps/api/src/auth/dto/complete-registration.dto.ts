@@ -1,31 +1,10 @@
-import {
-  IsEmail,
-  IsNotEmpty,
-  IsString,
-  MinLength,
-  Matches,
-} from 'class-validator';
+import { IsNotEmpty, IsString, Matches, MinLength } from 'class-validator';
 import { PASSWORD_REGEX } from '@smartbiotrack/constants';
 
-export class CreateOrganizationDto {
+export class CompleteRegistrationDto {
   @IsString()
-  @IsNotEmpty()
-  @MinLength(3, {
-    message: 'Organization name must be at least 3 characters long',
-  })
-  organizationName: string;
-
-  @IsString()
-  @IsNotEmpty({ message: 'Admin employee ID is required' })
-  adminEmployeeId: string;
-
-  @IsString()
-  @IsNotEmpty({ message: 'Admin name is required' })
-  adminName: string;
-
-  @IsEmail()
-  @IsNotEmpty({ message: 'Email is required' })
-  email: string;
+  @IsNotEmpty({ message: 'Activation token is required' })
+  token: string;
 
   @IsNotEmpty()
   @MinLength(8, { message: 'Password must be at least 8 characters long' })

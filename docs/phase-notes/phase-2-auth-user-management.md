@@ -98,23 +98,40 @@ session management and role-based access control (RBAC) on top.
    assuming the other; re-authenticating doesn't fix a real permissions gap,
    and requesting access doesn't fix a stale cache.
 
-## 5. What's NOT done yet (be explicit about this before calling Phase 1 "complete")
+## 5. What's NOT done yet (be explicit about this before calling Phase 2 complete)
 
-- `POST /auth/register` is a **stopgap**: it requires an already-existing
-  `organizationId`, which currently only exists because we created one by
-  hand via a one-off script. There is no `register-organization` (create org
-  + its SUPER_ADMIN together), `provision-user` (admin creates a `PENDING`
-  employee), or `complete-registration` (employee sets their own password)
-  endpoint yet — this was the agreed real design and hasn't been built.
-- No RBAC is applied to any real business route yet — only the two
-  demonstration routes (`/auth/me`, `/auth/admin-only`) exist.
+*Updated August 13, 2026.*
+
+**Resolved since the first draft of this report:**
+- `POST /auth/register-organization` now exists — creates the `Organization`
+  and its `SUPER_ADMIN` together in one `$transaction`. The one-off script
+  that used to be needed to bootstrap an org is gone.
+- RBAC is now applied to real business routes, not just demo routes:
+  `/api/departments` and `/api/offices` are both guarded and role-gated.
+- Global `/api` prefix in place.
+
+**Still outstanding:**
+- **The provisioning flow.** `POST /api/users` (admin creates a `PENDING`
+  user + activation token) and `POST /api/auth/complete-registration`
+  (invitee sets their own password) do not exist. `apps/api/src/users/` is
+  empty stub files. Until this lands, `POST /auth/register` — which has no
+  basis in the PRTS — remains the only way to create a non-admin user.
 - No logout / manual session-revocation endpoint.
 - No rate limiting or account lockout on login (brute-force exposure).
-- `prisma/seed.ts` still targets the old schema (`Department.upsert` without
-  `organizationId`) and will fail if run as-is.
-- No e2e/integration tests against the actual HTTP layer (Jest coverage is
-  service-level only, via `apps/api/test/*.e2e-spec.ts` scaffolding that
-  hasn't been extended for auth).
+- Refresh tokens are stored as plaintext JWTs in `RefreshToken.token`. If
+  that table leaked, every stored token would be directly replayable. They
+  should be hashed at rest the way passwords are.
+- **`prisma/seed.ts` is broken** — still targets the pre-multi-tenancy schema
+  (`department.upsert` / `office.upsert` with no `organizationId`, and a
+  `where: { name }` lookup that is no longer a unique key). It will fail if
+  run. Anyone following the README's onboarding steps will hit this.
+- No e2e/integration tests against the HTTP layer. Every test mocks
+  `PrismaService`, so no test exercises the real unique constraints, cascade
+  deletes, or compound indexes.
+- The two manual verification tests we designed were never run: cross-tenant
+  access returning `404`, and a non-admin role receiving `403`. Both are now
+  covered by *unit* tests with mocked Prisma, which is weaker evidence than
+  an actual HTTP round-trip.
 - `.env` secrets are local/plaintext, consistent with early-stage dev but not
   reviewed for production secret management.
 
@@ -176,13 +193,46 @@ surfaced:
 
 ## 7. So, is Phase 2 done?
 
-**Against the roadmap's one-line bar** ("a real user can register, log in,
-and reach a protected part of the system") — yes, demonstrated end-to-end.
+*Assessment updated August 13, 2026.*
 
-**Against the PRTS's actual Auth module spec and the Definition of Done** —
-no. The response envelope, missing endpoints (logout/forgot-password/reset-
-password), the `/api` prefix, Swagger docs, the repository-layer convention,
-and the org-scoped registration redesign are all still open. I would not
-present this as "done" to management without closing at least the response
-envelope and missing-endpoints gaps, since those are explicit, unambiguous
-spec requirements, not judgment calls.
+**Against the roadmap's one-line bar** ("a real user can register, log in,
+and reach a protected part of the system") — yes, demonstrated end-to-end via
+Postman, and now with real business routes behind RBAC rather than just demo
+routes.
+
+**Against the PRTS's Auth module spec and the Definition of Done** — no, not
+yet. The `/api` prefix has been closed since the last assessment, but these
+remain open and are explicit spec requirements rather than judgment calls:
+
+1. Response envelope (§A8)
+2. `logout` / `forgot-password` / `reset-password` (§13)
+3. Login by Employee ID as well as email (FR-001)
+4. Swagger/OpenAPI (§A13)
+5. The admin-driven provisioning flow, which is the PRTS's actual user-
+   management model — and which would let us delete the non-spec
+   `POST /auth/register` stopgap
+
+**Recommended order:** (5) first, since it removes a non-spec endpoint rather
+than adding to it and unblocks real multi-role testing; then (2) and (3),
+which are small; then (1), which is a single global interceptor but touches
+every existing endpoint's contract and every Postman test — so it is cheaper
+to do before more endpoints exist than after.
+
+## 8. Process findings
+
+Three things went wrong mechanically during this phase that are worth
+correcting as team practice, independent of the code:
+
+- **A broken build reached the shared branch.** `.github/workflows/ci.yml`
+  runs only on `main` and `develop`, so nothing checks `testing`. A commit
+  with 9 typecheck errors sat on `origin/testing` until caught by a manual
+  review. Either extend CI to `testing`, or make `tsc --noEmit && test &&
+  lint` a hard pre-push habit.
+- **Passing tests masked a red build, twice.** Once via a `.specs.ts` file
+  that `tsc` checked but Jest never ran; once via DTO decorator arity errors
+  that unit tests didn't exercise. `pnpm test` alone is not a sufficient
+  gate.
+- **A merge silently reverted a security fix.** The org-scoping guard on
+  `DepartmentsService.create()` was lost in a merge commit and survived only
+  because it happened to still exist as an uncommitted working-tree edit.
+  Security-relevant lines deserve an explicit re-read after every merge.

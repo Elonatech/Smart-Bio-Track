@@ -14,6 +14,7 @@ describe('AuthService', () => {
     user: {
       findUnique: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
     organization: { findUnique: jest.fn() },
     department: { findUnique: jest.fn() },
@@ -23,6 +24,11 @@ describe('AuthService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    activationToken: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    $transaction: jest.fn(),
   };
 
   const mockJwt = {
@@ -35,6 +41,9 @@ describe('AuthService', () => {
       id: 'org-1',
       name: 'Acme',
     });
+    mockPrisma.$transaction.mockImplementation(
+      (cb: (tx: typeof mockPrisma) => unknown) => cb(mockPrisma),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -222,6 +231,113 @@ describe('AuthService', () => {
         where: { id: 'rt-1' },
         data: { revoked: true },
       });
+      expect(result).toEqual({
+        accessToken: 'signed-token',
+        refreshToken: 'signed-token',
+      });
+    });
+  });
+
+  describe('completeRegistration', () => {
+    const validDto = {
+      token: 'raw-activation-token',
+      password: 'Passw0rd!',
+      confirmPassword: 'Passw0rd!',
+    };
+
+    const pendingToken = {
+      id: 'act-1',
+      userId: 'user-1',
+      usedAt: null,
+      expiresAt: new Date(Date.now() + 10000),
+      user: { id: 'user-1', status: 'PENDING' },
+    };
+
+    it('rejects mismatched passwords', async () => {
+      await expect(
+        service.completeRegistration({
+          ...validDto,
+          confirmPassword: 'Other1!',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an unknown token', async () => {
+      mockPrisma.activationToken.findUnique.mockResolvedValue(null);
+
+      await expect(service.completeRegistration(validDto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejects an already-used token', async () => {
+      mockPrisma.activationToken.findUnique.mockResolvedValue({
+        ...pendingToken,
+        usedAt: new Date(),
+      });
+
+      await expect(service.completeRegistration(validDto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejects an expired token', async () => {
+      mockPrisma.activationToken.findUnique.mockResolvedValue({
+        ...pendingToken,
+        expiresAt: new Date(Date.now() - 10000),
+      });
+
+      await expect(service.completeRegistration(validDto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('rejects a token whose user is already ACTIVE', async () => {
+      mockPrisma.activationToken.findUnique.mockResolvedValue({
+        ...pendingToken,
+        user: { id: 'user-1', status: 'ACTIVE' },
+      });
+
+      await expect(service.completeRegistration(validDto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('looks the token up by hash, not by its raw value', async () => {
+      mockPrisma.activationToken.findUnique.mockResolvedValue(null);
+
+      await expect(service.completeRegistration(validDto)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      const arg = mockPrisma.activationToken.findUnique.mock.calls[0][0] as {
+        where: { tokenHash: string };
+      };
+      expect(arg.where.tokenHash).not.toBe(validDto.token);
+      expect(arg.where.tokenHash).toHaveLength(64); // sha256 hex
+    });
+
+    it('activates the user, burns the token, and issues tokens', async () => {
+      mockPrisma.activationToken.findUnique.mockResolvedValue(pendingToken);
+      (argon2.hash as jest.Mock).mockResolvedValue('hashed-pw');
+      mockPrisma.user.update.mockResolvedValue({
+        id: 'user-1',
+        email: 'bob@example.com',
+        role: 'EMPLOYEE',
+      });
+
+      const result = await service.completeRegistration(validDto);
+
+      const userUpdate = mockPrisma.user.update.mock.calls[0][0] as {
+        data: Record<string, unknown>;
+      };
+      expect(userUpdate.data.status).toBe('ACTIVE');
+      expect(userUpdate.data.passwordHash).toBe('hashed-pw');
+
+      const tokenUpdate = mockPrisma.activationToken.update.mock
+        .calls[0][0] as { data: { usedAt: Date } };
+      expect(tokenUpdate.data.usedAt).toEqual(expect.any(Date));
+
       expect(result).toEqual({
         accessToken: 'signed-token',
         refreshToken: 'signed-token',

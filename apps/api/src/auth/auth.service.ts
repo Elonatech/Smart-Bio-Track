@@ -15,6 +15,8 @@ import {
   JWT_REFRESH_EXPIRY,
 } from './jwt/jwt.contants';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
+import { CompleteRegistrationDto } from './dto/complete-registration.dto';
+import { hashActivationToken } from '../users/activation-token.util';
 
 @Injectable()
 export class AuthService {
@@ -183,6 +185,52 @@ export class AuthService {
         departmentId,
         officeId,
       },
+    });
+
+    return this.issueTokens(user.id, user.email, user.role);
+  }
+
+  /**
+   * Second half of the provisioning flow: an invited user redeems the
+   * activation token they were given and sets their own password, which
+   * flips them from PENDING to ACTIVE and logs them straight in.
+   */
+  async completeRegistration(dto: CompleteRegistrationDto) {
+    const { token, password, confirmPassword } = dto;
+
+    if (password !== confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const stored = await this.prisma.activationToken.findUnique({
+      where: { tokenHash: hashActivationToken(token) },
+      include: { user: true },
+    });
+
+    // One message for every failure mode — a redeemed, expired, or entirely
+    // fictional token should be indistinguishable to the caller.
+    if (!stored || stored.usedAt || stored.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired activation token');
+    }
+
+    if (stored.user.status !== 'PENDING') {
+      throw new BadRequestException('This account has already been activated');
+    }
+
+    const passwordHash = await argon2.hash(password);
+
+    const user = await this.prisma.$transaction(async (tx) => {
+      const activated = await tx.user.update({
+        where: { id: stored.userId },
+        data: { passwordHash, status: 'ACTIVE' },
+      });
+
+      await tx.activationToken.update({
+        where: { id: stored.id },
+        data: { usedAt: new Date() },
+      });
+
+      return activated;
     });
 
     return this.issueTokens(user.id, user.email, user.role);
