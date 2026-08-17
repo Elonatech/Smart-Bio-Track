@@ -4,8 +4,10 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
 } from 'class-validator';
 import { UserRole } from '@prisma/client';
+import { Transform } from 'class-transformer';
 
 /**
  * Payload an admin supplies when provisioning a user.
@@ -18,24 +20,33 @@ import { UserRole } from '@prisma/client';
 export class CreateUserDto {
   @IsString()
   @IsNotEmpty({ message: 'Employee ID is required' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   employeeId: string;
 
   @IsString()
   @IsNotEmpty({ message: 'Name is required' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   name: string;
 
   @IsEmail()
   @IsNotEmpty({ message: 'Email is required' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.toLowerCase().trim() : value,
+  )
   email: string;
 
   @IsEnum(UserRole, { message: 'Invalid role' })
   role: UserRole;
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   departmentId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   officeId?: string;
 }
