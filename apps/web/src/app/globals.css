@@ -1,12 +1,33 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #34548C;
-  --color-alert: #E00B05;
-  --color-neutral: #A9ABAE;
-  --color-background: #F7F8FA;
-  --color-surface: #FFFFFF;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #34548c;
+  --color-alert: #e00b05;
+  --color-neutral: #6f7175;
+  --color-background: #f7f8fa;
+  --color-surface: #ffffff;
   --color-heading: #111827;
-  --color-success: #10B981;
-  --color-warning: #F59E0B;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+}
+
+/* Tailwind v4's dark-mode opt-in: any `dark:` utility only applies
+   when a `.dark` class exists on an ancestor (we put it on <html>,
+   see ThemeToggle.tsx). Without this line, `dark:` utilities would
+   instead follow the OS-level prefers-color-scheme, which we don't
+   want since we're giving users an explicit toggle. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Re-pointing the SAME token names to dark-appropriate values. Every
+   `bg-background`, `text-heading`, etc. utility already used
+   throughout the app automatically picks these up once `.dark` is on
+   <html> — no component needs to change, since they reference the
+   token name, not a hardcoded color. */
+.dark {
+  --color-background: #0b1220;
+  --color-surface: #131b2e;
+  --color-heading: #f3f4f6;
+  --color-neutral: #9ca3af;
+  --color-primary: #5578b8;
 }

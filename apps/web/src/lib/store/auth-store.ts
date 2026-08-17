@@ -5,18 +5,21 @@ import { create } from "zustand";
 // If you type a role anywhere that isn't in this list, TypeScript will
 // error at compile time instead of letting a typo slip into production.
 export type UserRole =
-  | "employee"
-  | "hr-admin"
-  | "team-lead"
-  | "org-super-admin"
-  | "platform-admin";
+  | "EMPLOYEE"
+  | "HR_ADMIN"
+  | "TEAM_LEAD"
+  | "SUPER_ADMIN"
+  | "PLATFORM_ADMIN"; // not in the backend's Prisma enum yet — the Org/Platform admin split is still a pending backend decision
 
 // Shape of the user object we keep in memory once someone is logged in.
-// This should mirror (a subset of) whatever your backend's /auth/login
-// or /auth/me endpoint returns.
+// `name` is optional: GET /auth/me currently returns only
+// { id, email, role, organizationId } — no name. On Sign Up we already
+// have the name from the form itself, so it's filled in there; on plain
+// Login there's genuinely nowhere to get it from yet (flagged to
+// backend — /auth/me should return name too).
 export interface AuthUser {
   id: string;
-  name: string;
+  name?: string;
   email: string;
   role: UserRole;
   organizationId: string | null; // null for Platform Admin, who isn't tied to one org
@@ -28,12 +31,14 @@ export interface AuthUser {
 interface AuthState {
   // ---- STATE ----
   user: AuthUser | null;       // null until someone logs in
-  accessToken: string | null;  // the JWT we send on every API request
+  accessToken: string | null;  // short-lived JWT sent on every API request
+  refreshToken: string | null; // longer-lived token used to obtain a new accessToken once it expires
   isAuthenticated: boolean;    // convenience flag so components don't have to check `user !== null` everywhere
   isHydrated: boolean;         // true once we've checked localStorage on app load (see `hydrate` below)
 
   // ---- ACTIONS ----
-  login: (user: AuthUser, accessToken: string) => void;
+  login: (user: AuthUser, accessToken: string, refreshToken: string) => void;
+  register: (user: AuthUser, accessToken: string, refreshToken: string) => void;
   logout: () => void;
   hydrate: () => void;
 }
@@ -49,19 +54,28 @@ export const useAuthStore = create<AuthState>((set) => ({
   // Initial state when the app first loads, before hydrate() runs.
   user: null,
   accessToken: null,
+  refreshToken: null,
   isAuthenticated: false,
   isHydrated: false,
 
-  // Called after a successful login API call. It does two things:
-  // 1. Persists the token + user to localStorage, so a page refresh
-  //    doesn't log the user out (localStorage survives reloads; the
-  //    in-memory Zustand store does not).
-  // 2. Updates the in-memory store so the UI re-renders immediately
-  //    (e.g. redirecting away from the login page).
-  login: (user, accessToken) => {
+  // Called after a successful login. Persists everything to
+  // localStorage (survives page refresh) AND updates in-memory state
+  // (so the UI re-renders immediately, e.g. redirecting off the login
+  // page).
+  login: (user, accessToken, refreshToken) => {
     localStorage.setItem("accessToken", accessToken);
-    localStorage.setItem("user", JSON.stringify(user)); // localStorage only stores strings, so we serialize the object
-    set({ user, accessToken, isAuthenticated: true });
+    localStorage.setItem("refreshToken", refreshToken);
+    localStorage.setItem("user", JSON.stringify(user));
+    set({ user, accessToken, refreshToken, isAuthenticated: true });
+  },
+
+  // Same shape as login — a successful Sign Up effectively logs the
+  // new Org Super Admin in immediately, no separate "session" concept.
+  register: (user, accessToken, refreshToken) => {
+    localStorage.setItem("accessToken", accessToken);
+    localStorage.setItem("refreshToken", refreshToken);
+    localStorage.setItem("user", JSON.stringify(user));
+    set({ user, accessToken, refreshToken, isAuthenticated: true });
   },
 
   // Clears both localStorage and in-memory state. Call this on
@@ -69,8 +83,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   // (e.g. a 401 response interceptor in api-client.ts).
   logout: () => {
     localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
     localStorage.removeItem("user");
-    set({ user: null, accessToken: null, isAuthenticated: false });
+    set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
   },
 
   // Zustand's in-memory state always resets to the initial values above
@@ -86,12 +101,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   // rather than part of the initial state.
   hydrate: () => {
     const accessToken = localStorage.getItem("accessToken");
+    const refreshToken = localStorage.getItem("refreshToken");
     const rawUser = localStorage.getItem("user");
 
-    if (accessToken && rawUser) {
+    if (accessToken && refreshToken && rawUser) {
       set({
         user: JSON.parse(rawUser) as AuthUser, // turn the saved JSON string back into an object
         accessToken,
+        refreshToken,
         isAuthenticated: true,
         isHydrated: true,
       });

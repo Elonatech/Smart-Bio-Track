@@ -2,26 +2,35 @@
 // Needed because this page uses hooks (useState, react-hook-form,
 // useRouter, Zustand) — all client-only, same reasoning as providers.tsx.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { isAxiosError } from "axios";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Mail, Lock, ShieldCheck, Fingerprint, MonitorSmartphone } from "lucide-react";
 import { loginSchema, type LoginFormValues } from "@/lib/validation/auth";
-import { appClient } from "@/lib/api-client";
+import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 
-// This is the shape we EXPECT the backend to return on a successful
-// login. Matches the PRTS spec's standard API response envelope:
-// { success, message, data }. Adjust this if your backend team's
-// actual response shape ends up different.
+// The ACTUAL current shape of POST /api/auth/login — just the token
+// pair, no user object and no {success, message, data} envelope. Your
+// colleague's own engineering notes flag the envelope as a known,
+// not-yet-fixed gap against the PRTS spec — once a global response
+// interceptor adds it, this interface (and the .accessToken /
+// .refreshToken access below) is the only thing that needs to change.
 interface LoginResponse {
-  success: boolean;
-  message: string;
-  data: {
-    user: AuthUser;
-    accessToken: string;
-  };
+  accessToken: string;
+  refreshToken: string;
+}
+
+// GET /api/auth/me's current shape — notably missing `name`, since the
+// backend doesn't send it back yet. Flagged to your backend colleague;
+// until then, `name` is left undefined (see AuthUser in auth-store.ts,
+// where it's optional for exactly this reason).
+interface MeResponse {
+  id: string;
+  email: string;
+  role: AuthUser["role"];
+  organizationId: string | null;
 }
 
 export default function LoginPage() {
@@ -33,6 +42,18 @@ export default function LoginPage() {
   // error message returned by the API (e.g. "Invalid credentials").
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+
+  // Whether THIS BROWSER has previously completed device registration
+  // (see the Device Registration flow — it's meant to write a flag
+  // here once that succeeds). Starts `false` so server-rendered HTML
+  // and the first client render match exactly (localStorage doesn't
+  // exist on the server) — we only know the real answer after mount,
+  // same reasoning as `hydrate()` in auth-store.ts.
+  const [isDeviceRegistered, setIsDeviceRegistered] = useState(false);
+
+  useEffect(() => {
+    setIsDeviceRegistered(localStorage.getItem("deviceRegistered") === "true");
+  }, []);
 
   // react-hook-form manages the form's values, touched/dirty state,
   // and validation for us. zodResolver plugs our Zod schema in as the
@@ -53,43 +74,86 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await appClient.post<LoginResponse>(
+      const { data } = await appClient.post<LoginResponse>(
         "/auth/login",
         values
       );
+      const { accessToken, refreshToken } = data;
 
-      const { user, accessToken } = response.data.data;
+      // The login response itself has no user info — fetch it
+      // separately using the token we just received. appClient's
+      // request interceptor (see api-client.ts) reads accessToken
+      // from localStorage, so we need it written before this call;
+      // simplest is to just pass it explicitly here rather than
+      // relying on interceptor timing.
+      const me = await appClient.get<MeResponse>("/auth/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      const user: AuthUser = {
+        id: me.data.id,
+        email: me.data.email,
+        role: me.data.role,
+        organizationId: me.data.organizationId,
+        // name intentionally omitted — /auth/me doesn't return it yet
+      };
 
       // Save the session (localStorage + in-memory store) — see
       // auth-store.ts for exactly what this does.
-      login(user, accessToken);
+      login(user, accessToken, refreshToken);
 
-      // Send the user somewhere useful post-login. Since role-specific
-      // dashboards aren't built yet, this points at the app root for
-      // now — swap this for real per-role routing once those exist
-      // (e.g. redirect employees to /employee, HR to /hr, etc.).
-      router.push("/");
+      // TEMPORARY: role-specific dashboards don't exist yet, so every
+      // login lands on /onboarding for now regardless of role. Replace
+      // with real per-role routing once those dashboards exist (e.g.
+      // employees -> /employee, HR -> /hr, based on user.role).
+      router.push("/onboarding");
     } catch (error) {
-      // Axios throws on non-2xx responses. We try to surface the
-      // backend's own error message if it sent one (matching the
-      // spec's { success: false, message, error } shape), otherwise
-      // fall back to a generic message.
-      const message = isAxiosError<{ message?: string }>(error)
-        ? (error.response?.data?.message ?? "Something went wrong. Please try again.")
-        : "Something went wrong. Please try again.";
-      setServerError(message);
+      // extractErrorMessage handles the backend's inconsistent error
+      // shapes (plain string, class-validator array, or the doubly-
+      // wrapped NestJS HttpException object) — see api-client.ts.
+      setServerError(extractErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-
     <div className="min-h-screen flex flex-col md:flex-row">
       {/* LEFT — branded panel */}
-      <div className="bg-primary text-white flex flex-col justify-between p-10 md:w-1/2">
-        <div className="text-lg font-semibold">SmartBioTrack</div>
-        <div>
+      <div className="relative overflow-hidden bg-primary text-white flex flex-col justify-between p-15 md:w-1/2">
+        {/* Background accent — a large, low-opacity echo of the geo-fence
+            radius circle. Purely decorative (aria-hidden), positioned
+            absolutely so it never affects layout or a11y. Anchored
+            bottom-left and mostly cropped off-screen, same placement
+            as the reference design. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -left-32 -bottom-32 h-112 w-md rounded-full border border-white/20"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -left-16 -bottom-16 h-64 w-64 rounded-full border border-white/20"
+        />
+
+
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-32 -top-32 h-112 w-md rounded-full border border-white/20"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full border border-white/20"
+        />
+
+        <div className="relative flex items-center gap-2">
+          <ShieldCheck className="h-6 w-6" strokeWidth={1.75} />
+          <span className="text-lg font-semibold">SmartBioTrack</span>
+        </div>
+
+        <div className="relative">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium mb-4">
+            Multi-signal verification, NDPA-aligned
+          </span>
           <h1 className="text-3xl font-semibold mb-3">
             Attendance you can trust
           </h1>
@@ -99,20 +163,37 @@ export default function LoginPage() {
             happens at the device/OS level.
           </p>
         </div>
-        <p className="text-sm text-white/60">
+
+        <p className="relative text-sm text-white/60">
           Elonatech Nigeria Limited · West Africa Time (WAT)
         </p>
       </div>
 
       {/* RIGHT — the actual form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 shadow-sm p-8">
           <h2 className="text-2xl font-semibold text-heading mb-1">
             Sign in
           </h2>
-          <p className="text-neutral mb-6">
+          <p className="text-neutral mb-4">
             Use your employee ID or work email to continue.
           </p>
+
+          {/* Registered-device badge. Green + "Registered Device" when
+              this browser previously completed device registration;
+              neutral + "Device not yet registered" otherwise — matches
+              the spec's requirement to surface this before the user
+              even tries to log in, not just after a failed attempt. */}
+          <div
+            className={`mb-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+              isDeviceRegistered
+                ? "bg-success/10 text-success"
+                : "bg-neutral/10 text-neutral"
+            }`}
+          >
+            <MonitorSmartphone className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {isDeviceRegistered ? "Registered device" : "Device not yet registered"}
+          </div>
 
           {/* Server-side error banner — only shows up after a failed
               API call, distinct from per-field validation errors below. */}
@@ -132,12 +213,18 @@ export default function LoginPage() {
               >
                 Employee ID or email
               </label>
-              <input
-                id="email"
-                type="text"
-                {...register("email")}
-                className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+              <div className="relative">
+                <Mail
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral"
+                  strokeWidth={1.75}
+                />
+                <input
+                  id="email"
+                  type="text"
+                  {...register("email")}
+                  className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
               {/* This field-level error only appears once the user has
                   interacted with the field and it fails Zod's rules. */}
               {errors.email && (
@@ -159,12 +246,18 @@ export default function LoginPage() {
                   Forgot password?
                 </a>
               </div>
-              <input
-                id="password"
-                type="password"
-                {...register("password")}
-                className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+              <div className="relative">
+                <Lock
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral"
+                  strokeWidth={1.75}
+                />
+                <input
+                  id="password"
+                  type="password"
+                  {...register("password")}
+                  className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
               {errors.password && (
                 <p className="mt-1 text-sm text-alert">
                   {errors.password.message}
@@ -180,6 +273,24 @@ export default function LoginPage() {
               {isSubmitting ? "Signing in..." : "Sign in"}
             </button>
           </form>
+
+          <div className="my-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-neutral/20" />
+            <span className="text-xs text-neutral">or</span>
+            <div className="h-px flex-1 bg-neutral/20" />
+          </div>
+
+          {/* Biometric login — from the spec, was missing from this
+              build. Not wired to real WebAuthn yet, just the UI entry
+              point; hook up actual biometric auth once the backend
+              supports it. */}
+          <button
+            type="button"
+            className="w-full flex items-center justify-center gap-2 rounded-md border border-neutral/40 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
+          >
+            <Fingerprint className="h-4 w-4" strokeWidth={1.75} />
+            Sign in with Face ID / Windows Hello
+          </button>
 
           <p className="mt-6 text-center text-sm text-neutral">
             New organization?{" "}

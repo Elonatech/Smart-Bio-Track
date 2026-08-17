@@ -5,6 +5,14 @@ const envSchema = z.object({
     .string({ message: 'DATABASE_URL is required' })
     .url('DATABASE_URL must be a valid connection string'),
   PORT: z.coerce.number().int().positive().optional(),
+  JWT_ACCESS_SECRET: z.string({
+    message: 'JWT_ACCESS_SECRET is required',
+  }),
+  JWT_REFRESH_SECRET: z.string({
+    message: 'JWT_REFRESH_SECRET is required',
+  }),
+  JWT_ACCESS_EXPIRY: z.string().optional(),
+  JWT_REFRESH_EXPIRY: z.string().optional(),
 });
 
 export function validateEnv() {

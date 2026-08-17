@@ -16,17 +16,34 @@ enum UserRole {
 }
 
 enum UserStatus {
+  PENDING
   ACTIVE
   SUSPENDED
 }
 
-model Department {
+model Organization {
   id        String   @id @default(uuid())
+  email     String   @unique 
   name      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  users       User[]
+  departments Department[]
+  offices     Office[]
+}
+
+model Department {
+  id             String   @id @default(uuid())
+  name           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
   employees User[]
+
+  @@unique([organizationId, name])
 }
 
 model Office {
@@ -35,10 +52,14 @@ model Office {
   latitude             Float
   longitude            Float
   geofenceRadiusMeters Int      @default(100)
+  organizationId       String
+  organization         Organization @relation(fields: [organizationId], references: [id])
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   employees User[]
+
+  @@unique([organizationId, name])
 }
 
 model User {
@@ -46,9 +67,12 @@ model User {
   employeeId   String     @unique
   name         String
   email        String     @unique
-  passwordHash String
+  passwordHash String?
   role         UserRole   @default(EMPLOYEE)
-  status       UserStatus @default(ACTIVE)
+  status       UserStatus @default(PENDING)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
@@ -58,4 +82,16 @@ model User {
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  refreshToken RefreshToken[]
+}
+
+model RefreshToken {
+  id String @id @default(uuid())
+  token String @unique
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revoked Boolean @default(false)
+  createdAt DateTime @default(now())
 }
