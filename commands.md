@@ -128,10 +128,69 @@ npx prisma migrate deploy
 pnpm install
 npx prisma migrate dev
 
+<!-- ============================================================= -->
+<!-- "Can't reach database server" (P1001) — Neon cold starts -->
+<!-- ============================================================= -->
+
+<!-- If you see this: -->
+<!--   Error: P1001: Can't reach database server at -->
+<!--   ep-....neon.tech:5432 -->
+
+<!-- FIRST: just run the command again. Seriously. -->
+npx prisma migrate status
+
+<!-- WHY: our Neon database is on the free tier, which suspends the compute -->
+<!-- after ~5 minutes of inactivity to save your monthly compute-hour budget. -->
+<!-- The next connection wakes it, but waking takes a few seconds and the -->
+<!-- client can give up first. So attempt 1 fails, attempt 2 succeeds — the -->
+<!-- first attempt is what woke it up. This is normal, not a broken database. -->
+
+<!-- THE PROPER FIX: give the connection longer to wait. Add connect_timeout -->
+<!-- to DATABASE_URL in your .env: -->
+<!--   DATABASE_URL="postgresql://...neon.tech/neondb?sslmode=require&channel_binding=require&connect_timeout=30" -->
+<!-- This costs nothing when the DB is already awake — it is a ceiling on how -->
+<!-- long to wait, not an added delay. -->
+
+<!-- STILL FLAKY ON MIGRATIONS? Use the DIRECT (unpooled) connection string -->
+<!-- for migrations. Our DATABASE_URL uses the pooled endpoint (note the -->
+<!-- "-pooler" in the hostname). Neon and Prisma both recommend the direct -->
+<!-- endpoint for migrations. Your Neon dashboard shows both; the direct one -->
+<!-- is the same host without "-pooler". -->
+
+<!-- DO NOT "fix" this by pinging the database on a timer to keep it awake. -->
+<!-- Keeping the compute running 24/7 is ~730 hours a month, which will blow -->
+<!-- through the free tier allowance and get the database suspended for real -->
+<!-- (a hard stop until the quota resets), instead of a 2-second cold start. -->
+<!-- Auto-suspend is protecting our quota, not causing the problem. -->
+
+<!-- If retrying does NOT help, check in this order: -->
+<!-- 1. console.neon.tech — is the project active, or over quota? -->
+<!-- 2. Test-NetConnection <host> -Port 5432   (PowerShell) -->
+<!--    TcpTestSucceeded : False means your network is blocking port 5432 -->
+<!--    (some office networks, hotspots, and VPNs do). -->
+
+<!-- ============================================= -->
+<!-- Postman -->
+<!-- ============================================= -->
+
 <!-- Configure the access Token automatically in Postman -->
+<!-- Paste into the request's Scripts tab -> "After response". -->
+<!-- Use pm.environment.set if your variables live in an Environment; -->
+<!-- use pm.collectionVariables.set if they live on the Collection. -->
 const res = pm.response.json();
 pm.environment.set("accessToken", res.accessToken);
 pm.environment.set("refreshToken", res.refreshToken);
 
-<!-- Check for ESLint -->
-pnpm --filter api exec tsc --noEmit -p tsconfig.json
+<!-- ============================================= -->
+<!-- Before you push — run ALL THREE -->
+<!-- ============================================= -->
+
+<!-- Passing tests do NOT mean a green build. We have twice had all tests -->
+<!-- pass while the code would not compile. These three catch different -->
+<!-- things; run all of them. -->
+pnpm --filter api check-types
+pnpm --filter api test
+pnpm --filter api lint
+
+<!-- Or as a single chain that stops at the first failure: -->
+pnpm --filter api check-types && pnpm --filter api test && pnpm --filter api lint

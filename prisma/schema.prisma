@@ -83,8 +83,9 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  refreshToken    RefreshToken[]
-  activationToken ActivationToken?
+  refreshToken       RefreshToken[]
+  activationToken    ActivationToken?
+  passwordResetToken PasswordResetToken[]
 }
 
 /// Issued when an admin provisions a user. The raw token is handed to the
@@ -100,12 +101,26 @@ model ActivationToken {
   createdAt DateTime  @default(now())
 }
 
+/// Stores only the SHA-256 hash of each refresh token, never the token itself,
+/// so a leak of this table yields nothing directly usable.
 model RefreshToken {
-  id String @id @default(uuid())
-  token String @unique
-  userId String
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
-  revoked Boolean @default(false)
+  revoked   Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+/// Issued by POST /auth/forgot-password. Same hashed-at-rest, single-use,
+/// time-limited design as ActivationToken.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
 }

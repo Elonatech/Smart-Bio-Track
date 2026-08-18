@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, testing]
   push:
-    branches: [main, develop]
+    branches: [main, develop, testing]
 
 jobs:
   lint-and-test:
@@ -29,6 +29,12 @@ jobs:
 
       - name: Lint
         run: pnpm turbo run lint
+
+      # Typecheck catches a whole class of errors that lint and tests do not —
+      # a broken build reached the shared branch once because this step did not
+      # exist. Do not remove it.
+      - name: Typecheck
+        run: pnpm turbo run check-types
 
       - name: Test
         run: pnpm turbo run test

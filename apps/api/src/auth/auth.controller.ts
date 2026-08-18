@@ -10,9 +10,11 @@ import {
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
+import { LogoutDto } from './dto/logout.dto';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { CompleteRegistrationDto } from './dto/complete-registration.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { Roles } from './roles.decorator';
@@ -24,11 +26,6 @@ export class AuthController {
   @Post('register-organization')
   registerOrganization(@Body() dto: CreateOrganizationDto) {
     return this.authService.createOrganization(dto);
-  }
-
-  @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto);
   }
 
   // Second half of the provisioning flow — the invitee redeems the activation
@@ -49,6 +46,30 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   refresh(@Body('refreshToken') refreshToken: string) {
     return this.authService.refresh(refreshToken);
+  }
+
+  // Public. Always responds identically whether or not the email is registered,
+  // so it cannot be used to discover which addresses have accounts.
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
+  }
+
+  // Revokes the supplied refresh token. Requires a valid access token so a
+  // third party holding only a stolen refresh token cannot burn someone's
+  // session. `all: true` revokes every session for the caller.
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  logout(@Body() dto: LogoutDto, @Req() req: { user: { id: string } }) {
+    return this.authService.logout(req.user.id, dto);
   }
 
   // Returns the authenticated caller's own profile — available to every role

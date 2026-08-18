@@ -7,10 +7,11 @@ import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-users.dto';
 import {
-  activationTokenExpiry,
-  generateActivationToken,
-  hashActivationToken,
-} from './activation-token.util';
+  ACTIVATION_TOKEN_TTL_DAYS,
+  expiryInDays,
+  generateToken,
+  hashToken,
+} from '../common/token.util';
 
 /**
  * Which roles each role is allowed to provision.
@@ -83,7 +84,7 @@ export class UsersService {
       }
     }
 
-    const rawToken = generateActivationToken();
+    const rawToken = generateToken();
 
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
@@ -101,9 +102,9 @@ export class UsersService {
 
       await tx.activationToken.create({
         data: {
-          tokenHash: hashActivationToken(rawToken),
+          tokenHash: hashToken(rawToken),
           userId: created.id,
-          expiresAt: activationTokenExpiry(),
+          expiresAt: expiryInDays(ACTIVATION_TOKEN_TTL_DAYS),
         },
       });
 

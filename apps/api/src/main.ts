@@ -12,6 +12,19 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const env = validateEnv();
   const app = await NestFactory.create(AppModule);
+
+  // Browsers block cross-origin calls unless the API says otherwise, so the
+  // Next.js app cannot reach this API without it. CORS_ORIGINS is a
+  // comma-separated list; the localhost default covers local development only
+  // and the real frontend origin MUST be set via the env var before deploy.
+  app.enableCors({
+    origin: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
+    credentials: true,
+  });
+
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
     new ValidationPipe({
