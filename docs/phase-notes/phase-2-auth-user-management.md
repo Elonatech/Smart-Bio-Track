@@ -1,7 +1,11 @@
 # Phase 2 — Auth & User Management (Technical Report)
 
-Branch: `feat/org-auth-flow` (pushed, not yet merged to `main`)
-Status: **Core mechanics complete and tested against a narrower scope than the PRTS defines. Not done against the full spec — see Section 6.**
+Branch: `testing` (not yet merged to `main`)
+Status: **Backend complete for Phase 2 as of 19 August 2026.** Every endpoint
+the PRTS names for this phase exists, with the mandated response envelope and
+generated API documentation. Three items remain before it can be called "done"
+against the PRTS Definition of Done — see Section 7. Frontend is in progress
+and not yet in version control.
 
 > Correction: earlier drafts of this note mislabeled this work as "Phase 1."
 > Per the Project Roadmap, Phase 1 is **Foundation** (scaffolding, DB design,
@@ -28,6 +32,10 @@ session management and role-based access control (RBAC) on top.
   groundwork for admin-provisioned users who haven't set their own password yet.
 
 ### Auth mechanics (`apps/api/src/auth/`)
+> Note: `register()` described below was **deleted on 17 August** and replaced
+> by the provisioning flow. Retained here as the record of what was built at
+> the time; see §7 for the current endpoint list.
+
 - `AuthService.register/login/refresh` — argon2 password hashing, JWT
   access/refresh token issuance, email normalization (case-insensitive),
   refresh-token rotation (old token revoked when a new pair is issued),
@@ -193,30 +201,44 @@ surfaced:
 
 ## 7. So, is Phase 2 done?
 
-*Assessment updated August 13, 2026.*
+*Assessment updated 19 August 2026.*
 
-**Against the roadmap's one-line bar** ("a real user can register, log in,
-and reach a protected part of the system") — yes, demonstrated end-to-end via
-Postman, and now with real business routes behind RBAC rather than just demo
-routes.
+**Against the roadmap's bar** ("a real user can register, log in, and reach a
+protected part of the system") — yes, verified end-to-end via Postman and by
+direct HTTP checks against a running server.
 
-**Against the PRTS's Auth module spec and the Definition of Done** — no, not
-yet. The `/api` prefix has been closed since the last assessment, but these
-remain open and are explicit spec requirements rather than judgment calls:
+**Against the PRTS Auth module spec** — yes. Everything listed as open in the
+previous revision has landed:
 
-1. Response envelope (§A8)
-2. `logout` / `forgot-password` / `reset-password` (§13)
-3. Login by Employee ID as well as email (FR-001)
-4. Swagger/OpenAPI (§A13)
-5. The admin-driven provisioning flow, which is the PRTS's actual user-
-   management model — and which would let us delete the non-spec
-   `POST /auth/register` stopgap
+| PRTS requirement | Status |
+|---|---|
+| Response envelope §A8 | ✅ global interceptor + matching error filter |
+| `logout` / `forgot-password` / `reset-password` §13 | ✅ |
+| Login by Employee ID or email, FR-001 | ✅ single `identifier` field |
+| Swagger/OpenAPI §4, §A13 | ✅ `/api/docs`, schemas auto-generated |
+| Admin-driven user management §7 | ✅ `POST /api/users` + activation flow |
+| Argon2, JWT, refresh rotation, RBAC §10 | ✅ |
+| Centralised error handling §A11 | ✅ internals no longer leak to clients |
 
-**Recommended order:** (5) first, since it removes a non-spec endpoint rather
-than adding to it and unblocks real multi-role testing; then (2) and (3),
-which are small; then (1), which is a single global interceptor but touches
-every existing endpoint's contract and every Postman test — so it is cheaper
-to do before more endpoints exist than after.
+**Against the PRTS Definition of Done (§A13)** — not yet. Three items block a
+formal claim, none of them small:
+
+1. **Integration tests.** All 71 tests mock `PrismaService`. Nothing exercises
+   the real database, so unique constraints, cascade deletes, and compound
+   indexes are unverified by automated tests.
+2. **Staging deployment.** Nothing has been deployed anywhere. §A13 requires it.
+3. **UI approval.** The frontend consuming these endpoints is still in
+   progress.
+
+Two further items are not Definition-of-Done blockers but should not reach
+production: **rate limiting** on login (PRTS §10), and the **temporary tokens
+returned in API responses** (`activationToken`, `resetToken`) which exist only
+because there is no email service. Both are recorded in the Engineering
+Reference §5.
+
+**Recommended sequence from here:** integration tests first (they are the
+cheapest of the three and would have caught at least two of the defects in
+Section 8); then a staging deployment, which also unblocks UI approval.
 
 ## 8. Process findings
 
@@ -236,3 +258,16 @@ correcting as team practice, independent of the code:
   `DepartmentsService.create()` was lost in a merge commit and survived only
   because it happened to still exist as an uncommitted working-tree edit.
   Security-relevant lines deserve an explicit re-read after every merge.
+
+**Resolved 17 August:** CI now runs on the `testing` branch, and — the larger
+find — it now runs a typecheck at all. It previously ran only lint and tests,
+and `apps/api` had no `check-types` script, so `turbo run check-types` was a
+no-op. The nine typecheck errors that reached the shared branch would have
+passed CI even on `main`. All three parts had to be fixed.
+
+**A recurring packaging trap.** `pnpm add` of a package with build scripts
+writes a literal placeholder into `pnpm-workspace.yaml`:
+`'@scarf/scarf': set this to true or false`. That is not valid YAML for a
+boolean and breaks `pnpm install` for everyone who pulls. It happened with
+`argon2` and again with `@nestjs/swagger`. **Check `pnpm-workspace.yaml` after
+every `pnpm add`.**

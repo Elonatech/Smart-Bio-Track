@@ -10,6 +10,7 @@ Phase closeout reports (`docs/phase-notes/`). Where those documents explain
 architecture, conventions, and module contracts the team builds against.
 
 ## Table of Contents
+
 1. [Architecture & Stack](#1-architecture--stack)
 2. [Repository Structure & Conventions](#2-repository-structure--conventions)
 3. [Module Specifications](#3-module-specifications)
@@ -26,18 +27,19 @@ architecture, conventions, and module contracts the team builds against.
 │   Next.js Web Portal        │  (Phase 2+, not yet started)
 └──────────────┬───────────────┘
                │
-    ┌──────────▼───────────┐
+    ┌──────────▼────────────┐
     │ React Native Mobile   │  (Deferred — post-MVP)
     └──────────┬────────────┘
                │
           HTTPS / REST API
                │
-┌──────────────▼───────────────┐
+┌──────────────▼────────────────┐
 │         NestJS Backend        │
 │ ────────────────────────────  │
-│  Authentication (in progress) │
-│  Departments (in progress)    │
-│  Offices (in progress)        │
+│  Authentication      (done)   │
+│  Users / Provisioning (done)  │
+│  Departments         (done)   │
+│  Offices             (done)   │
 │  Attendance Engine (Phase 3)  │
 │  Trust Score Engine (Phase 4) │
 │  Reporting Engine (Phase 5)   │
@@ -45,7 +47,7 @@ architecture, conventions, and module contracts the team builds against.
                │
            Prisma ORM
                │
-┌──────────────▼────────────────┐
+┌──────────────▼─────────────────┐
 │    PostgreSQL + PostGIS        │  (PostGIS extension declared,
 └─────────────────────────────────┘   not yet queried in code)
 ```
@@ -59,12 +61,15 @@ architecture, conventions, and module contracts the team builds against.
 | Auth | `@nestjs/jwt`, `@nestjs/passport`, `passport-jwt`, `argon2` | JWT access + refresh, refresh-token rotation, Argon2 hashing |
 | Validation | `class-validator`, `class-transformer`, `zod` (env only) | `ValidationPipe` global (`whitelist`, `transform`, `forbidNonWhitelisted`) |
 | Monorepo | Turborepo + pnpm workspaces | `apps/api`, `apps/web` (Next.js starter, unchanged), `packages/*` |
-| CI | GitHub Actions (`.github/workflows/ci.yml`) | Runs `pnpm turbo run lint` + `pnpm turbo run test` on PRs to `main`/`develop` |
+| API docs | `@nestjs/swagger` + CLI plugin | `/api/docs`; schemas generated from class-validator decorators — see §2.4 |
+| CI | GitHub Actions (`.github/workflows/ci.yml`) | `lint` + `check-types` + `test`, on `main`, `develop` **and** `testing` |
 | Infra (current) | Neon (Postgres), free tier | Production and development DB branches provisioned under Elonatech's official GitHub account |
 
-Web frontend and mobile app are both still pre-work — `apps/web` is the
-unmodified `create-next-app` starter. Nothing in this document should be read
-as implying frontend work has started.
+**Frontend status.** `apps/web` in this repo is still the unmodified
+`create-next-app` starter. Frontend work has begun on Stephanie's machine
+(marketing pages designed; login, signup step 1, and the homepage coded
+against the live API) but **is not yet in version control**. Until it is
+pushed, nothing here describes it and no one else can run it.
 
 ## 2. Repository Structure & Conventions
 
@@ -102,17 +107,20 @@ The mandated shape (per PRTS Appendix A2) is, per module:
 └── <module>.spec.ts
 ```
 
-**Actual state (verified by file scan, August 13 2026):**
+**Actual state (verified by file scan, August 19 2026):**
 
 | Module | Controller | Service | Module | Repository | Entity | DTO | Guard | Spec | Registered in `AppModule` |
 |---|---|---|---|---|---|---|---|---|---|
 | `auth/` | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ (subfolder) | ✅ (subfolder) | ✅ | ✅ |
 | `departments/` | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ (subfolder) | ❌ | ✅ | ✅ |
 | `offices/` | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ (subfolder) | ❌ | ✅ | ✅ |
-| `users/` | ⬜ 0 bytes | ⬜ 0 bytes | ⬜ 0 bytes | ❌ | ❌ | ⬜ 0 bytes | ❌ | ❌ | ❌ |
+| `users/` | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ (subfolder) | ❌ | ✅ | ✅ |
 
 No module has the mandated `.repository.ts` / `.entity.ts` layers — every
-service talks to Prisma directly. `users/` exists only as empty stub files.
+service talks to Prisma directly. See §5.
+
+Shared code lives in `src/common/`: `token.util.ts`, the response-envelope
+interceptor, the exception filter, and the `@ResponseMessage` decorator.
 
 **Recurring defect to watch for — the `.specs.ts` trap.** Twice now a test
 file has been created as `<name>.service.specs.ts` (extra "s"). Jest's
@@ -142,6 +150,64 @@ the README's convention. **This needs to be resolved and one convention
 picked** — right now two developers following two different documents would
 both be "correct" and produce inconsistent branch names.
 
+## 2.4 API Conventions
+
+### Response envelope (PRTS §A8)
+
+**Every** response uses one of two shapes. Applied globally in `main.ts`, so no
+controller has to opt in.
+
+```jsonc
+// success — TransformInterceptor
+{ "success": true, "message": "Signed in successfully.", "data": { } }
+
+// failure — AllExceptionsFilter
+{ "success": false, "message": "Invalid credentials",
+  "error": { "code": "UNAUTHORIZED", "details": [] } }
+```
+
+Guarantees the frontend can rely on:
+
+- `message` is **always a plain string**, never an object or array
+- `error.details` is **always an array** — class-validator failures are
+  flattened into it, with the first message promoted to `message`
+- `error.code` is a stable string (`BAD_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`,
+  `NOT_FOUND`, `CONFLICT`, `TOO_MANY_REQUESTS`, `INTERNAL_SERVER_ERROR`) —
+  branch on this, not on the message text
+- unexpected (non-`HttpException`) errors return a generic
+  `"Internal server error"` — stack traces and connection strings are logged
+  server-side only (PRTS §A11)
+
+Before this landed, the filter passed `HttpException.getResponse()` through
+untouched, which produced three different error shapes depending on the failure
+and forced the frontend to normalize them. Do not reintroduce that.
+
+**Setting the success message**, in order of precedence:
+
+1. `@ResponseMessage('Signed in successfully.')` on the handler
+2. a `message` string on the object the service returned — it is *lifted out*
+   of `data`, so `{ message: 'Signed out' }` becomes
+   `{ success, message: 'Signed out', data: null }` rather than nesting
+3. the default, `"Request successful."`
+
+Do **not** hand-add `success` or `message` to a service return value expecting
+it to pass through — the interceptor already owns the envelope, and doing both
+produces a doubly-wrapped body.
+
+### Swagger / OpenAPI
+
+- UI: `http://localhost:4000/api/docs` · raw spec: `/api/docs-json`
+- Schemas are generated by the **`@nestjs/swagger` CLI plugin**, configured in
+  `apps/api/nest-cli.json`. With `classValidatorShim: true` it reads the
+  `class-validator` decorators already on our DTOs and emits the matching
+  `@ApiProperty()` metadata, so `@IsEmail()` becomes `format: email`,
+  `@IsEnum(UserRole)` becomes an enum dropdown, `@IsOptional()` drops the field
+  from `required`, and so on. **We do not hand-write `@ApiProperty()`.**
+- `introspectComments: true` turns a JSDoc comment above a DTO property into
+  its description in the UI — worth writing them.
+- The plugin runs at **build** time, not runtime: restart the dev server after
+  changing a DTO or the docs will show the old schema.
+
 ## 3. Module Specifications
 
 All routes below sit behind the global `/api` prefix
@@ -149,22 +215,56 @@ All routes below sit behind the global `/api` prefix
 `api/` in their own `@Controller()` path — doing so produces `/api/api/...`.
 
 ### 3.1 Auth Module — Phase 2 — Owner: Enoch
-**Status:** In progress.
+**Status:** Complete for Phase 2.
 
 | Endpoint | Auth | Notes |
 |---|---|---|
 | `POST /api/auth/register-organization` | public | Creates `Organization` + its `SUPER_ADMIN` in one `$transaction` |
-| `POST /api/auth/register` | public | **Stopgap** — no basis in the PRTS, to be retired (see §5) |
-| `POST /api/auth/login` | public | Email + password |
+| `POST /api/auth/complete-registration` | public | Invitee redeems an activation token and sets their own password |
+| `POST /api/auth/login` | public | **Employee ID or email** in a single `identifier` field (FR-001) |
 | `POST /api/auth/refresh` | public | Rotates: revokes the presented token, issues a new pair |
+| `POST /api/auth/logout` | any authenticated role | Revokes one refresh token, or all with `{"all": true}` |
+| `POST /api/auth/forgot-password` | public | Issues a 30-minute reset token |
+| `POST /api/auth/reset-password` | public | Redeems it; revokes every session for that user |
 | `GET /api/auth/me` | any authenticated role | Returns the caller's own profile |
 | `GET /api/auth/admin-only` | `SUPER_ADMIN`, `HR_ADMIN` | RBAC demonstration route |
 
-- Required by PRTS but **not built**: `logout`, `forgot-password`, `reset-password`
-- Mechanism: JWT access + refresh with rotation, Argon2 hashing, Passport JWT
-  strategy that re-checks the DB on every request that the user still exists
-  and is `ACTIVE`
+`POST /api/auth/register` was **deleted** (Aug 17). It had no basis in the PRTS
+and let any caller self-register into any organization at any role by passing
+an `organizationId` in the body. Its replacement is the provisioning flow
+(§5.1), which takes `organizationId` from the caller's JWT instead.
+
+- Mechanism: JWT access + refresh with rotation, Argon2 password hashing,
+  Passport JWT strategy that re-checks on every request that the user still
+  exists and is `ACTIVE`
 - RBAC primitives: `JwtAuthGuard`, `RolesGuard`, `@Roles()`
+
+**Login identifier resolution.** `LoginDto` takes one `identifier` field, and
+the presence of `@` decides whether it is looked up as an email or an employee
+ID. A separate `email`/`employeeId` pair was rejected deliberately — it would
+let a caller claim one and send the other.
+
+### 3.1.1 Opaque tokens — one shared design
+
+Activation tokens, password-reset tokens, and refresh tokens all follow the
+same pattern, implemented once in `src/common/token.util.ts`:
+
+- 32 random bytes, hex-encoded, handed to the user exactly once
+- only the **SHA-256 digest** is stored, so a leak of the table yields nothing
+  directly usable
+- single-use (`usedAt` / `revoked`) and time-limited
+
+**Why SHA-256 and not argon2 here.** Argon2 salts randomly, so the same input
+produces a different digest each time — you could never look the record up by
+hash. These tokens are 32 random bytes, so there is nothing to brute-force and
+a fast deterministic digest is the right tool. Passwords, which are
+low-entropy and guessable, still use argon2.
+
+| Token | TTL | On use |
+|---|---|---|
+| Activation | 7 days | Marked used; user flips `PENDING` → `ACTIVE` |
+| Password reset | 30 minutes | Marked used; **all** refresh tokens revoked |
+| Refresh | 7 days | Revoked and replaced (rotation) |
 
 ### 3.2 Departments Module — Phase 2 — Owner: Emmanuel
 **Status:** Working. Full CRUD at `/api/departments`, every operation scoped to
@@ -180,9 +280,34 @@ makes the `P2002` handler in `create()` reachable (it was dead code before the
 constraint existed). Geo-fence fields (`latitude`, `longitude`,
 `geofenceRadiusMeters`) are stored but not yet queried — Phase 4 scope.
 
-### 3.4 Users Module — Phase 2 — not started
-Empty stub files only. This is where the provisioning flow belongs
-(`POST /api/users`) — see §5.
+### 3.4 Users Module — Phase 2 — Owner: Enoch
+**Status:** Working. This is the PRTS's admin-driven user management (§7).
+
+| Endpoint | Auth | Notes |
+|---|---|---|
+| `POST /api/users` | `SUPER_ADMIN`, `HR_ADMIN` | Provisions a `PENDING` user and returns a one-time activation token |
+| `GET /api/users` | `SUPER_ADMIN`, `HR_ADMIN`, `TEAM_LEAD` | Org-scoped list |
+
+**Role ceiling.** `@Roles()` only answers "may this caller reach the
+endpoint" — not "may they assign *that* role". The second question is a lookup
+table in `UsersService`:
+
+| Caller | May create |
+|---|---|
+| `SUPER_ADMIN` | `SUPER_ADMIN`, `HR_ADMIN`, `TEAM_LEAD`, `EMPLOYEE` |
+| `HR_ADMIN` | `TEAM_LEAD`, `EMPLOYEE` only |
+| `TEAM_LEAD`, `EMPLOYEE` | nobody |
+
+A `SUPER_ADMIN` may create another `SUPER_ADMIN` — a deliberate decision, so an
+organization is not left without full control if its founding admin leaves.
+`HR_ADMIN` is capped below its own level so it cannot escalate itself or
+create a peer.
+
+`CreateUserDto` has **no** password and **no** `organizationId`. The password
+is set by the invitee at activation; the organization comes from the caller's
+JWT. `departmentId` and `officeId` are validated with
+`findFirst({ id, organizationId })` so an admin cannot attach a new user to
+another tenant's department.
 
 ### 3.5 Attendance / Trust Score / Reporting Modules
 **Status:** Not started — Phase 3+ per roadmap.
@@ -194,7 +319,7 @@ section links to it rather than duplicating it, per this doc's own stated
 policy of avoiding two sources of truth.
 
 **Current models:** `Organization`, `Department`, `Office`, `User`,
-`RefreshToken`.
+`RefreshToken`, `ActivationToken`, `PasswordResetToken`.
 
 Key structural decisions made during Phase 1/early Phase 2:
 
@@ -212,11 +337,18 @@ Key structural decisions made during Phase 1/early Phase 2:
   queries written against it yet — `Office.latitude`/`longitude` are plain
   `Float` columns for now; geo-fence distance calculations are Phase 4 scope.
 
-**Migrations applied so far (5):** `init_core_models`, `add_refresh_tokens`,
+**Migrations applied so far (7):** `init_core_models`, `add_refresh_tokens`,
 `add_organizations`, `add_email_to_organization`,
-`add_unique_office_name_per_organization`. See `commands.md` for the team's
-migration playbook (including the required procedure for adding a required
-column or constraint to a populated table).
+`add_unique_office_name_per_organization`, `add_activation_tokens`,
+`hash_refresh_tokens_add_password_reset`. See `commands.md` for the team's
+migration playbook — including the required procedure for adding a required
+column or constraint to a populated table, and what to do about Neon's P1001
+cold-start errors.
+
+The last migration is worth reading as an example: renaming
+`RefreshToken.token` to `tokenHash` could not preserve the 18 existing rows
+(plaintext values cannot be turned into hashes), so it opens with an explicit
+`DELETE FROM "RefreshToken";`. Everyone signed in again once.
 
 ## 5. Known Gaps Against the PRTS
 
@@ -224,36 +356,39 @@ Listed here rather than only in a phase report, since they affect the
 reference architecture. Cross-reference:
 [`docs/phase-notes/phase-2-auth-user-management.md`](phase-notes/phase-2-auth-user-management.md).
 
-**Closed since the last revision:** the global `/api` prefix is now in place
-(`app.setGlobalPrefix('api')`).
+**Closed since the last revision (Aug 17–19):** global `/api` prefix; the
+`{ success, message, data }` response envelope (§2.4); `logout`,
+`forgot-password`, `reset-password`; login by Employee ID or email (FR-001);
+Swagger/OpenAPI (§2.4); refresh tokens hashed at rest; the non-spec
+`POST /auth/register` deleted; the provisioning flow built (§3.4); CORS; and
+typecheck added to CI.
 
 Still open:
 
-- **Response envelope.** No global `{ success, message, data }` /
-  `{ success, message, error }` wrapper (PRTS §A8) — endpoints return raw
-  payloads. Should be a single global interceptor, not per-controller.
-- **Missing auth endpoints.** `logout`, `forgot-password`, `reset-password`
-  are all named in PRTS §13 and none exist.
-- **`POST /auth/register` shouldn't exist.** The PRTS specifies admin-driven
-  user creation (`POST /api/users`); there is no public self-registration
-  endpoint in the spec. Ours is a stopgap to unblock JWT/RBAC testing and
-  must be retired once the provisioning flow lands.
-- **Login by Employee ID.** FR-001 says "Employee ID **or** Email Address";
-  `LoginDto` accepts email only.
-- **No Swagger/OpenAPI**, despite being both an approved-stack requirement
-  and a Definition of Done line item.
 - **No repository/entity layers** in any module (PRTS §A2 mandates both).
+  Every service talks to Prisma directly. This is real debt but it is a
+  refactor across four working modules with no behavioural payoff — better
+  done once, deliberately, than negotiated per-module while the module set is
+  still growing.
 - **No integration or e2e tests.** Every existing test mocks `PrismaService`,
   so nothing verifies real SQL behaviour — unique constraints, cascade
   deletes, and the compound indexes are all unexercised. PRTS §A13 requires
-  integration tests and a staging deployment before a feature counts as done.
-- **Rate limiting** on `/auth/login` (PRTS §10 security list) — not present,
-  so nothing throttles brute-force attempts.
-- **Refresh tokens stored in plaintext.** `RefreshToken.token` holds the raw
-  JWT; if that table leaked, every stored token would be directly usable.
-  Passwords are hashed; these are not.
+  integration tests *and* a staging deployment before a feature counts as
+  done, so this blocks a formal "done" claim.
+- **Rate limiting** on `/auth/login` (PRTS §10 security list) — nothing
+  throttles brute-force attempts. `@nestjs/throttler` is the standard fix.
+- **No email delivery.** Two endpoints currently return a token directly in
+  the response as a documented stand-in: `POST /api/users` returns
+  `activationToken`, and `POST /api/auth/forgot-password` returns
+  `resetToken`. **Both MUST be removed once SMTP exists** — until then,
+  anyone who can call `forgot-password` for a known address can read the
+  reset token. Acceptable for local development only.
+- **`/auth/me` does not return `name`.** The JWT strategy returns
+  `{ id, email, role, organizationId }`, so a user who logs in (rather than
+  signing up) has no display name available to the UI. Raised by the frontend.
+- **No staging deployment.** Everything runs locally.
 
-### 5.1 Provisioning flow — designed, not built
+### 5.1 Provisioning flow — BUILT (Aug 14), retained for reference
 
 The agreed model (matching PRTS §7's admin-driven user management):
 
@@ -284,7 +419,7 @@ record of what actually took longer than expected, used to calibrate the
 next phase's estimate.
 
 ### Phase 1 — Foundation
-**Closed: August 7, 2026.** Target was 1–2 weeks; actual was ~3 focused days
+**Closed: August 7, 2026.** Target was 1–2 weeks; actual was ~4 focused days
 of setup led solo by Enoch (repo creation, collaborator/branch setup via
 Stephanie, Neon database provisioning with production/development branches,
 monorepo structure, Prisma schema and client, shared packages, env

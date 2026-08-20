@@ -18,12 +18,14 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { Roles } from './roles.decorator';
+import { ResponseMessage } from '../common/decorators/response-message.decorator';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register-organization')
+  @ResponseMessage('Organization registered successfully.')
   registerOrganization(@Body() dto: CreateOrganizationDto) {
     return this.authService.createOrganization(dto);
   }
@@ -32,18 +34,21 @@ export class AuthController {
   // token an admin issued them and sets their own password.
   @Post('complete-registration')
   @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Account activated successfully.')
   completeRegistration(@Body() dto: CompleteRegistrationDto) {
     return this.authService.completeRegistration(dto);
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Signed in successfully.')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Session refreshed.')
   refresh(@Body('refreshToken') refreshToken: string) {
     return this.authService.refresh(refreshToken);
   }
@@ -75,6 +80,7 @@ export class AuthController {
   // Returns the authenticated caller's own profile — available to every role
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  @ResponseMessage('Profile retrieved.')
   me(@Req() req: { user: unknown }) {
     return req.user;
   }
