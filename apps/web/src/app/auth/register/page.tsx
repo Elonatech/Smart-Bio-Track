@@ -4,10 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Building2, User, IdCard, Mail, Lock, ShieldCheck } from "lucide-react";
+import { Building2, User, IdCard, Mail, ShieldCheck } from "lucide-react";
+import { PasswordInput } from "@/app/components/PasswordInput";
 import { registerSchema, type RegisterFormValues } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
+import Link from "next/link";
 
 // The ACTUAL current shape of POST /api/auth/register-organization —
 // just the token pair, no envelope, no user object. Same situation as
@@ -109,10 +111,10 @@ export default function RegisterPage() {
           className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full border border-white/20"
         />
 
-        <div className="relative flex items-center gap-2">
+        <Link href="/" className="relative flex items-center gap-2">
           <ShieldCheck className="h-6 w-6" strokeWidth={1.75} />
           <span className="text-lg font-semibold">SmartBioTrack</span>
-        </div>
+        </Link>
 
         <div className="relative">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium mb-4">
@@ -180,7 +182,7 @@ export default function RegisterPage() {
                 htmlFor="adminName"
                 className="block text-sm font-medium text-heading mb-1"
               >
-                Your full name
+                 Admin name
               </label>
               <div className="relative">
                 <User
@@ -201,7 +203,7 @@ export default function RegisterPage() {
               )}
             </div>
 
-            <div>
+            {/* <div>
               <label
                 htmlFor="adminEmployeeId"
                 className="block text-sm font-medium text-heading mb-1"
@@ -226,7 +228,7 @@ export default function RegisterPage() {
                   {errors.adminEmployeeId.message}
                 </p>
               )}
-            </div>
+            </div> */}
 
             <div>
               <label
@@ -261,18 +263,10 @@ export default function RegisterPage() {
               >
                 Password
               </label>
-              <div className="relative">
-                <Lock
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral"
-                  strokeWidth={1.75}
-                />
-                <input
-                  id="password"
-                  type="password"
-                  {...register("password")}
-                  className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
+              <PasswordInput
+                id="password"
+                registration={register("password")}
+              />
               {errors.password && (
                 <p className="mt-1 text-sm text-alert">
                   {errors.password.message}
@@ -287,18 +281,10 @@ export default function RegisterPage() {
               >
                 Confirm password
               </label>
-              <div className="relative">
-                <Lock
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral"
-                  strokeWidth={1.75}
-                />
-                <input
-                  id="confirmPassword"
-                  type="password"
-                  {...register("confirmPassword")}
-                  className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
+              <PasswordInput
+                id="confirmPassword"
+                registration={register("confirmPassword")}
+              />
               {errors.confirmPassword && (
                 <p className="mt-1 text-sm text-alert">
                   {errors.confirmPassword.message}

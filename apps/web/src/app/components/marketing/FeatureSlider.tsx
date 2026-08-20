@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Slide {
@@ -9,35 +10,40 @@ interface Slide {
   image: string;
 }
 
-// Placeholder photography (picsum.photos, seeded so each slide stays
-// consistent across reloads) — swap these for real photography of
-// staff clocking in on their own phones before this ever ships. The
-// seed keywords are just for a vaguely relevant, stable placeholder;
-// they don't guarantee the actual photo content matches the caption.
+// Images live directly in apps/web/public/ (saved by hand from the
+// Lovable preview, which gates its own asset URLs behind an auth
+// redirect and can't be hotlinked directly).
+//
+// Anything in public/ is served from the site root, with the folder
+// structure inside public/ preserved as-is. These files live in
+// public/Images/ (capital I), so "public/Images/hero-biometric-C8FWxB-L.jpg"
+// on disk becomes the path "/Images/hero-biometric-C8FWxB-L.jpg" below.
+// If you ever move or rename this folder, these four paths need to
+// change to match — there's no automatic linking between the two.
 const SLIDES: Slide[] = [
   {
     title: "Biometric Verification",
     description:
       "Employees confirm it's really them with Face ID or a fingerprint — right on their own phone, in under a second.",
-    image: "https://picsum.photos/seed/smartbiotrack-biometric/1200/800",
+    image: "/Images/hero-biometric-C8FWxB-L.jpg",
   },
   {
     title: "Geo-Fenced Check-In",
     description:
       "A clock-in only counts when someone is physically inside the approved office radius — no clocking in from home for a colleague.",
-    image: "https://picsum.photos/seed/smartbiotrack-geofence/1200/800",
+    image: "/Images/hero-geofence-LGnaEq3q.jpg",
   },
   {
     title: "Trust Score Engine",
     description:
       "Eight independent signals combine into a single score out of 100. No single signal — not even biometrics alone — can approve a punch by itself.",
-    image: "https://picsum.photos/seed/smartbiotrack-trustscore/1200/800",
+    image: "/Images/hero-trustscore-DkYcCcz1.jpg",
   },
   {
     title: "Payroll-Ready Reports",
     description:
       "Verified attendance exports straight into payroll — working days, lateness, and overtime, no manual reconciliation.",
-    image: "https://picsum.photos/seed/smartbiotrack-payroll/1200/800",
+    image: "/Images/hero-payroll-B38Vq2UU.jpg",
   },
 ];
 
@@ -64,17 +70,22 @@ export function FeatureSlider() {
 
   return (
     <section className="relative overflow-hidden">
-      <div className="relative h-[420px] w-full sm:h-[500px] lg:h-[560px]">
-        {/* eslint-disable-next-line @next/next/no-img-element -- external placeholder URLs, not worth Next/Image config for throwaway placeholder photography */}
-        <img
+      <div className="relative h-105 w-full sm:h-125 lg:h-140">
+        {/* fill + sizes lets next/image handle responsive loading and
+            optimization automatically now that these are local files —
+            a plain <img> was only ever a workaround for the earlier
+            external, unconfigured URLs. */}
+        <Image
           key={slide.image}
           src={slide.image}
           alt={slide.title}
-          className="absolute inset-0 h-full w-full object-cover"
+          fill
+          priority={index === 0}
+          sizes="100vw"
+          className="object-cover"
         />
-        {/* Gradient so the text card stays readable regardless of the
-            underlying photo's brightness. */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
+        <div className="absolute inset-0 bg-linear-to-t from-black/70 via-black/20 to-transparent" />
 
         <div className="relative mx-auto flex h-full max-w-7xl items-end px-6 pb-16">
           <div className="max-w-lg text-white">
@@ -88,7 +99,6 @@ export function FeatureSlider() {
           </div>
         </div>
 
-        {/* Prev / next arrows */}
         <button
           type="button"
           onClick={() => goTo(index - 1)}

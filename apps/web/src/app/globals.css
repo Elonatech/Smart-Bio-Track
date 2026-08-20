@@ -5,11 +5,12 @@
   --color-primary: #34548c;
   --color-alert: #e00b05;
   --color-neutral: #6f7175;
-  --color-background: #f7f8fa;
+  --color-background: #f7f7f9;
   --color-surface: #ffffff;
   --color-heading: #111827;
   --color-success: #10b981;
   --color-warning: #f59e0b;
+  --color-info: #8b5cf6;
 }
 
 /* Tailwind v4's dark-mode opt-in: any `dark:` utility only applies

@@ -6,10 +6,18 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Mail, Lock, ShieldCheck, Fingerprint, MonitorSmartphone } from "lucide-react";
+import {
+  Mail,
+  ShieldCheck,
+  Fingerprint,
+  MonitorSmartphone,
+} from "lucide-react";
+import { PasswordInput } from "@/app/components/PasswordInput";
 import { loginSchema, type LoginFormValues } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
+import { getDashboardPath } from "@/lib/roleRoutes";
+import Link from "next/link";
 
 // The ACTUAL current shape of POST /api/auth/login — just the token
 // pair, no user object and no {success, message, data} envelope. Your
@@ -60,8 +68,8 @@ export default function LoginPage() {
   // validation rules, so react-hook-form and Zod share ONE source of
   // truth for "what makes this form valid" instead of two.
   const {
-    register,        // spreads onto <input> to wire it up to the form
-    handleSubmit,     // wraps our submit function, runs validation first
+    register, // spreads onto <input> to wire it up to the form
+    handleSubmit, // wraps our submit function, runs validation first
     formState: { errors }, // field-level validation error messages
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -102,11 +110,7 @@ export default function LoginPage() {
       // auth-store.ts for exactly what this does.
       login(user, accessToken, refreshToken);
 
-      // TEMPORARY: role-specific dashboards don't exist yet, so every
-      // login lands on /onboarding for now regardless of role. Replace
-      // with real per-role routing once those dashboards exist (e.g.
-      // employees -> /employee, HR -> /hr, based on user.role).
-      router.push("/onboarding");
+      router.push(getDashboardPath(user.role));
     } catch (error) {
       // extractErrorMessage handles the backend's inconsistent error
       // shapes (plain string, class-validator array, or the doubly-
@@ -121,11 +125,6 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col md:flex-row">
       {/* LEFT — branded panel */}
       <div className="relative overflow-hidden bg-primary text-white flex flex-col justify-between p-15 md:w-1/2">
-        {/* Background accent — a large, low-opacity echo of the geo-fence
-            radius circle. Purely decorative (aria-hidden), positioned
-            absolutely so it never affects layout or a11y. Anchored
-            bottom-left and mostly cropped off-screen, same placement
-            as the reference design. */}
         <div
           aria-hidden
           className="pointer-events-none absolute -left-32 -bottom-32 h-112 w-md rounded-full border border-white/20"
@@ -134,7 +133,6 @@ export default function LoginPage() {
           aria-hidden
           className="pointer-events-none absolute -left-16 -bottom-16 h-64 w-64 rounded-full border border-white/20"
         />
-
 
         <div
           aria-hidden
@@ -145,10 +143,10 @@ export default function LoginPage() {
           className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full border border-white/20"
         />
 
-        <div className="relative flex items-center gap-2">
+        <Link href="/" className="relative flex items-center gap-2">
           <ShieldCheck className="h-6 w-6" strokeWidth={1.75} />
           <span className="text-lg font-semibold">SmartBioTrack</span>
-        </div>
+        </Link>
 
         <div className="relative">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-medium mb-4">
@@ -158,9 +156,9 @@ export default function LoginPage() {
             Attendance you can trust
           </h1>
           <p className="text-white/80 max-w-sm">
-            Eight independent signals evaluate every punch. No raw
-            biometric images are stored on our servers — verification
-            happens at the device/OS level.
+            Eight independent signals evaluate every punch. No raw biometric
+            images are stored on our servers — verification happens at the
+            device/OS level.
           </p>
         </div>
 
@@ -172,9 +170,7 @@ export default function LoginPage() {
       {/* RIGHT — the actual form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <div className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 shadow-sm p-8">
-          <h2 className="text-2xl font-semibold text-heading mb-1">
-            Sign in
-          </h2>
+          <h2 className="text-2xl font-semibold text-heading mb-1">Sign in</h2>
           <p className="text-neutral mb-4">
             Use your employee ID or work email to continue.
           </p>
@@ -192,7 +188,9 @@ export default function LoginPage() {
             }`}
           >
             <MonitorSmartphone className="h-3.5 w-3.5" strokeWidth={1.75} />
-            {isDeviceRegistered ? "Registered device" : "Device not yet registered"}
+            {isDeviceRegistered
+              ? "Registered device"
+              : "Device not yet registered"}
           </div>
 
           {/* Server-side error banner — only shows up after a failed
@@ -242,22 +240,17 @@ export default function LoginPage() {
                 >
                   Password
                 </label>
-                <a href="/auth/forgot-password" className="text-sm text-primary">
+                <a
+                  href="/auth/forgot-password"
+                  className="text-sm text-primary"
+                >
                   Forgot password?
                 </a>
               </div>
-              <div className="relative">
-                <Lock
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral"
-                  strokeWidth={1.75}
-                />
-                <input
-                  id="password"
-                  type="password"
-                  {...register("password")}
-                  className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
+              <PasswordInput
+                id="password"
+                registration={register("password")}
+              />
               {errors.password && (
                 <p className="mt-1 text-sm text-alert">
                   {errors.password.message}

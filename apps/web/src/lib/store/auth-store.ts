@@ -17,12 +17,18 @@ export type UserRole =
 // have the name from the form itself, so it's filled in there; on plain
 // Login there's genuinely nowhere to get it from yet (flagged to
 // backend — /auth/me should return name too).
+//
+// `organizationName` is the same situation: nowhere in the backend
+// response yet (not on /auth/me, not on /auth/login). Left optional and
+// undefined until backend adds it — the dashboard sidebar falls back to
+// a generic label rather than fabricating a name.
 export interface AuthUser {
   id: string;
   name?: string;
   email: string;
   role: UserRole;
   organizationId: string | null; // null for Platform Admin, who isn't tied to one org
+  organizationName?: string;
 }
 
 // This describes everything the store holds (state) AND everything it

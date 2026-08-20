@@ -16,15 +16,15 @@ export class CreateOrganizationDto {
   organizationName: string;
 
   @IsString()
-  @IsNotEmpty({}, { message: 'Admin employee ID is required' })
+  @IsNotEmpty({ message: 'Admin employee ID is required' })
   adminEmployeeId: string;
 
   @IsString()
-  @IsNotEmpty({}, { message: 'Admin name is required' })
+  @IsNotEmpty({ message: 'Admin name is required' })
   adminName: string;
 
   @IsEmail()
-  @IsNotEmpty({}, { message: 'Email is required' })
+  @IsNotEmpty({ message: 'Email is required' })
   email: string;
 
   @IsNotEmpty()

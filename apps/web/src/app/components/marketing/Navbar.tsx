@@ -33,7 +33,6 @@ export function Navbar() {
         </nav>
 
         <div className="flex items-center gap-3">
-          <ThemeToggle />
           <Link
             href="/auth/login"
             className="hidden text-sm font-medium text-heading sm:block"
@@ -46,6 +45,10 @@ export function Navbar() {
           >
             Start Free Trial
           </Link>
+        </div>
+
+        <div className="">
+          <ThemeToggle />
         </div>
       </div>
     </header>

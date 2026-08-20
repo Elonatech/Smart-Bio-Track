@@ -4,10 +4,19 @@ import { z } from "zod";
 // own step's form is submitted (via zodResolver, same pattern as
 // login/register) — NOT all six merged into one giant form.
 
+// NOTE: deliberately no `.default()` on any field below. zodResolver
+// treats a `.default()`'d field as optional on the *input* type but
+// required on the *output* type, which conflicts with react-hook-form's
+// single FieldValues generic and throws a TS2322/TS2345 mismatch (hit
+// this with geofenceRadiusMeters — see StepOffice.tsx history). Instead,
+// each field is a plain required schema, and the step component supplies
+// its own default via useForm's `defaultValues` (already the pattern
+// every step component follows).
+
 export const orgProfileSchema = z.object({
   organizationName: z.string().min(2, { message: "Organization name is required" }),
   industry: z.string().min(2, { message: "Industry is required" }),
-  timezone: z.string().default("WAT"),
+  timezone: z.string(),
 });
 export type OrgProfileValues = z.infer<typeof orgProfileSchema>;
 
@@ -17,15 +26,21 @@ export const officeSchema = z.object({
   landmark: z.string().optional(),
   latitude: z.number(),
   longitude: z.number(),
-  geofenceRadiusMeters: z.number().min(10).max(1000).default(100),
+  geofenceRadiusMeters: z.number().min(10).max(1000),
 });
 export type OfficeValues = z.infer<typeof officeSchema>;
 
 export const workRulesSchema = z.object({
   startTime: z.string().min(1, { message: "Start time is required" }), // "08:00"
   endTime: z.string().min(1, { message: "End time is required" }),     // "17:00"
-  gracePeriodMinutes: z.number().min(0).max(60).default(10),
-  overtimeAfterHours: z.number().min(1).max(16).default(9),
+  gracePeriodMinutes: z.number().min(0).max(60),
+  // The clock hour (0-23) overtime starts at — auto-derived from
+  // endTime in the UI, not a separately user-picked "hours worked"
+  // count. See StepWorkRules.tsx.
+  overtimeAfterHours: z.number().min(0).max(23),
+  // Pay rate multiplier applied once overtimeAfterHours is exceeded,
+  // e.g. 1.5 = "time and a half". 1 = no extra pay, just tracked hours.
+  overtimeMultiplier: z.number().min(1).max(3),
 });
 export type WorkRulesValues = z.infer<typeof workRulesSchema>;
 
@@ -40,7 +55,7 @@ export const inviteTeamSchema = z.object({
   invites: z.array(
     z.object({
       email: z.string().email({ message: "Enter a valid email" }),
-      role: z.enum(["HR_ADMIN", "TEAM_LEAD"]),
+      role: z.enum(["HR_ADMIN", "TEAM_LEAD", "EMPLOYEE"]),
     })
   ), // deliberately allowed to be empty — inviting people is optional at this step
 });

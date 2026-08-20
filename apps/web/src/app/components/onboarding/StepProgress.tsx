@@ -1,9 +1,9 @@
 const STEPS = [
   "Organization",
-  "Office",
-  "Work Rules",
+  "First office",
+  "Work rules",
   "Departments",
-  "Invite Team",
+  "Invites",
   "Done",
 ];
 
@@ -13,31 +13,38 @@ interface StepProgressProps {
 
 export function StepProgress({ currentStep }: StepProgressProps) {
   return (
-    <div className="flex items-center gap-2 mb-8">
+    <div className="flex flex-wrap items-center gap-1.5 mb-8">
       {STEPS.map((label, index) => {
         const stepNumber = index + 1;
         const isComplete = stepNumber < currentStep;
         const isActive = stepNumber === currentStep;
 
         return (
-          <div key={label} className="flex items-center gap-2 flex-1">
-            <div
-              className={`h-8 w-8 shrink-0 rounded-full flex items-center justify-center text-xs font-medium
-                ${isComplete ? "bg-primary text-white" : ""}
-                ${isActive ? "bg-primary text-white" : ""}
-                ${!isComplete && !isActive ? "bg-neutral/20 text-neutral" : ""}
-              `}
-            >
-              {stepNumber}
-            </div>
-            {/* Connector line between steps — skip after the last one */}
-            {stepNumber < STEPS.length && (
-              <div
-                className={`h-0.5 flex-1 ${
-                  isComplete ? "bg-primary" : "bg-neutral/20"
-                }`}
-              />
+          <div
+            key={label}
+            className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium whitespace-nowrap
+              ${isActive ? "bg-primary border-primary text-white" : ""}
+              ${isComplete ? "bg-success/10 border-success/40 text-success" : ""}
+              ${!isActive && !isComplete ? "border-neutral/30 text-neutral" : ""}
+            `}
+          >
+            {isComplete ? (
+              <span
+                aria-hidden
+                className="h-4 w-4 shrink-0 rounded-full bg-success/20 text-success flex items-center justify-center text-[10px]"
+              >
+                &#10003;
+              </span>
+            ) : (
+              <span
+                className={`h-4 w-4 shrink-0 rounded-full flex items-center justify-center text-[10px]
+                  ${isActive ? "bg-white/20 text-white" : "bg-neutral/20 text-neutral"}
+                `}
+              >
+                {stepNumber}
+              </span>
             )}
+            {label}
           </div>
         );
       })}

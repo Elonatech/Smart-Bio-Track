@@ -6,7 +6,7 @@ interface Testimonial {
   title: string;
   company: string;
   initials: string;
-  companyInitial: string;
+  companyName: string;
   rating: number;
 }
 
@@ -18,7 +18,7 @@ const TESTIMONIALS: Testimonial[] = [
     title: "HR Director",
     company: "Meridian Group",
     initials: "IA",
-    companyInitial: "M",
+    companyName: "Meridian Group",
     rating: 5,
   },
   {
@@ -28,7 +28,7 @@ const TESTIMONIALS: Testimonial[] = [
     title: "Operations Manager",
     company: "Northridge Manufacturing",
     initials: "SO",
-    companyInitial: "N",
+    companyName: "Northridge Manufacturing",
     rating: 5,
   },
   {
@@ -38,14 +38,14 @@ const TESTIMONIALS: Testimonial[] = [
     title: "IT & Security Lead",
     company: "Crestpoint Bank",
     initials: "YB",
-    companyInitial: "C",
+    companyName: "Crestpoint Bank",
     rating: 4,
   },
 ];
 
 export function Testimonials() {
   return (
-    <section className="bg-neutral/[0.03] py-20">
+    <section className="bg-neutral/3 py-20">
       <div className="mx-auto max-w-7xl px-6">
         <h2 className="text-3xl font-semibold text-heading">
           What enterprise buyers say
@@ -58,8 +58,8 @@ export function Testimonials() {
               className="flex flex-col rounded-xl border border-neutral/15 bg-surface p-6 shadow-sm"
             >
               <div className="flex items-center justify-between">
-                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-xs font-semibold text-primary">
-                  {t.companyInitial}
+                <span className="flex p-2 items-center justify-center rounded-md bg-primary/10 text-xs font-semibold text-primary">
+                  {t.companyName}
                 </span>
                 <div className="flex gap-0.5">
                   {Array.from({ length: 5 }).map((_, i) => (
