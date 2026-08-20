@@ -41,3 +41,38 @@ refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmODgxNzkzMS0wNTBhL
   "departmentId": "c50206fb-b55c-4e12-b9a1-3431f2a4aacf",
   "officeId": null
 }
+
+{
+  "employeeId": "ELN-004",
+  "name": "John David",
+  "email": "johndavid@jpeg.com",
+  "role":"HR_ADMIN",
+  "departmentId": "c50206fb-b55c-4e12-b9a1-3431f2a4aacf"
+}
+
+POST /users
+{
+  "employeeId": "ELN-004",
+  "name": "John David",
+  "email": "johndavid@jpeg.com",
+  "role":"HR_ADMIN",
+  "departmentId": "c50206fb-b55c-4e12-b9a1-3431f2a4aacf"
+}
+{
+    "id": "cd140b2b-421f-4c03-86b8-229628531b30",
+    "employeeId": "ELN-004",
+    "name": "John David",
+    "email": "johndavid@jpeg.com",
+    "role": "HR_ADMIN",
+    "status": "PENDING",
+    "departmentId": "c50206fb-b55c-4e12-b9a1-3431f2a4aacf",
+    "officeId": null,
+    "activationToken": "8eb39e10ffa5a27137fe52428cda0d34183274c64dceaa2f7ab23131d2a00f10"
+}
+
+POST /auth/complete-registration
+{
+  "token": "8eb39e10ffa5a27137fe52428cda0d34183274c64dceaa2f7ab23131d2a00f10",
+  "password": "Passw0rd!",
+  "confirmPassword": "Passw0rd!"
+}

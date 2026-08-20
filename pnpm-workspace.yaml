@@ -3,6 +3,8 @@ packages:
   - "packages/*"
 allowBuilds:
   '@prisma/engines': true
+  # Analytics ping from a transitive dependency — no build step we need.
+  '@scarf/scarf': false
   argon2: true
   esbuild: true
   prisma: true

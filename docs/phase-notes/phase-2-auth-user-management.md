@@ -1,7 +1,11 @@
 # Phase 2 — Auth & User Management (Technical Report)
 
-Branch: `feat/org-auth-flow` (pushed, not yet merged to `main`)
-Status: **Core mechanics complete and tested against a narrower scope than the PRTS defines. Not done against the full spec — see Section 6.**
+Branch: `testing` (not yet merged to `main`)
+Status: **Backend complete for Phase 2 as of 19 August 2026.** Every endpoint
+the PRTS names for this phase exists, with the mandated response envelope and
+generated API documentation. Three items remain before it can be called "done"
+against the PRTS Definition of Done — see Section 7. Frontend is in progress
+and not yet in version control.
 
 > Correction: earlier drafts of this note mislabeled this work as "Phase 1."
 > Per the Project Roadmap, Phase 1 is **Foundation** (scaffolding, DB design,
@@ -28,6 +32,10 @@ session management and role-based access control (RBAC) on top.
   groundwork for admin-provisioned users who haven't set their own password yet.
 
 ### Auth mechanics (`apps/api/src/auth/`)
+> Note: `register()` described below was **deleted on 17 August** and replaced
+> by the provisioning flow. Retained here as the record of what was built at
+> the time; see §7 for the current endpoint list.
+
 - `AuthService.register/login/refresh` — argon2 password hashing, JWT
   access/refresh token issuance, email normalization (case-insensitive),
   refresh-token rotation (old token revoked when a new pair is issued),
@@ -98,23 +106,40 @@ session management and role-based access control (RBAC) on top.
    assuming the other; re-authenticating doesn't fix a real permissions gap,
    and requesting access doesn't fix a stale cache.
 
-## 5. What's NOT done yet (be explicit about this before calling Phase 1 "complete")
+## 5. What's NOT done yet (be explicit about this before calling Phase 2 complete)
 
-- `POST /auth/register` is a **stopgap**: it requires an already-existing
-  `organizationId`, which currently only exists because we created one by
-  hand via a one-off script. There is no `register-organization` (create org
-  + its SUPER_ADMIN together), `provision-user` (admin creates a `PENDING`
-  employee), or `complete-registration` (employee sets their own password)
-  endpoint yet — this was the agreed real design and hasn't been built.
-- No RBAC is applied to any real business route yet — only the two
-  demonstration routes (`/auth/me`, `/auth/admin-only`) exist.
+*Updated August 13, 2026.*
+
+**Resolved since the first draft of this report:**
+- `POST /auth/register-organization` now exists — creates the `Organization`
+  and its `SUPER_ADMIN` together in one `$transaction`. The one-off script
+  that used to be needed to bootstrap an org is gone.
+- RBAC is now applied to real business routes, not just demo routes:
+  `/api/departments` and `/api/offices` are both guarded and role-gated.
+- Global `/api` prefix in place.
+
+**Still outstanding:**
+- **The provisioning flow.** `POST /api/users` (admin creates a `PENDING`
+  user + activation token) and `POST /api/auth/complete-registration`
+  (invitee sets their own password) do not exist. `apps/api/src/users/` is
+  empty stub files. Until this lands, `POST /auth/register` — which has no
+  basis in the PRTS — remains the only way to create a non-admin user.
 - No logout / manual session-revocation endpoint.
 - No rate limiting or account lockout on login (brute-force exposure).
-- `prisma/seed.ts` still targets the old schema (`Department.upsert` without
-  `organizationId`) and will fail if run as-is.
-- No e2e/integration tests against the actual HTTP layer (Jest coverage is
-  service-level only, via `apps/api/test/*.e2e-spec.ts` scaffolding that
-  hasn't been extended for auth).
+- Refresh tokens are stored as plaintext JWTs in `RefreshToken.token`. If
+  that table leaked, every stored token would be directly replayable. They
+  should be hashed at rest the way passwords are.
+- **`prisma/seed.ts` is broken** — still targets the pre-multi-tenancy schema
+  (`department.upsert` / `office.upsert` with no `organizationId`, and a
+  `where: { name }` lookup that is no longer a unique key). It will fail if
+  run. Anyone following the README's onboarding steps will hit this.
+- No e2e/integration tests against the HTTP layer. Every test mocks
+  `PrismaService`, so no test exercises the real unique constraints, cascade
+  deletes, or compound indexes.
+- The two manual verification tests we designed were never run: cross-tenant
+  access returning `404`, and a non-admin role receiving `403`. Both are now
+  covered by *unit* tests with mocked Prisma, which is weaker evidence than
+  an actual HTTP round-trip.
 - `.env` secrets are local/plaintext, consistent with early-stage dev but not
   reviewed for production secret management.
 
@@ -176,13 +201,73 @@ surfaced:
 
 ## 7. So, is Phase 2 done?
 
-**Against the roadmap's one-line bar** ("a real user can register, log in,
-and reach a protected part of the system") — yes, demonstrated end-to-end.
+*Assessment updated 19 August 2026.*
 
-**Against the PRTS's actual Auth module spec and the Definition of Done** —
-no. The response envelope, missing endpoints (logout/forgot-password/reset-
-password), the `/api` prefix, Swagger docs, the repository-layer convention,
-and the org-scoped registration redesign are all still open. I would not
-present this as "done" to management without closing at least the response
-envelope and missing-endpoints gaps, since those are explicit, unambiguous
-spec requirements, not judgment calls.
+**Against the roadmap's bar** ("a real user can register, log in, and reach a
+protected part of the system") — yes, verified end-to-end via Postman and by
+direct HTTP checks against a running server.
+
+**Against the PRTS Auth module spec** — yes. Everything listed as open in the
+previous revision has landed:
+
+| PRTS requirement | Status |
+|---|---|
+| Response envelope §A8 | ✅ global interceptor + matching error filter |
+| `logout` / `forgot-password` / `reset-password` §13 | ✅ |
+| Login by Employee ID or email, FR-001 | ✅ single `identifier` field |
+| Swagger/OpenAPI §4, §A13 | ✅ `/api/docs`, schemas auto-generated |
+| Admin-driven user management §7 | ✅ `POST /api/users` + activation flow |
+| Argon2, JWT, refresh rotation, RBAC §10 | ✅ |
+| Centralised error handling §A11 | ✅ internals no longer leak to clients |
+
+**Against the PRTS Definition of Done (§A13)** — not yet. Three items block a
+formal claim, none of them small:
+
+1. **Integration tests.** All 71 tests mock `PrismaService`. Nothing exercises
+   the real database, so unique constraints, cascade deletes, and compound
+   indexes are unverified by automated tests.
+2. **Staging deployment.** Nothing has been deployed anywhere. §A13 requires it.
+3. **UI approval.** The frontend consuming these endpoints is still in
+   progress.
+
+Two further items are not Definition-of-Done blockers but should not reach
+production: **rate limiting** on login (PRTS §10), and the **temporary tokens
+returned in API responses** (`activationToken`, `resetToken`) which exist only
+because there is no email service. Both are recorded in the Engineering
+Reference §5.
+
+**Recommended sequence from here:** integration tests first (they are the
+cheapest of the three and would have caught at least two of the defects in
+Section 8); then a staging deployment, which also unblocks UI approval.
+
+## 8. Process findings
+
+Three things went wrong mechanically during this phase that are worth
+correcting as team practice, independent of the code:
+
+- **A broken build reached the shared branch.** `.github/workflows/ci.yml`
+  runs only on `main` and `develop`, so nothing checks `testing`. A commit
+  with 9 typecheck errors sat on `origin/testing` until caught by a manual
+  review. Either extend CI to `testing`, or make `tsc --noEmit && test &&
+  lint` a hard pre-push habit.
+- **Passing tests masked a red build, twice.** Once via a `.specs.ts` file
+  that `tsc` checked but Jest never ran; once via DTO decorator arity errors
+  that unit tests didn't exercise. `pnpm test` alone is not a sufficient
+  gate.
+- **A merge silently reverted a security fix.** The org-scoping guard on
+  `DepartmentsService.create()` was lost in a merge commit and survived only
+  because it happened to still exist as an uncommitted working-tree edit.
+  Security-relevant lines deserve an explicit re-read after every merge.
+
+**Resolved 17 August:** CI now runs on the `testing` branch, and — the larger
+find — it now runs a typecheck at all. It previously ran only lint and tests,
+and `apps/api` had no `check-types` script, so `turbo run check-types` was a
+no-op. The nine typecheck errors that reached the shared branch would have
+passed CI even on `main`. All three parts had to be fixed.
+
+**A recurring packaging trap.** `pnpm add` of a package with build scripts
+writes a literal placeholder into `pnpm-workspace.yaml`:
+`'@scarf/scarf': set this to true or false`. That is not valid YAML for a
+boolean and breaks `pnpm install` for everyone who pulls. It happened with
+`argon2` and again with `@nestjs/swagger`. **Check `pnpm-workspace.yaml` after
+every `pnpm add`.**
