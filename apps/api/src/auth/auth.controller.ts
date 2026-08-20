@@ -19,12 +19,21 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { Roles } from './roles.decorator';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
+import { Throttle } from '@nestjs/throttler';
+import {
+  THROTTLE_FORGOT_PASSWORD,
+  THROTTLE_LOGIN,
+  THROTTLE_ORG_REGISTRATION,
+  THROTTLE_REFRESH,
+  THROTTLE_TOKEN_REDEMPTION,
+} from '../common/throttle.config';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register-organization')
+  @Throttle(THROTTLE_ORG_REGISTRATION)
   @ResponseMessage('Organization registered successfully.')
   registerOrganization(@Body() dto: CreateOrganizationDto) {
     return this.authService.createOrganization(dto);
@@ -33,6 +42,7 @@ export class AuthController {
   // Second half of the provisioning flow — the invitee redeems the activation
   // token an admin issued them and sets their own password.
   @Post('complete-registration')
+  @Throttle(THROTTLE_TOKEN_REDEMPTION)
   @HttpCode(HttpStatus.OK)
   @ResponseMessage('Account activated successfully.')
   completeRegistration(@Body() dto: CompleteRegistrationDto) {
@@ -40,6 +50,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle(THROTTLE_LOGIN)
   @HttpCode(HttpStatus.OK)
   @ResponseMessage('Signed in successfully.')
   login(@Body() dto: LoginDto) {
@@ -47,6 +58,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Throttle(THROTTLE_REFRESH)
   @HttpCode(HttpStatus.OK)
   @ResponseMessage('Session refreshed.')
   refresh(@Body('refreshToken') refreshToken: string) {
@@ -56,12 +68,14 @@ export class AuthController {
   // Public. Always responds identically whether or not the email is registered,
   // so it cannot be used to discover which addresses have accounts.
   @Post('forgot-password')
+  @Throttle(THROTTLE_FORGOT_PASSWORD)
   @HttpCode(HttpStatus.OK)
   forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
   }
 
   @Post('reset-password')
+  @Throttle(THROTTLE_TOKEN_REDEMPTION)
   @HttpCode(HttpStatus.OK)
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
@@ -71,6 +85,7 @@ export class AuthController {
   // third party holding only a stolen refresh token cannot burn someone's
   // session. `all: true` revokes every session for the caller.
   @Post('logout')
+  @ResponseMessage('Logged out successfully.')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   logout(@Body() dto: LogoutDto, @Req() req: { user: { id: string } }) {

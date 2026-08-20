@@ -3,17 +3,28 @@ import * as dotenv from 'dotenv';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
-import { NestFactory, Reflector } from '@nestjs/core';
+import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { configureApp } from './app.setup';
 import { validateEnv } from './env.validation';
-import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
-import { TransformInterceptor } from './common/interceptors/transform.interceptor';
-import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {
   const env = validateEnv();
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Rate limiting keys off the client IP. Behind a reverse proxy (Render,
+  // Nginx) Express sees the proxy's address unless told to read
+  // X-Forwarded-For — which would put every user in one shared bucket and
+  // let five failed logins lock out the world.
+  //
+  // Deliberately opt-in per environment: trusting that header while the API
+  // is directly reachable would let an attacker forge it and mint unlimited
+  // buckets, defeating the throttle. See TRUST_PROXY_HOPS in env.validation.
+  if (env.TRUST_PROXY_HOPS) {
+    app.set('trust proxy', env.TRUST_PROXY_HOPS);
+  }
 
   // Browsers block cross-origin calls unless the API says otherwise, so the
   // Next.js app cannot reach this API without it. CORS_ORIGINS is a
@@ -27,18 +38,9 @@ async function bootstrap() {
     credentials: true,
   });
 
-  app.setGlobalPrefix('api');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-    }),
-  );
-  // Success envelope (PRTS §A8). The filter below emits the matching error
-  // shape — the two must stay in step.
-  app.useGlobalInterceptors(new TransformInterceptor(app.get(Reflector)));
-  app.useGlobalFilters(new AllExceptionsFilter());
+  // Prefix, validation, response envelope, exception filter. Shared with the
+  // integration tests so both exercise the same pipeline.
+  configureApp(app);
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('SmartBioTrack API')

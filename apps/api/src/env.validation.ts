@@ -13,6 +13,21 @@ const envSchema = z.object({
   }),
   JWT_ACCESS_EXPIRY: z.string().optional(),
   JWT_REFRESH_EXPIRY: z.string().optional(),
+  CORS_ORIGINS: z.string().optional(),
+
+  /**
+   * How many reverse proxies sit in front of this API.
+   *
+   * Rate limiting keys off the client IP, and behind a proxy (Render, Nginx)
+   * Express reports the *proxy's* address unless it is told to read
+   * X-Forwarded-For — which would put every user in one shared bucket.
+   *
+   * Set to 1 in any environment that is actually behind a proxy. Leave unset
+   * (0) when the API is directly exposed: trusting the header while directly
+   * reachable lets an attacker forge X-Forwarded-For and mint unlimited
+   * rate-limit buckets, defeating the throttle entirely.
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).optional(),
 });
 
 export function validateEnv() {

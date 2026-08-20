@@ -4,6 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
+import { randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
@@ -357,15 +358,27 @@ export class AuthService {
   private async issueTokens(userId: string, email: string, role: string) {
     const payload = { sub: userId, email, role };
 
-    const accessToken = this.jwtService.sign(payload, {
-      secret: JWT_ACCESS_SECRET,
-      expiresIn: JWT_ACCESS_EXPIRY as JwtSignOptions['expiresIn'],
-    });
+    const accessToken = this.jwtService.sign(
+      { ...payload, jti: randomUUID() },
+      {
+        secret: JWT_ACCESS_SECRET,
+        expiresIn: JWT_ACCESS_EXPIRY as JwtSignOptions['expiresIn'],
+      },
+    );
 
-    const refreshToken = this.jwtService.sign(payload, {
-      secret: JWT_REFRESH_SECRET,
-      expiresIn: JWT_REFRESH_EXPIRY as JwtSignOptions['expiresIn'],
-    });
+    // `jti` is not decoration. Without it the payload is just
+    // { sub, email, role } plus JWT's own `iat`, which has one-second
+    // resolution — so two logins by the same user inside the same second
+    // produce byte-identical tokens, an identical SHA-256, and a unique
+    // constraint violation on tokenHash (a 500 to the caller). That is a
+    // double-clicked sign-in button, and it reached us as a real failure.
+    const refreshToken = this.jwtService.sign(
+      { ...payload, jti: randomUUID() },
+      {
+        secret: JWT_REFRESH_SECRET,
+        expiresIn: JWT_REFRESH_EXPIRY as JwtSignOptions['expiresIn'],
+      },
+    );
 
     // Only the digest is persisted — the raw refresh token exists solely in
     // this response and in the client's storage.

@@ -182,6 +182,40 @@ pm.environment.set("accessToken", res.accessToken);
 pm.environment.set("refreshToken", res.refreshToken);
 
 <!-- ============================================= -->
+<!-- Integration tests -->
+<!-- ============================================= -->
+
+<!-- Unit tests (pnpm --filter api test) mock the database entirely. -->
+<!-- Integration tests run the REAL app against a REAL Postgres, so they are -->
+<!-- the only thing that verifies unique constraints, cascade deletes, -->
+<!-- transaction rollback, and tenant isolation actually work. -->
+
+<!-- ONE-TIME SETUP -->
+<!-- 1. In console.neon.tech, on the SmartBioTrack project, create a THIRD -->
+<!--    branch named "test" (alongside production and development). -->
+<!-- 2. Copy its connection string into .env as TEST_DATABASE_URL, and add -->
+<!--    connect_timeout=30 like the others: -->
+<!--      TEST_DATABASE_URL="postgresql://...neon.tech/neondb?sslmode=require&channel_binding=require&connect_timeout=30" -->
+<!-- 3. Apply the schema to that branch: -->
+DATABASE_URL="<paste TEST_DATABASE_URL value here>" npx prisma migrate deploy
+
+<!-- RUN THEM -->
+pnpm --filter api test:e2e
+
+<!-- WHY A SEPARATE BRANCH IS NOT OPTIONAL -->
+<!-- These tests TRUNCATE every table between tests. The helper refuses to -->
+<!-- start if TEST_DATABASE_URL is unset, if it equals DATABASE_URL, or if it -->
+<!-- looks like a production URL — but do not rely on those guards alone. -->
+<!-- Point it at a branch you are happy to lose. -->
+
+<!-- NOTES -->
+<!-- - They run serially (maxWorkers: 1). Parallel runs would truncate each -->
+<!--   other's data mid-test. -->
+<!-- - Rate limiting is disabled in all suites except rate-limiting.e2e-spec, -->
+<!--   otherwise every suite would start failing on its 6th request. -->
+<!-- - Slower than unit tests (real network to Neon). Expect ~30-60s. -->
+
+<!-- ============================================= -->
 <!-- Before you push — run ALL THREE -->
 <!-- ============================================= -->
 
@@ -191,6 +225,11 @@ pm.environment.set("refreshToken", res.refreshToken);
 pnpm --filter api check-types
 pnpm --filter api test
 pnpm --filter api lint
+
+<!-- Integration tests are NOT in that list — they need a database and are -->
+<!-- slower. Run them before opening a PR, and any time you touch the schema, -->
+<!-- a guard, or anything tenant-scoped: -->
+pnpm --filter api test:e2e
 
 <!-- Or as a single chain that stops at the first failure: -->
 pnpm --filter api check-types && pnpm --filter api test && pnpm --filter api lint
