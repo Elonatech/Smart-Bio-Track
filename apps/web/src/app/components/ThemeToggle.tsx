@@ -28,9 +28,9 @@ export function ThemeToggle() {
       className="rounded-md p-2 text-neutral hover:bg-neutral/10 transition-colors"
     >
       {isDark ? (
-        <Sun className="h-4 w-4" strokeWidth={1.75} />
+        <Moon className="h-6 w-6" strokeWidth={1.75} />
       ) : (
-        <Moon className="h-4 w-4" strokeWidth={1.75} />
+        <Sun className="h-6 w-6" strokeWidth={1.75} />
       )}
     </button>
   );

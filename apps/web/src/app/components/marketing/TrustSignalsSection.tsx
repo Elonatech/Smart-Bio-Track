@@ -104,6 +104,8 @@ export function TrustSignalsSection() {
                 key={signal.title}
                 type="button"
                 onClick={() => setActiveIndex(index)}
+                onMouseEnter={() => setActiveIndex(index)}
+                onFocus={() => setActiveIndex(index)}
                 className={`flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
                   isActive
                     ? "border-primary bg-primary/5"

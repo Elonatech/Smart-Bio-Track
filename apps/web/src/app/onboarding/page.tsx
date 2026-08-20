@@ -3,22 +3,21 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { appClient } from "@/lib/api-client";
+import { PartyPopper } from "lucide-react";
 import { StepProgress } from "@/app/components/onboarding/StepProgress";
 import { StepOrgProfile } from "@/app/components/onboarding/StepOrgProfile";
+import { StepOffice } from "@/app/components/onboarding/StepOffice";
 import type {
   OrgProfileValues,
+  OfficeValues,
   OnboardingPayload,
+  WorkRulesValues,
+  DepartmentsValues,
+  InviteTeamValues,
 } from "@/lib/validation/onboarding";
-// TODO: as you build each remaining step component, add its values
-// type here too, e.g. `import type { OfficeValues } from "..."` —
-// you'll need it for that step's onNext callback's parameter type,
-// same as OrgProfileValues is used below.
-
-// TODO: import your remaining step components as you build them, e.g.:
-// import { StepOffice } from "@/app/components/onboarding/StepOffice";
-// import { StepWorkRules } from "@/app/components/onboarding/StepWorkRules";
-// import { StepDepartments } from "@/app/components/onboarding/StepDepartments";
-// import { StepInviteTeam } from "@/app/components/onboarding/StepInviteTeam";
+import StepWorkRules from "@/app/components/onboarding/StepWorkRules";
+import StepDepartments from "@/app/components/onboarding/StepDepartments";
+import StepInviteTeam from "@/app/components/onboarding/StepInviteTeam";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -56,15 +55,22 @@ export default function OnboardingPage() {
   }
 
   // Called only from the final step (step 6's confirmation screen).
-  // This is the one and only network call in the whole wizard — every
-  // earlier step just accumulates data locally, nothing is persisted
-  // to the backend until the user has seen and confirmed everything.
+  //
+  // TEMPORARY: the real POST /organizations/setup endpoint doesn't
+  // exist on the backend yet (only /auth/register-organization,
+  // /offices, /departments exist individually, nothing accepts this
+  // wizard's combined payload, and work rules/invites have no endpoint
+  // at all). Skipping the network call for now so the UI flow can be
+  // built/reviewed independently of backend work — re-enable the
+  // commented-out block once the backend side is ready, and remove
+  // this comment.
   async function handleFinish() {
     setSubmitError(null);
     setIsSubmitting(true);
     try {
-      await appClient.post("/organizations/setup", payload);
-      router.push("/onboarding/welcome"); // the org welcome/landing screen from earlier
+      // await appClient.post("/organizations/setup", payload);
+      const orgName = payload.orgProfile?.organizationName ?? "";
+      router.push(`/onboarding/welcome?org=${encodeURIComponent(orgName)}`);
     } catch {
       setSubmitError(
         "Something went wrong setting up your workspace. Please try again."
@@ -75,8 +81,15 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-8">
-      <div className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-8">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 sm:p-8">
+      <div className="w-full max-w-4xl bg-surface rounded-xl border border-neutral/20 p-4 sm:p-8">
+        <p className="text-xs font-medium tracking-wide text-neutral uppercase mb-1">
+          Org Super Admin · First Login
+        </p>
+        <h1 className="text-xl sm:text-2xl font-semibold text-heading mb-6">
+          Set up your workspace
+        </h1>
+
         <StepProgress currentStep={currentStep} />
 
         {submitError && (
@@ -107,52 +120,68 @@ export default function OnboardingPage() {
             something to go back to. */}
 
         {currentStep === 2 && (
-          <div className="text-sm text-neutral">
-            TODO: StepOffice — office name, address, landmark, geo-fence
-            radius. onNext={"->"} handleStepComplete(&quot;office&quot;, values)
-          </div>
+          <StepOffice
+            defaultValues={payload.office}
+            onNext={(values: OfficeValues) =>
+              handleStepComplete("office", values)
+            }
+            onBack={handleBack}
+          />
         )}
 
         {currentStep === 3 && (
-          <div className="text-sm text-neutral">
-            TODO: StepWorkRules — start/end time, grace period, overtime.
-          </div>
+          <StepWorkRules
+            defaultValues={payload.workRules}
+            onNext={(values: WorkRulesValues) =>
+              handleStepComplete("workRules", values)
+            }
+            onBack={handleBack}
+          />
         )}
 
         {currentStep === 4 && (
-          <div className="text-sm text-neutral">
-            TODO: StepDepartments — repeatable list of department names.
-          </div>
+          <StepDepartments
+            defaultValues={payload.departments}
+            onNext={(values: DepartmentsValues) =>
+              handleStepComplete("departments", values)
+            }
+            onBack={handleBack}
+          />
         )}
 
         {currentStep === 5 && (
-          <div className="text-sm text-neutral">
-            TODO: StepInviteTeam — repeatable list of {"{ email, role }"}.
-          </div>
+          <StepInviteTeam
+            defaultValues={payload.inviteTeam}
+            onNext={(values: InviteTeamValues) =>
+              handleStepComplete("inviteTeam", values)
+            }
+            onBack={handleBack}
+          />
         )}
 
         {currentStep === 6 && (
-          <div className="space-y-4">
-            <p className="text-sm text-neutral">
-              Review complete. Click below to create your workspace.
-            </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={handleBack}
-                className="flex-1 rounded-md border border-neutral/40 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={handleFinish}
-                disabled={isSubmitting}
-                className="flex-1 rounded-md bg-primary text-white py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
-              >
-                {isSubmitting ? "Setting up..." : "Finish setup"}
-              </button>
+          <div className="flex flex-col items-center text-center py-4">
+            <div className="h-16 w-16 rounded-full bg-success/10 flex items-center justify-center mb-4">
+              <PartyPopper className="h-7 w-7 text-success" strokeWidth={1.75} />
             </div>
+            <h2 className="text-lg font-semibold text-heading mb-1">
+              Your workspace is ready
+            </h2>
+            <p className="text-sm text-neutral mb-6">
+              {payload.orgProfile?.organizationName ?? "Your organization"} is
+              configured with 1 office, {payload.departments?.departments.length ?? 0}{" "}
+              {payload.departments?.departments.length === 1 ? "department" : "departments"} and{" "}
+              {payload.inviteTeam?.invites.length ?? 0} pending{" "}
+              {payload.inviteTeam?.invites.length === 1 ? "invite" : "invites"}.
+            </p>
+            <button
+              type="button"
+              onClick={handleFinish}
+              disabled={isSubmitting}
+              className="rounded-md bg-primary text-white px-6 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
+            >
+              {isSubmitting ? "Setting up..." : "Finish setup"}
+            </button>  
           </div>
         )}
       </div>

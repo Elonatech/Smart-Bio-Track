@@ -14,9 +14,10 @@ import { orgProfileSchema, type OrgProfileValues } from "@/lib/validation/onboar
 interface StepOrgProfileProps {
   defaultValues?: Partial<OrgProfileValues>;
   onNext: (values: OrgProfileValues) => void;
+  onBack?: () => void;
 }
 
-export function StepOrgProfile({ defaultValues, onNext }: StepOrgProfileProps) {
+export function StepOrgProfile({ defaultValues, onNext, onBack }: StepOrgProfileProps) {
   const {
     register,
     handleSubmit,
@@ -60,23 +61,53 @@ export function StepOrgProfile({ defaultValues, onNext }: StepOrgProfileProps) {
         )}
       </div>
 
-      <div>
-        <label
-          htmlFor="industry"
-          className="block text-sm font-medium text-heading mb-1"
-        >
-          Industry
-        </label>
-        <input
-          id="industry"
-          type="text"
-          placeholder="e.g. Retail, Healthcare, Manufacturing"
-          {...register("industry")}
-          className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-        />
-        {errors.industry && (
-          <p className="mt-1 text-sm text-alert">{errors.industry.message}</p>
-        )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label
+            htmlFor="logo"
+            className="block text-sm font-medium text-heading mb-1"
+          >
+            Logo
+          </label>
+          <label
+            htmlFor="logo"
+            className="flex items-center justify-center gap-2 w-full rounded-md border border-dashed border-neutral/40 px-3 py-2 text-sm text-neutral cursor-pointer hover:border-primary hover:text-primary"
+          >
+            <span aria-hidden>&#8593;</span>
+            Upload PNG or SVG
+            <input id="logo" type="file" accept="image/png,image/svg+xml" className="hidden" />
+          </label>
+        </div>
+
+        <div>
+          <label
+            htmlFor="industry"
+            className="block text-sm font-medium text-heading mb-1"
+          >
+            Industry
+          </label>
+          <select
+            id="industry"
+            {...register("industry")}
+            defaultValue=""
+            className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="" disabled>
+              Select industry
+            </option>
+            <option value="Technology Services">Technology Services</option>
+            <option value="Healthcare">Healthcare</option>
+            <option value="Retail">Retail</option>
+            <option value="Manufacturing">Manufacturing</option>
+            <option value="Finance">Finance</option>
+            <option value="Education">Education</option>
+            <option value="Hospitality">Hospitality</option>
+            <option value="Other">Other</option>
+          </select>
+          {errors.industry && (
+            <p className="mt-1 text-sm text-alert">{errors.industry.message}</p>
+          )}
+        </div>
       </div>
 
       <div>
@@ -86,23 +117,31 @@ export function StepOrgProfile({ defaultValues, onNext }: StepOrgProfileProps) {
         >
           Timezone
         </label>
-        <input
+        <select
           id="timezone"
-          type="text"
-          disabled
           {...register("timezone")}
-          className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm bg-neutral/10 text-neutral"
-        />
+          className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          <option value="WAT">(GMT+1) West Africa Time — WAT</option>
+        </select>
       </div>
 
-      {/* Step 1 has no "Back" button — nothing to go back to. Every
-          other step will have Back + Next side by side here. */}
-      <button
-        type="submit"
-        className="w-full rounded-md bg-primary text-white py-2 text-sm font-medium hover:bg-primary/90"
-      >
-        Continue
-      </button>
+      <div className="flex items-center justify-between pt-4 border-t border-neutral/20">
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={!onBack}
+          className="text-sm font-medium text-neutral hover:text-heading disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          &larr; Back
+        </button>
+        <button
+          type="submit"
+          className="rounded-md bg-primary text-white px-5 py-2 text-sm font-medium hover:bg-primary/90"
+        >
+          Continue &rarr;
+        </button>
+      </div>
     </form>
   );
 }
