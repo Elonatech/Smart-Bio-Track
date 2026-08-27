@@ -11,7 +11,8 @@ import {
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto } from './dto/logout.dto';
-import { CreateOrganizationDto } from './dto/create-organization.dto';
+import { CreatePendingOrganizationDto } from './dto/create-pending-organization.dto';
+import { VerifyOrganizationDto } from './dto/verify-organization.dto';
 import { CompleteRegistrationDto } from './dto/complete-registration.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -32,15 +33,30 @@ import {
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // First half of self-service org signup — email + password only. Sends a
+  // verification link; nothing is created yet.
   @Post('register-organization')
   @Throttle(THROTTLE_ORG_REGISTRATION)
-  @ResponseMessage('Organization registered successfully.')
-  registerOrganization(@Body() dto: CreateOrganizationDto) {
-    return this.authService.createOrganization(dto);
+  @ResponseMessage('Verification email sent.')
+  registerOrganization(@Body() dto: CreatePendingOrganizationDto) {
+    return this.authService.createPendingOrganization(dto);
   }
 
-  // Second half of the provisioning flow — the invitee redeems the activation
-  // token an admin issued them and sets their own password.
+  // Second half of self-service org signup — redeems the verification token
+  // and the remaining fields (org name, admin name, industry), creating the
+  // real Organization + admin User and logging them straight in.
+  @Post('verify-organization')
+  @Throttle(THROTTLE_TOKEN_REDEMPTION)
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Organization verified and registered successfully.')
+  verifyOrganization(@Body() dto: VerifyOrganizationDto) {
+    return this.authService.verifyOrganization(dto);
+  }
+
+  // Second half of the *employee-invite* provisioning flow — the invitee
+  // redeems the activation token an admin issued them and sets their own
+  // password. Distinct from verify-organization above: this is for staff an
+  // admin already created, not a brand-new org signing itself up.
   @Post('complete-registration')
   @Throttle(THROTTLE_TOKEN_REDEMPTION)
   @HttpCode(HttpStatus.OK)

@@ -1,15 +1,60 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import request from 'supertest';
 import type { App } from 'supertest/types';
 import { PrismaClient } from '@prisma/client';
 import { AppModule } from '../../src/app.module';
 import { configureApp } from '../../src/app.setup';
 import { PrismaService } from '../../src/prisma/prisma.service';
+import { MailService } from '../../src/mail/mail.service';
 import { createTestPrismaClient, truncateAll } from './database';
+
+/**
+ * Stands in for MailService and records what would have been sent.
+ *
+ * This is not only about avoiding real network calls. Verification and
+ * activation tokens are stored as SHA-256 hashes and returned to the caller
+ * exactly once — through the email — so once the token stopped coming back in
+ * the HTTP response there was no way for a test to complete a signup at all.
+ * Capturing the send is that missing seam.
+ */
+export class FakeMailService {
+  readonly verificationEmails: Array<{ email: string; token: string }> = [];
+
+  sendEmail(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  sendOrganizationVerificationEmail(
+    email: string,
+    token: string,
+  ): Promise<void> {
+    this.verificationEmails.push({ email, token });
+    return Promise.resolve();
+  }
+
+  clear(): void {
+    this.verificationEmails.length = 0;
+  }
+
+  /** The most recent verification token sent to `email`. */
+  tokenFor(email: string): string {
+    const match = [...this.verificationEmails]
+      .reverse()
+      .find((sent) => sent.email === email.toLowerCase());
+
+    if (!match) {
+      throw new Error(`No verification email was sent to ${email}`);
+    }
+
+    return match.token;
+  }
+}
 
 export interface TestContext {
   app: INestApplication;
   prisma: PrismaClient;
+  mail: FakeMailService;
   reset: () => Promise<void>;
   close: () => Promise<void>;
 }
@@ -25,6 +70,8 @@ export interface TestContext {
  *    verified in rate-limiting.e2e-spec; leaving them on everywhere makes
  *    every other suite fail for unrelated reasons — `register-organization`
  *    alone is capped at 3/hour and the counter is per-process.
+ *  - `MailService` is replaced with FakeMailService, which records sends
+ *    instead of calling Brevo.
  *
  * Everything else — guards, validation, the response envelope, the exception
  * filter — is the genuine article, via the same `configureApp` that `main.ts`
@@ -34,6 +81,7 @@ export async function createTestApp(
   options: { throttling?: boolean } = {},
 ): Promise<TestContext> {
   const prisma = createTestPrismaClient();
+  const mail = new FakeMailService();
 
   // ThrottlerGuard is registered as an APP_GUARD with `useClass`, so Nest
   // instantiates it directly: neither overrideGuard(ThrottlerGuard) nor
@@ -46,6 +94,8 @@ export async function createTestApp(
   })
     .overrideProvider(PrismaService)
     .useValue(prisma)
+    .overrideProvider(MailService)
+    .useValue(mail)
     .compile();
 
   const app = configureApp(moduleRef.createNestApplication());
@@ -54,7 +104,11 @@ export async function createTestApp(
   return {
     app,
     prisma,
-    reset: () => truncateAll(prisma),
+    mail,
+    reset: async () => {
+      mail.clear();
+      await truncateAll(prisma);
+    },
     close: async () => {
       await app.close();
       await prisma.$disconnect();
@@ -66,3 +120,46 @@ export async function createTestApp(
 /** Convenience: the Express handler supertest needs. */
 export const httpServer = (ctx: TestContext): App =>
   ctx.app.getHttpServer() as App;
+
+export interface RegisterOrganizationOptions {
+  organizationName: string;
+  email: string;
+  password?: string;
+  adminName?: string;
+  industry?: string;
+}
+
+/**
+ * Runs the whole two-step org signup — register, read the token out of the
+ * captured email, verify — and returns the tokens the second step issues.
+ *
+ * Every suite needs an organization with a signed-in admin before it can test
+ * anything else, so this exists to keep that setup in one place rather than
+ * three slightly different copies.
+ */
+export async function registerOrganization(
+  ctx: TestContext,
+  options: RegisterOrganizationOptions,
+): Promise<{ accessToken: string; refreshToken: string }> {
+  const {
+    organizationName,
+    email,
+    password = 'Passw0rd!',
+    adminName = 'Test Admin',
+    industry = 'Technology',
+  } = options;
+
+  await request(httpServer(ctx))
+    .post('/api/auth/register-organization')
+    .send({ email, password })
+    .expect(201);
+
+  const token = ctx.mail.tokenFor(email);
+
+  const verified = await request(httpServer(ctx))
+    .post('/api/auth/verify-organization')
+    .send({ token, organizationName, adminName, industry })
+    .expect(200);
+
+  return verified.body.data as { accessToken: string; refreshToken: string };
+}

@@ -14,6 +14,27 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRY: z.string().optional(),
   JWT_REFRESH_EXPIRY: z.string().optional(),
   CORS_ORIGINS: z.string().optional(),
+  BREVO_API_KEY: z.string({
+    message: 'BREVO_API_KEY is required',
+  }),
+  BREVO_SENDER_EMAIL: z.string().email({
+    message: 'BREVO_SENDER_EMAIL must be a valid email address',
+  }),
+  BREVO_SENDER_NAME: z.string().optional(),
+  BREVO_REPLY_TO_EMAIL: z
+    .string()
+    .email({ message: 'BREVO_REPLY_TO_EMAIL must be a valid email address' })
+    .optional(),
+  BREVO_BCC_RECIPIENTS: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (!val) return [];
+      return val.split(',').map((email) => email.trim());
+    }),
+
+  /** Frontend origin that the links in our emails point at. */
+  APP_WEB_URL: z.string().url('APP_WEB_URL must be a valid URL').optional(),
 
   /**
    * How many reverse proxies sit in front of this API.

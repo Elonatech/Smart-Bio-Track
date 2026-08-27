@@ -1,5 +1,10 @@
 import request from 'supertest';
-import { createTestApp, httpServer, TestContext } from './helpers/test-app';
+import {
+  createTestApp,
+  httpServer,
+  registerOrganization,
+  TestContext,
+} from './helpers/test-app';
 
 describe('Auth flow and RBAC (integration)', () => {
   let ctx: TestContext;
@@ -13,20 +18,14 @@ describe('Auth flow and RBAC (integration)', () => {
   beforeEach(async () => {
     await ctx.reset();
 
-    const res = await request(httpServer(ctx))
-      .post('/api/auth/register-organization')
-      .send({
-        organizationName: 'Acme Corp',
-        adminEmployeeId: 'SA001',
-        adminName: 'Ada Owner',
-        email: 'ada@acme.test',
-        password: 'Passw0rd!',
-        confirmPassword: 'Passw0rd!',
-      })
-      .expect(201);
+    const tokens = await registerOrganization(ctx, {
+      organizationName: 'Acme Corp',
+      email: 'ada@acme.test',
+      adminName: 'Ada Owner',
+    });
 
-    adminToken = res.body.data.accessToken;
-    adminRefresh = res.body.data.refreshToken;
+    adminToken = tokens.accessToken;
+    adminRefresh = tokens.refreshToken;
   });
 
   afterAll(async () => {

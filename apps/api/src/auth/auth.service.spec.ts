@@ -4,6 +4,7 @@ import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 
 jest.mock('argon2');
 
@@ -42,6 +43,10 @@ describe('AuthService', () => {
     sign: jest.fn().mockReturnValue('signed-token'),
   };
 
+  const mockMail = {
+    sendOrganizationVerificationEmail: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     mockPrisma.organization.findUnique.mockResolvedValue({
@@ -57,6 +62,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwt },
+        { provide: MailService, useValue: mockMail },
       ],
     }).compile();
 
