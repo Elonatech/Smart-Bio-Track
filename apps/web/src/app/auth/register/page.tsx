@@ -19,13 +19,16 @@ interface RegisterResponse {
   refreshToken: string;
 }
 
-// GET /api/auth/me's shape — no `name` field yet. Doesn't matter here
-// though, unlike login: we already have adminName from the form itself.
+// GET /api/auth/me's shape. `name`/`organizationName` are optional
+// since older backend deployments won't send them — we fall back to
+// the form's own values (below) in that case, same data either way.
 interface MeResponse {
   id: string;
+  name?: string;
   email: string;
   role: AuthUser["role"];
   organizationId: string | null;
+  organizationName?: string;
 }
 
 export default function RegisterPage() {
@@ -68,10 +71,11 @@ export default function RegisterPage() {
 
       const user: AuthUser = {
         id: me.data.id,
-        name: values.adminName, // we already have this from the form; /auth/me doesn't return it
+        name: me.data.name ?? values.adminName,
         email: me.data.email,
         role: me.data.role,
         organizationId: me.data.organizationId,
+        organizationName: me.data.organizationName ?? values.organizationName,
       };
 
       registerUser(user, accessToken, refreshToken);
@@ -95,11 +99,11 @@ export default function RegisterPage() {
       <div className="relative overflow-hidden bg-primary text-white flex flex-col justify-between p-15 md:w-1/2">
         <div
           aria-hidden
-          className="pointer-events-none absolute -left-32 -bottom-32 h-[28rem] w-[28rem] rounded-full border border-white/20"
+          className="pointer-events-none absolute -left-32 -bottom-32 h-112 w-md rounded-full border border-white/20"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -left-16 -bottom-16 h-[16rem] w-[16rem] rounded-full border border-white/20"
+          className="pointer-events-none absolute -left-16 -bottom-16 h-64 w-[16rem] rounded-full border border-white/20"
         />
 
         <div
@@ -203,7 +207,7 @@ export default function RegisterPage() {
               )}
             </div>
 
-            {/* <div>
+            <div>
               <label
                 htmlFor="adminEmployeeId"
                 className="block text-sm font-medium text-heading mb-1"
@@ -228,7 +232,7 @@ export default function RegisterPage() {
                   {errors.adminEmployeeId.message}
                 </p>
               )}
-            </div> */}
+            </div>
 
             <div>
               <label

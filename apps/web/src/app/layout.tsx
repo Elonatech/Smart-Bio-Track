@@ -37,7 +37,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`}>
+    // suppressHydrationWarning is REQUIRED here, not a workaround for
+    // sloppy code. themeInitScript below adds the `dark` class to this
+    // element before React hydrates, but the server can't know what's in
+    // the visitor's localStorage, so it renders without it. React then
+    // sees one more class on <html> than the HTML it shipped and reports
+    // a mismatch — even though the client is the correct state.
+    //
+    // The attribute applies to THIS element only, one level deep. It
+    // does not silence hydration warnings anywhere else in the tree, so
+    // a real mismatch in a page or component still surfaces normally.
+    <html
+      lang="en"
+      className={`${inter.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

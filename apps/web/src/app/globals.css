@@ -1,16 +1,32 @@
 @import "tailwindcss";
 
+/* Light theme is the default. Every colour here is a Tailwind v4 theme
+   token, which means it generates the full set of utilities for that
+   name — bg-success, text-success, border-success, fill-success,
+   stroke-success — and each of those resolves through var() at runtime.
+   That's what lets the .dark block below re-point a token and have
+   every utility using it follow, with no dark: variant needed on the
+   element itself. Never hardcode a hex in a component (e.g.
+   bg-[#1f3965]); it can't respond to the theme. */
 @theme {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --color-primary: #34548c;
-  --color-alert: #e00b05;
-  --color-neutral: #6f7175;
+
+  /* Brand + status palette */
+  --color-primary: #33538a;
+  --color-success: #10835c;
+  --color-warning: #b36300;
+  --color-alert: #da0000;
+  --color-info: #8b5cf6;
+
+  /* Surfaces and text */
   --color-background: #f7f7f9;
   --color-surface: #ffffff;
   --color-heading: #111827;
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-info: #8b5cf6;
+  --color-neutral: #6f7175;
+
+  /* The dashboard sidebar is its own dark slab in BOTH themes, so it
+     gets its own token rather than reusing surface. */
+  --color-sidebar: #1f3965;
 }
 
 /* Tailwind v4's dark-mode opt-in: any `dark:` utility only applies
@@ -20,15 +36,22 @@
    want since we're giving users an explicit toggle. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Re-pointing the SAME token names to dark-appropriate values. Every
-   `bg-background`, `text-heading`, etc. utility already used
-   throughout the app automatically picks these up once `.dark` is on
-   <html> — no component needs to change, since they reference the
-   token name, not a hardcoded color. */
+/* Dark theme. The status colours are NOT the same hexes as light —
+   they're lifted and desaturated slightly so they hold their contrast
+   against a dark surface instead of glowing. */
 .dark {
+  --color-primary: #5f86c8;
+  --color-success: #139e6f;
+  --color-warning: #d98b09;
+  --color-alert: #ea3e33;
+  --color-info: #a78bfa;
+
   --color-background: #0b1220;
   --color-surface: #131b2e;
   --color-heading: #f3f4f6;
   --color-neutral: #9ca3af;
-  --color-primary: #5578b8;
+
+  /* Drops well below the dark surface so the sidebar still reads as a
+     separate slab rather than merging into the page. */
+  --color-sidebar: #101a2d;
 }

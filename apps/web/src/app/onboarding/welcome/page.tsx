@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   ShieldCheck,
@@ -34,7 +35,7 @@ const GETTING_STARTED_ITEMS = [
   },
 ];
 
-export default function OnboardingWelcomePage() {
+function OnboardingWelcomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const orgName = searchParams.get("org") || "there";
@@ -104,5 +105,16 @@ export default function OnboardingWelcomePage() {
         </button>
       </div>
     </div>
+  );
+}
+
+// useSearchParams requires a Suspense boundary in the App Router —
+// without this wrapper, the production build fails (confirmed: caught
+// this exact error via `next build`, same fix as auth/activate/page.tsx).
+export default function OnboardingWelcomePage() {
+  return (
+    <Suspense fallback={null}>
+      <OnboardingWelcomeContent />
+    </Suspense>
   );
 }

@@ -19,26 +19,22 @@ import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 import { getDashboardPath } from "@/lib/roleRoutes";
 import Link from "next/link";
 
-// The ACTUAL current shape of POST /api/auth/login — just the token
-// pair, no user object and no {success, message, data} envelope. Your
-// colleague's own engineering notes flag the envelope as a known,
-// not-yet-fixed gap against the PRTS spec — once a global response
-// interceptor adds it, this interface (and the .accessToken /
-// .refreshToken access below) is the only thing that needs to change.
 interface LoginResponse {
   accessToken: string;
   refreshToken: string;
 }
 
-// GET /api/auth/me's current shape — notably missing `name`, since the
-// backend doesn't send it back yet. Flagged to your backend colleague;
-// until then, `name` is left undefined (see AuthUser in auth-store.ts,
-// where it's optional for exactly this reason).
+// GET /api/auth/me's shape. `name` and `organizationName` are optional
+// here because older backend deployments (before jwt.strategy.ts was
+// updated to include them) won't send them — falls back to `undefined`
+// rather than breaking, same reasoning as AuthUser's own optional fields.
 interface MeResponse {
   id: string;
+  name?: string;
   email: string;
   role: AuthUser["role"];
   organizationId: string | null;
+  organizationName?: string;
 }
 
 export default function LoginPage() {
@@ -87,23 +83,18 @@ export default function LoginPage() {
         values
       );
       const { accessToken, refreshToken } = data;
-
-      // The login response itself has no user info — fetch it
-      // separately using the token we just received. appClient's
-      // request interceptor (see api-client.ts) reads accessToken
-      // from localStorage, so we need it written before this call;
-      // simplest is to just pass it explicitly here rather than
-      // relying on interceptor timing.
+      
       const me = await appClient.get<MeResponse>("/auth/me", {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
       const user: AuthUser = {
         id: me.data.id,
+        name: me.data.name,
         email: me.data.email,
         role: me.data.role,
         organizationId: me.data.organizationId,
-        // name intentionally omitted — /auth/me doesn't return it yet
+        organizationName: me.data.organizationName,
       };
 
       // Save the session (localStorage + in-memory store) — see
@@ -206,7 +197,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <label
-                htmlFor="email"
+                htmlFor="identifier"
                 className="block text-sm font-medium text-heading mb-1"
               >
                 Employee ID or email
@@ -217,17 +208,16 @@ export default function LoginPage() {
                   strokeWidth={1.75}
                 />
                 <input
-                  id="email"
+                  id="identifier"
                   type="text"
-                  {...register("email")}
+                  {...register("identifier")}
                   className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
-              {/* This field-level error only appears once the user has
-                  interacted with the field and it fails Zod's rules. */}
-              {errors.email && (
+           
+              {errors.identifier && (
                 <p className="mt-1 text-sm text-alert">
-                  {errors.email.message}
+                  {errors.identifier.message}
                 </p>
               )}
             </div>

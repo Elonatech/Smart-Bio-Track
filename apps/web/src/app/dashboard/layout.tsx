@@ -21,9 +21,6 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const role = useAuthStore((state) => state.user?.role);
-
-  // Mobile/tablet drawer — starts closed, opened via the navbar's
-  // hamburger, closed via its own backdrop/X/clicking a link.
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   // Desktop icons-only collapse — persisted so it survives a refresh,

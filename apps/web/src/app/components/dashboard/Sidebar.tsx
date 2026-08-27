@@ -59,7 +59,7 @@ export function Sidebar({
 
       <aside
         className={`
-          bg-[#1f3965] text-white flex flex-col shrink-0
+          bg-sidebar text-white flex flex-col shrink-0
           fixed inset-y-0 left-0 z-50 w-64 transition-transform duration-200
           ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
           lg:static lg:translate-x-0 lg:transition-[width]
