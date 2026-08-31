@@ -35,7 +35,7 @@ export function DashboardNavbar({ onOpenMobileMenu }: DashboardNavbarProps) {
   if (!user) return null;
 
   return (
-    <header className="h-16 flex items-center justify-between gap-3 px-4 sm:px-9 border-b border-neutral/20 bg-surface">
+    <header className="h-16 flex items-center justify-between gap-3 px-4 xl:px-9 border-b border-neutral/20 bg-surface">
       <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
@@ -45,8 +45,14 @@ export function DashboardNavbar({ onOpenMobileMenu }: DashboardNavbarProps) {
         >
           <Menu className="h-5 w-5" strokeWidth={1.75} />
         </button>
+        {/* One step smaller on phones so a title like "Organization
+            overview" fits instead of truncating to "Organization ove…".
+            The subtitle still truncates — it carries the org name and a
+            long date, and losing its tail costs nothing. */}
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold text-heading truncate">{title}</h1>
+          <h1 className="text-base sm:text-lg font-semibold text-heading truncate">
+            {title}
+          </h1>
           <p className="text-xs text-neutral truncate">{subtitle}</p>
         </div>
       </div>
@@ -67,11 +73,14 @@ export function DashboardNavbar({ onOpenMobileMenu }: DashboardNavbarProps) {
           </span>
         </button>
 
-        <div className="flex items-center gap-2 rounded-md p-1 border border-neutral/20">
+        {/* Hidden on phones. It's the widest thing in the bar and it's
+            purely informational — the sidebar drawer already shows who's
+            signed in — so the page title gets the space instead. */}
+        <div className="hidden sm:flex items-center gap-2 rounded-md p-1 border border-neutral/20">
           <span className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">
             {getInitials(user.name ?? user.email)}
           </span>
-          <div className="hidden sm:block min-w-0">
+          <div className="min-w-0">
             <p className="text-sm font-medium text-heading truncate">
               {user.name ?? user.email}
             </p>

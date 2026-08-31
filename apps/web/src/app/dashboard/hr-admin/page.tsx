@@ -6,11 +6,11 @@ import {
   ClipboardCheck,
   Clock4,
   Info,
-  LogIn,
   Users,
   UserX,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 
 // HR Admin's overview. UI only — there is no attendance backend yet
@@ -92,34 +92,7 @@ export default function HRAdminDashboardPage() {
   return (
     <div className="pb-8">
       {/* Today's status — HR admins clock in like everyone else. */}
-      <div className="flex items-start justify-between gap-4 bg-surface border border-neutral/20 p-5 rounded-xl">
-        <div>
-          <h5 className="text-xs font-medium tracking-wide uppercase text-neutral border-b border-neutral/30 inline-block pb-0.5">
-            Today&apos;s status
-          </h5>
-          <p className="mt-2 text-[22px] font-semibold text-heading">
-            Not clocked in yet
-          </p>
-          <button
-            type="button"
-            disabled
-            title="Clock-in goes live once the attendance service ships — there's no endpoint to record a punch yet."
-            className="mt-6 inline-flex items-center gap-2 bg-primary text-white text-sm font-semibold px-4 py-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <LogIn className="h-4 w-4" strokeWidth={2} />
-            Clock In
-          </button>
-        </div>
-
-        <div className="text-right shrink-0">
-          <p className="text-[32px] leading-none font-bold text-heading tabular-nums">
-            00:00:00
-          </p>
-          <p className="mt-2 text-xs text-neutral">
-            Working hours today · break 00:00
-          </p>
-        </div>
-      </div>
+      <TodayStatusCard />
 
   
 
@@ -343,21 +316,23 @@ function StatCard({
   hint: string;
 }) {
   return (
-    <div className="bg-surface border border-neutral/20 p-5 rounded-xl">
-      <div className="flex items-center gap-3">
-        <div
-          className={`flex items-center justify-center h-9 w-9 rounded-lg shrink-0 ${tone}`}
-        >
-          <Icon className="h-4.5 w-4.5" strokeWidth={1.75} />
-        </div>
+    // Icon in its own left column, all text stacked beside it — same
+    // shape as the Team Lead and Super Admin cards.
+    <div className="flex items-start gap-3 bg-surface border border-neutral/20 p-5 rounded-xl">
+      <div
+        className={`flex items-center justify-center h-9 w-9 rounded-lg shrink-0 ${tone}`}
+      >
+        <Icon className="h-4.5 w-4.5" strokeWidth={1.75} />
+      </div>
+      <div className="min-w-0">
         <p className="text-[11px] font-semibold tracking-wide uppercase text-neutral">
           {label}
         </p>
+        <p className="mt-1 text-[28px] leading-none font-semibold text-heading tabular-nums">
+          {value}
+        </p>
+        <p className="mt-2 text-[12px] text-neutral">{hint}</p>
       </div>
-      <p className="mt-3 text-[28px] leading-none font-semibold text-heading tabular-nums">
-        {value}
-      </p>
-      <p className="mt-2 text-[12px] text-neutral">{hint}</p>
     </div>
   );
 }

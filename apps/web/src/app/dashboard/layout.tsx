@@ -61,7 +61,7 @@ export default function DashboardLayout({
           />
           <div className="flex-1 flex flex-col min-w-0">
             <DashboardNavbar onOpenMobileMenu={() => setIsMobileOpen(true)} />
-            <main className="flex-1 overflow-y-auto bg-background px-6 sm:px-10 sm:pt-6 pt-4">
+            <main className="flex-1 overflow-y-auto bg-background px-6 xl:px-10 sm:pt-6 pt-4">
               {children}
             </main>
           </div>

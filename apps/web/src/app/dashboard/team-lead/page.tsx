@@ -6,12 +6,12 @@ import {
   ClipboardCheck,
   Clock4,
   FileText,
-  LogIn,
   UserX,
   Users,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { TEAM_DEPARTMENT } from "@/lib/teamLeadScope";
+import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 
 // The Team Lead's root page. Their overview IS the team roster for
@@ -121,45 +121,24 @@ export default function TeamLeadDashboardPage() {
 
   // Counted off the roster rather than hardcoded, so the cards can't
   // drift out of step with the list underneath them.
-  const presentCount = TEAM.filter((m) => m.status === "PRESENT").length;
+  //
+  // "Present" counts anyone who actually turned up, LATE included —
+  // someone who clocked in at 09:21 is at their desk, just not on time.
+  // Late is then broken out separately so it isn't hidden. Counting only
+  // PRESENT would report 2 of 5 on a day when 3 people are at work.
   const lateCount = TEAM.filter((m) => m.status === "LATE").length;
+  const presentCount =
+    TEAM.filter((m) => m.status === "PRESENT").length + lateCount;
+
+  // Absent is unexplained absence only. Approved leave is expected and
+  // isn't a problem to chase, so it's named in the hint underneath
+  // rather than inflating the number.
+  const absentCount = TEAM.filter((m) => m.status === "ABSENT").length;
   const onLeaveCount = TEAM.filter((m) => m.status === "ON_LEAVE").length;
-  // On-leave people aren't at work either, so they belong in the absent
-  // headline with the approved portion called out underneath — matching
-  // how HR's dashboard reads it.
-  const absentCount =
-    TEAM.filter((m) => m.status === "ABSENT").length + onLeaveCount;
 
   return (
     <div className="pb-8">
-      <div className="flex items-start justify-between gap-4 bg-surface border border-neutral/20 p-5 rounded-xl">
-        <div>
-          <h5 className="text-xs font-medium tracking-wide uppercase text-neutral border-b border-neutral/30 inline-block pb-0.5">
-            Today&apos;s status
-          </h5>
-          <p className="mt-2 text-[22px] font-semibold text-heading">
-            Not clocked in yet
-          </p>
-          <button
-            type="button"
-            disabled
-            title="Clock-in goes live once the attendance service ships — there's no endpoint to record a punch yet."
-            className="mt-6 inline-flex items-center gap-2 bg-primary text-white text-sm font-semibold px-4 py-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <LogIn className="h-4 w-4" strokeWidth={2} />
-            Clock In
-          </button>
-        </div>
-
-        <div className="text-right shrink-0">
-          <p className="text-[32px] leading-none font-bold text-heading tabular-nums">
-            00:00:00
-          </p>
-          <p className="mt-2 text-xs text-neutral">
-            Working hours today · break 00:00
-          </p>
-        </div>
-      </div>
+      <TodayStatusCard />
 
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
         <StatCard
@@ -174,7 +153,6 @@ export default function TeamLeadDashboardPage() {
           tone="bg-warning/15 text-warning"
           label="Late"
           value={lateCount}
-          hint={lateCount === 0 ? "Everyone on time" : "Past the grace period"}
         />
         <StatCard
           icon={UserX}
@@ -188,16 +166,12 @@ export default function TeamLeadDashboardPage() {
           tone="bg-warning/15 text-warning"
           label="Pending exceptions"
           value={PENDING_EXCEPTIONS}
-          hint="Waiting on your decision"
         />
       </div>
 
       <div className="bg-surface border border-neutral/20 rounded-xl mt-6 overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral/20">
           <h6 className="text-[15px] font-semibold text-heading">Team roster</h6>
-          <p className="text-[12px] text-neutral">
-            Today&apos;s first clock-in per person
-          </p>
         </div>
 
         {TEAM.map((member) => {
@@ -259,24 +233,31 @@ function StatCard({
   tone: string;
   label: string;
   value: number;
-  hint: string;
+  // Optional: Late and Pending exceptions read fine as a bare number,
+  // and a line of filler under them adds noise, not meaning.
+  hint?: string;
 }) {
   return (
-    <div className="bg-surface border border-neutral/20 p-5 rounded-xl">
-      <div className="flex items-center gap-3">
-        <div
-          className={`flex items-center justify-center h-9 w-9 rounded-lg shrink-0 ${tone}`}
-        >
-          <Icon className="h-4.5 w-4.5" strokeWidth={1.75} />
-        </div>
+    // Icon in its own left column, with label / value / hint stacked in
+    // a single text column beside it. Previously the icon and label
+    // shared a row and the value dropped back to the card's left edge,
+    // so the three lines of text didn't share a left edge and the number
+    // sat under the icon instead of under its own label.
+    <div className="flex items-start gap-3 bg-surface border border-neutral/20 p-5 rounded-xl">
+      <div
+        className={`flex items-center justify-center h-9 w-9 rounded-lg shrink-0 ${tone}`}
+      >
+        <Icon className="h-4.5 w-4.5" strokeWidth={1.75} />
+      </div>
+      <div className="min-w-0">
         <p className="text-[11px] font-semibold tracking-wide uppercase text-neutral">
           {label}
         </p>
+        <p className="mt-1 text-[28px] leading-none font-semibold text-heading tabular-nums">
+          {value}
+        </p>
+        {hint && <p className="mt-2 text-[12px] text-neutral">{hint}</p>}
       </div>
-      <p className="mt-3 text-[28px] leading-none font-semibold text-heading tabular-nums">
-        {value}
-      </p>
-      <p className="mt-2 text-[12px] text-neutral">{hint}</p>
     </div>
   );
 }

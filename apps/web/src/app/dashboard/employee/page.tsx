@@ -13,6 +13,7 @@ import {
   LogOut,
   Timer,
 } from "lucide-react";
+import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 
 // The EMPLOYEE role's own dashboard root. Until this file existed,
@@ -209,35 +210,8 @@ export default function EmployeeDashboardPage() {
     <div className="pb-8">
       {/* Row 1 — today's status (wide) + the three punch readouts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-surface border border-neutral/20 p-5 rounded-xl">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h5 className="text-xs font-medium tracking-wide uppercase text-neutral border-b border-neutral/30 inline-block pb-0.5">
-                Today&apos;s status
-              </h5>
-              <p className="mt-2 text-[22px] font-semibold text-heading">
-                Not clocked in yet
-              </p>
-              <button
-                type="button"
-                disabled
-                title="Clock-in goes live once the attendance service ships — there's no endpoint to record a punch yet."
-                className="mt-6 inline-flex items-center gap-2 bg-primary text-white text-sm font-semibold px-4 py-3 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <LogIn className="h-4 w-4" strokeWidth={2} />
-                Clock In
-              </button>
-            </div>
-
-            <div className="text-right shrink-0">
-              <p className="text-[32px] leading-none font-bold text-heading tabular-nums">
-                00:00:00
-              </p>
-              <p className="mt-2 text-xs text-neutral">
-                Working hours today · break 00:00
-              </p>
-            </div>
-          </div>
+        <div className="lg:col-span-2">
+          <TodayStatusCard />
         </div>
 
         <div className="flex flex-col gap-4">

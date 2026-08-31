@@ -9,14 +9,17 @@ import {
   type Holiday,
 } from "@/app/components/dashboard/HolidayModal";
 
+// repeatsAnnually is false for the moveable feasts — Eid follows the
+// lunar calendar and Good Friday moves with Easter, so neither can be
+// carried to the same date next year.
 const INITIAL_HOLIDAYS: Holiday[] = [
-  { id: "1", name: "New Year's Day", date: "2026-01-01", type: "PUBLIC" },
-  { id: "2", name: "Eid al-Fitr (day 1)", date: "2026-03-20", type: "PUBLIC" },
-  { id: "3", name: "Good Friday", date: "2026-04-03", type: "PUBLIC" },
-  { id: "4", name: "Workers' Day", date: "2026-05-01", type: "PUBLIC" },
-  { id: "5", name: "Democracy Day", date: "2026-06-12", type: "PUBLIC" },
-  { id: "6", name: "Independence Day", date: "2026-10-01", type: "PUBLIC" },
-  { id: "7", name: "Company closure", date: "2026-12-24", type: "COMPANY" },
+  { id: "1", name: "New Year's Day", date: "2026-01-01", type: "PUBLIC", repeatsAnnually: true },
+  { id: "2", name: "Eid al-Fitr (day 1)", date: "2026-03-20", type: "PUBLIC", repeatsAnnually: false },
+  { id: "3", name: "Good Friday", date: "2026-04-03", type: "PUBLIC", repeatsAnnually: false },
+  { id: "4", name: "Workers' Day", date: "2026-05-01", type: "PUBLIC", repeatsAnnually: true },
+  { id: "5", name: "Democracy Day", date: "2026-06-12", type: "PUBLIC", repeatsAnnually: true },
+  { id: "6", name: "Independence Day", date: "2026-10-01", type: "PUBLIC", repeatsAnnually: true },
+  { id: "7", name: "Company closure", date: "2026-12-24", type: "COMPANY", repeatsAnnually: false },
 ];
 
 function formatDate(iso: string) {
@@ -72,6 +75,14 @@ export default function SuperAdminHolidaysPage() {
               <span className="text-sm font-medium text-heading truncate">
                 {holiday.name}
               </span>
+              {/* Otherwise the modal's repeat toggle would vanish the
+                  moment you save — nothing on the page would show what
+                  you set. */}
+              {holiday.repeatsAnnually && (
+                <span className="text-[11px] text-neutral whitespace-nowrap shrink-0">
+                  Repeats yearly
+                </span>
+              )}
             </div>
             <span className="text-xs font-medium tracking-wide uppercase text-neutral border-b border-neutral/30 pb-0.5 shrink-0 ml-4">
               {holiday.type}

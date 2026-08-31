@@ -1,7 +1,8 @@
 "use client";
 
-import { Clock4, LogIn, MapPinned, ShieldAlert, Users } from "lucide-react";
+import { Clock4, MapPinned, ShieldAlert, Users } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 
 export default function SuperAdminDashboardPage() {
@@ -16,30 +17,7 @@ export default function SuperAdminDashboardPage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between bg-surface border border-neutral/20 p-5 rounded-xl">
-        <div>
-          <h5 className="text-xs font-medium tracking-wide uppercase text-neutral border-b border-neutral/30 inline-block pb-0.5">
-            Today's status
-          </h5>
-          <p className="mt-2 text-[18px] font-semibold text-heading">
-            Not clocked in yet
-          </p>
-          <button
-            type="button"
-            className="mt-6 inline-flex items-center gap-2 bg-primary text-white text-sm font-semibold px-4 py-3 rounded-md hover:bg-primary/90"
-          >
-            <LogIn className="h-4 w-4" strokeWidth={2} />
-            Clock In
-          </button>
-        </div>
-
-        <div className="text-right">
-          <p className="text-2xl font-bold text-heading">00:00:00</p>
-          <p className="text-xs text-neutral">
-            Working hours today · break 00:00
-          </p>
-        </div>
-      </div>
+      <TodayStatusCard />
 
       <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="flex gap-3 items-start bg-surface border border-neutral/20 p-5 rounded-xl">

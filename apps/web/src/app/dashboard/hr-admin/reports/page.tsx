@@ -253,7 +253,7 @@ export default function HRAdminReportsPage() {
                 {COLUMNS.map((column) => (
                   <th
                     key={column.key}
-                    className={`text-right px-5 py-3 text-xs font-medium tracking-wide uppercase ${column.tone}`}
+                    className={`text-right px-5   text-xs font-medium tracking-wide uppercase ${column.tone}`}
                   >
                     {column.label}
                   </th>
@@ -270,7 +270,7 @@ export default function HRAdminReportsPage() {
                   key={row.department}
                   className="border-b border-neutral/10 last:border-0"
                 >
-                  <td className="px-5 py-4 font-medium text-heading whitespace-nowrap">
+                  <td className="px-5 py-2 font-medium text-heading whitespace-nowrap">
                     {row.department}
                     {office === ALL_OFFICES && (
                       <span className="block text-[12px] font-normal text-neutral">
