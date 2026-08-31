@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
@@ -15,52 +16,40 @@ import {
   JWT_REFRESH_SECRET,
   JWT_REFRESH_EXPIRY,
 } from './jwt/jwt.contants';
-import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { CompleteRegistrationDto } from './dto/complete-registration.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { CreatePendingOrganizationDto } from './dto/create-pending-organization.dto';
+import { VerifyOrganizationDto } from './dto/verify-organization.dto';
 import {
   PASSWORD_RESET_TOKEN_TTL_MINUTES,
   REFRESH_TOKEN_TTL_DAYS,
+  PENDING_ORG_SIGNUP_TOKEN_TTL_DAYS,
   expiryInDays,
   expiryInMinutes,
   generateToken,
   hashToken,
 } from '../common/token.util';
+import { generateEmployeeId } from '../common/employee-id.util';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private mailService: MailService,
   ) {}
 
-  async createOrganization(dto: CreateOrganizationDto) {
-    const {
-      organizationName,
-      adminEmployeeId,
-      adminName,
-      email,
-      password,
-      confirmPassword,
-    } = dto;
-
-    // Basic validation
-    if (password !== confirmPassword) {
-      throw new BadRequestException('Passwords do not match');
-    }
+  /**
+   * First half of self-service org signup: takes only email + password.
+   * Organization name, admin name, and industry are collected later at
+   * verifyOrganization — nothing real is created here, just a pending claim.
+   */
+  async createPendingOrganization(dto: CreatePendingOrganizationDto) {
+    const { email, password } = dto;
 
     const normalizedEmail = email.toLowerCase().trim();
-
-    const existingOrgByName = await this.prisma.organization.findUnique({
-      where: { name: organizationName },
-    });
-
-    if (existingOrgByName) {
-      throw new BadRequestException(
-        'An organization with this name already exists',
-      );
-    }
 
     const existingOrgByEmail = await this.prisma.organization.findUnique({
       where: { email: normalizedEmail },
@@ -80,40 +69,140 @@ export class AuthService {
       throw new BadRequestException('A user with this email already exists');
     }
 
-    const existingUserByEmployeeId = await this.prisma.user.findUnique({
-      where: { employeeId: adminEmployeeId },
-    });
+    const existingPending =
+      await this.prisma.pendingOrganizationSignup.findUnique({
+        where: { email: normalizedEmail },
+      });
 
-    if (existingUserByEmployeeId) {
+    // A live pending signup already claims this email — reject rather than
+    // silently issuing a second token. An expired one is fair game to
+    // overwrite below.
+    if (existingPending && existingPending.expiresAt > new Date()) {
       throw new BadRequestException(
-        'A user with this employee ID already exists',
+        'A verification email was already sent to this address. Check your inbox, or request a new one.',
       );
     }
 
     const passwordHash = await argon2.hash(password);
+    const rawToken = generateToken();
+
+    // Upsert rather than create: an expired pending row for this email is
+    // replaced in place instead of colliding on the unique `email` column.
+    const pending = await this.prisma.pendingOrganizationSignup.upsert({
+      where: { email: normalizedEmail },
+      create: {
+        email: normalizedEmail,
+        passwordHash,
+        tokenHash: hashToken(rawToken),
+        expiresAt: expiryInDays(PENDING_ORG_SIGNUP_TOKEN_TTL_DAYS),
+      },
+      update: {
+        passwordHash,
+        tokenHash: hashToken(rawToken),
+        expiresAt: expiryInDays(PENDING_ORG_SIGNUP_TOKEN_TTL_DAYS),
+      },
+    });
+
+    try {
+      await this.mailService.sendOrganizationVerificationEmail(
+        normalizedEmail,
+        rawToken,
+      );
+    } catch {
+      // The row has to go if the email did not. Leaving it would trip the
+      // "verification already sent" check above on every retry, locking the
+      // user out of their own signup until the token expired.
+      await this.prisma.pendingOrganizationSignup.delete({
+        where: { id: pending.id },
+      });
+      throw new InternalServerErrorException(
+        'Could not send the verification email. Please try again.',
+      );
+    }
+
+    return {
+      message:
+        'Check your email to verify and complete your organization registration.',
+    };
+  }
+  /**
+   * Second half of self-service org signup: redeems the token from
+   * createPendingOrganization and takes the fields that weren't collected
+   * up front — organization name, the admin's own name, and industry.
+   * Creates the real Organization + SUPER_ADMIN User and logs them straight
+   * in, same as completeRegistration does for the employee-invite flow.
+   */
+  async verifyOrganization(dto: VerifyOrganizationDto) {
+    const { token, adminName, industry } = dto;
+    const organizationName = dto.organizationName.trim();
+
+    const stored = await this.prisma.pendingOrganizationSignup.findUnique({
+      where: { tokenHash: hashToken(token) },
+    });
+
+    // Same non-distinguishing message for missing, expired, or already-
+    // redeemed tokens — see completeRegistration for why.
+    if (!stored || stored.expiresAt < new Date()) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    const existingOrgByName = await this.prisma.organization.findUnique({
+      where: { name: organizationName },
+    });
+
+    if (existingOrgByName) {
+      throw new BadRequestException(
+        'An organization with this name already exists',
+      );
+    }
+
+    const employeeId = await this.generateUniqueEmployeeId();
 
     const user = await this.prisma.$transaction(async (tx) => {
       const organization = await tx.organization.create({
         data: {
           name: organizationName,
-          email: normalizedEmail,
+          email: stored.email,
+          industry,
         },
       });
 
-      return tx.user.create({
+      const created = await tx.user.create({
         data: {
-          employeeId: adminEmployeeId,
+          employeeId,
           name: adminName,
-          email: normalizedEmail,
-          passwordHash,
+          email: stored.email,
+          passwordHash: stored.passwordHash,
           role: 'SUPER_ADMIN',
           status: 'ACTIVE',
           organizationId: organization.id,
         },
       });
+
+      // The pending row's only job was to survive until this moment.
+      await tx.pendingOrganizationSignup.delete({ where: { id: stored.id } });
+
+      return created;
     });
 
     return this.issueTokens(user.id, user.email, user.role);
+  }
+
+  /**
+   * Retries on the astronomically rare collision rather than failing the
+   * whole signup over it — see employee-id.util.ts for the odds.
+   */
+  private async generateUniqueEmployeeId(): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidate = generateEmployeeId();
+      const existing = await this.prisma.user.findUnique({
+        where: { employeeId: candidate },
+      });
+      if (!existing) {
+        return candidate;
+      }
+    }
+    throw new Error('Could not generate a unique employee ID');
   }
 
   /**

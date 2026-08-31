@@ -1,5 +1,10 @@
 import request from 'supertest';
-import { createTestApp, httpServer, TestContext } from './helpers/test-app';
+import {
+  createTestApp,
+  httpServer,
+  registerOrganization,
+  TestContext,
+} from './helpers/test-app';
 
 /**
  * The most important guarantee in the product: one company cannot see, alter,
@@ -19,18 +24,12 @@ describe('Tenant isolation (integration)', () => {
   let acmeOfficeId: string;
 
   const registerOrg = async (name: string, suffix: string) => {
-    const res = await request(httpServer(ctx))
-      .post('/api/auth/register-organization')
-      .send({
-        organizationName: name,
-        adminEmployeeId: `ADMIN-${suffix}`,
-        adminName: `Admin ${suffix}`,
-        email: `admin${suffix}@test.local`,
-        password: 'Passw0rd!',
-        confirmPassword: 'Passw0rd!',
-      })
-      .expect(201);
-    return res.body.data.accessToken as string;
+    const { accessToken } = await registerOrganization(ctx, {
+      organizationName: name,
+      email: `admin${suffix}@test.local`,
+      adminName: `Admin ${suffix}`,
+    });
+    return accessToken;
   };
 
   beforeAll(async () => {

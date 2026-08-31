@@ -11,6 +11,12 @@ import { createHash, randomBytes } from 'crypto';
 /** Invite validity — how long a provisioning link stays usable. */
 export const ACTIVATION_TOKEN_TTL_DAYS = 7;
 
+/**
+ * Org-signup verification link validity. 7 days for MVP while volume is low;
+ * drop to 2 once there's real signup traffic to abuse it with.
+ */
+export const PENDING_ORG_SIGNUP_TOKEN_TTL_DAYS = 7;
+
 /** Password-reset links are deliberately short-lived. */
 export const PASSWORD_RESET_TOKEN_TTL_MINUTES = 30;
 

@@ -1,5 +1,10 @@
 import request from 'supertest';
-import { createTestApp, httpServer, TestContext } from './helpers/test-app';
+import {
+  createTestApp,
+  httpServer,
+  registerOrganization,
+  TestContext,
+} from './helpers/test-app';
 
 /**
  * Verifies behaviour that the unit tests cannot see, because they mock
@@ -10,18 +15,12 @@ describe('Database constraints (integration)', () => {
   let ctx: TestContext;
 
   const org = async (suffix: string) => {
-    const res = await request(httpServer(ctx))
-      .post('/api/auth/register-organization')
-      .send({
-        organizationName: `Org ${suffix}`,
-        adminEmployeeId: `ADMIN-${suffix}`,
-        adminName: `Admin ${suffix}`,
-        email: `admin${suffix}@test.local`,
-        password: 'Passw0rd!',
-        confirmPassword: 'Passw0rd!',
-      })
-      .expect(201);
-    return res.body.data.accessToken as string;
+    const { accessToken } = await registerOrganization(ctx, {
+      organizationName: `Org ${suffix}`,
+      email: `admin${suffix}@test.local`,
+      adminName: `Admin ${suffix}`,
+    });
+    return accessToken;
   };
 
   beforeAll(async () => {
@@ -107,12 +106,8 @@ describe('Database constraints (integration)', () => {
       const res = await request(httpServer(ctx))
         .post('/api/auth/register-organization')
         .send({
-          organizationName: 'Different Org',
-          adminEmployeeId: 'DIFFERENT-ID',
-          adminName: 'Someone Else',
           email: 'admina@test.local', // already taken by org('a')
           password: 'Passw0rd!',
-          confirmPassword: 'Passw0rd!',
         })
         .expect(400);
 
@@ -197,23 +192,46 @@ describe('Database constraints (integration)', () => {
 
   describe('transaction rollback', () => {
     it('creates no organization when the admin user cannot be created', async () => {
-      await org('a');
+      const email = 'rollback@test.local';
+
+      // Step one passes cleanly: nothing holds this email yet.
+      await request(httpServer(ctx))
+        .post('/api/auth/register-organization')
+        .send({ email, password: 'Passw0rd!' })
+        .expect(201);
+
+      const token = ctx.mail.tokenFor(email);
+
+      // Between the two steps, that email gets taken by a user elsewhere.
+      // Seeded directly because the API deliberately makes this unreachable —
+      // the point is what Postgres does if it happens anyway.
+      const other = await ctx.prisma.organization.create({
+        data: { name: 'Other Org', email: 'other@test.local' },
+      });
+      await ctx.prisma.user.create({
+        data: {
+          employeeId: 'OTHER-001',
+          name: 'Someone Else',
+          email,
+          organizationId: other.id,
+          role: 'EMPLOYEE',
+          status: 'ACTIVE',
+        },
+      });
 
       const before = await ctx.prisma.organization.count();
 
       // Fails at user creation (email taken) *after* the organization insert
       // inside the same $transaction — so the org must not survive.
       await request(httpServer(ctx))
-        .post('/api/auth/register-organization')
+        .post('/api/auth/verify-organization')
         .send({
+          token,
           organizationName: 'Should Not Persist',
-          adminEmployeeId: 'ROLLBACK-001',
           adminName: 'Rollback',
-          email: 'admina@test.local',
-          password: 'Passw0rd!',
-          confirmPassword: 'Passw0rd!',
+          industry: 'Technology',
         })
-        .expect(400);
+        .expect(409);
 
       expect(await ctx.prisma.organization.count()).toBe(before);
       expect(

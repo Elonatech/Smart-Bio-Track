@@ -233,3 +233,5 @@ pnpm --filter api test:e2e
 
 <!-- Or as a single chain that stops at the first failure: -->
 pnpm --filter api check-types && pnpm --filter api test && pnpm --filter api lint
+
+npx tsc --noEmit -p apps/api/tsconfig.json
