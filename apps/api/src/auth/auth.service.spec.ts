@@ -198,6 +198,28 @@ describe('AuthService', () => {
       );
     });
 
+    it('refuses to rotate the token of a suspended user', async () => {
+      // JwtStrategy would reject the access token this returns, so issuing one
+      // means a 200 followed immediately by a 401 on the next request.
+      mockPrisma.refreshToken.findUnique.mockResolvedValue({
+        id: 'rt-1',
+        revoked: false,
+        expiresAt: new Date(Date.now() + 10000),
+        userId: 'user-1',
+      });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'jane@example.com',
+        role: 'EMPLOYEE',
+        status: 'SUSPENDED',
+      });
+
+      await expect(service.refresh('valid-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
     it('revokes the old token and issues a new pair', async () => {
       mockPrisma.refreshToken.findUnique.mockResolvedValue({
         id: 'rt-1',
@@ -209,6 +231,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'jane@example.com',
         role: 'EMPLOYEE',
+        status: 'ACTIVE',
       });
 
       const result = await service.refresh('valid-token');

@@ -391,6 +391,19 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
+    // Same predicate JwtStrategy applies on every authenticated request. Without
+    // it this endpoint hands a suspended user a fresh pair of tokens and a 200,
+    // which the very next request then rejects — a confusing way to learn your
+    // account is closed. Suspending already revokes refresh tokens, so in
+    // practice `stored.revoked` above catches it first; this covers a status
+    // changed by any route that does not clean up after itself.
+    //
+    // Presenting a valid refresh token proves ownership, so naming the reason
+    // leaks nothing — the same reasoning as login's 'Account is suspended'.
+    if (user.status !== 'ACTIVE') {
+      throw new UnauthorizedException('Account is not active');
+    }
+
     await this.prisma.refreshToken.update({
       where: { id: stored.id },
       data: { revoked: true },

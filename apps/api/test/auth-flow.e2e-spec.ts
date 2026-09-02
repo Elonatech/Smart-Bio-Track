@@ -322,9 +322,7 @@ describe('Auth flow and RBAC (integration)', () => {
 
   describe('delete account', () => {
     it('requires authentication', async () => {
-      await request(httpServer(ctx))
-        .delete('/api/auth/account')
-        .expect(401);
+      await request(httpServer(ctx)).delete('/api/auth/account').expect(401);
     });
 
     it('deletes the authenticated user and revokes all sessions', async () => {
@@ -349,6 +347,71 @@ describe('Auth flow and RBAC (integration)', () => {
         where: { userId: empUser?.id },
       });
       expect(tokenCount).toBe(0);
+    });
+  });
+
+  describe('suspension', () => {
+    it('kills an existing session and lets a restore sign in again', async () => {
+      const empToken = await onboard('EMPLOYEE', 'susp');
+      const emp = await ctx.prisma.user.findUnique({
+        where: { email: 'susp@acme.test' },
+      });
+
+      // Working before.
+      await request(httpServer(ctx))
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${empToken}`)
+        .expect(200);
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${emp?.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // Dead immediately — JwtStrategy re-reads status per request, so the
+      // unexpired access token stops working without waiting for its TTL.
+      await request(httpServer(ctx))
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${empToken}`)
+        .expect(401);
+
+      await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'susp@acme.test', password: 'Passw0rd!' })
+        .expect(401);
+
+      // Toggling back restores access.
+      await request(httpServer(ctx))
+        .patch(`/api/users/${emp?.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'susp@acme.test', password: 'Passw0rd!' })
+        .expect(200);
+    });
+
+    it('will not refresh a session for a user suspended outside the toggle', async () => {
+      await onboard('EMPLOYEE', 'susp2');
+
+      const login = await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'susp2@acme.test', password: 'Passw0rd!' })
+        .expect(200);
+
+      // Suspended straight in the database, so the refresh token survives —
+      // this is the case PATCH /users/:id/status would otherwise have cleaned
+      // up, and the only way refresh's own status check is reached.
+      await ctx.prisma.user.update({
+        where: { email: 'susp2@acme.test' },
+        data: { status: 'SUSPENDED' },
+      });
+
+      await request(httpServer(ctx))
+        .post('/api/auth/refresh')
+        .send({ refreshToken: login.body.data.refreshToken })
+        .expect(401);
     });
   });
 
