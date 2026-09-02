@@ -45,6 +45,7 @@ describe('AuthService', () => {
 
   const mockMail = {
     sendOrganizationVerificationEmail: jest.fn().mockResolvedValue(undefined),
+    sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -421,21 +422,21 @@ describe('AuthService', () => {
     it('stores only a hash and invalidates any earlier unused token', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(activeUser);
 
-      // resetToken is the temporary stand-in for emailing the link; it is
-      // only present on the success path, hence the narrowing.
-      const result = (await service.forgotPassword({
-        email: 'jane@x.com',
-      })) as { message: string; resetToken: string };
+      await service.forgotPassword({ email: 'jane@x.com' });
 
       expect(mockPrisma.passwordResetToken.updateMany).toHaveBeenCalledWith({
         where: { userId: 'user-1', usedAt: null },
         data: { usedAt: expect.any(Date) },
       });
 
+      // The raw token now leaves only through the email.
+      const emailed = mockMail.sendPasswordResetEmail.mock
+        .calls[0][1] as string;
+
       const created = mockPrisma.passwordResetToken.create.mock.calls[0][0] as {
         data: { tokenHash: string };
       };
-      expect(created.data.tokenHash).not.toBe(result.resetToken);
+      expect(created.data.tokenHash).not.toBe(emailed);
       expect(created.data.tokenHash).toHaveLength(64);
     });
   });

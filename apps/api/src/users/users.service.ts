@@ -2,9 +2,11 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-users.dto';
 import {
   ACTIVATION_TOKEN_TTL_DAYS,
@@ -29,7 +31,10 @@ const ROLE_CREATION_MATRIX: Record<UserRole, UserRole[]> = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mailService: MailService,
+  ) {}
 
   async provision(
     dto: CreateUserDto,
@@ -111,6 +116,26 @@ export class UsersService {
       return created;
     });
 
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+    });
+
+    try {
+      await this.mailService.sendActivationEmail(
+        user.email,
+        rawToken,
+        organization?.name ?? 'Your organization',
+      );
+    } catch {
+      // The user row and its token are already committed. Deleting them here
+      // would be worse than leaving them: the admin would see an error and a
+      // vanished user, and re-creating hits the duplicate-email guard anyway.
+      // The account simply stays PENDING until the invite is re-sent.
+      throw new InternalServerErrorException(
+        `${user.name} was created, but the activation email could not be sent. Re-send the invitation from the user's profile.`,
+      );
+    }
+
     return {
       id: user.id,
       employeeId: user.employeeId,
@@ -120,10 +145,6 @@ export class UsersService {
       status: user.status,
       departmentId: user.departmentId,
       officeId: user.officeId,
-      // TEMPORARY: returned in the response only because no email service
-      // exists yet. Once notifications ship, this must be emailed to the
-      // invitee and removed from the API response.
-      activationToken: rawToken,
     };
   }
 

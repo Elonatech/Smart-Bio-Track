@@ -11,8 +11,10 @@ import {
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto } from './dto/logout.dto';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { CreatePendingOrganizationDto } from './dto/create-pending-organization.dto';
 import { VerifyOrganizationDto } from './dto/verify-organization.dto';
+import { ResendVerificationDto } from './dto/resend-verification.dto';
 import { CompleteRegistrationDto } from './dto/complete-registration.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -26,9 +28,11 @@ import {
   THROTTLE_LOGIN,
   THROTTLE_ORG_REGISTRATION,
   THROTTLE_REFRESH,
+  THROTTLE_RESEND_VERIFICATION,
   THROTTLE_TOKEN_REDEMPTION,
 } from '../common/throttle.config';
 
+@ApiBearerAuth()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -40,6 +44,15 @@ export class AuthController {
   @ResponseMessage('Verification email sent.')
   registerOrganization(@Body() dto: CreatePendingOrganizationDto) {
     return this.authService.createPendingOrganization(dto);
+  }
+
+  // Issues a fresh verification link for a signup still awaiting one. Public,
+  // and answers identically whether or not the address has a pending signup.
+  @Post('resend-organization-verification')
+  @Throttle(THROTTLE_RESEND_VERIFICATION)
+  @HttpCode(HttpStatus.OK)
+  resendOrganizationVerification(@Body() dto: ResendVerificationDto) {
+    return this.authService.resendOrganizationVerification(dto);
   }
 
   // Second half of self-service org signup — redeems the verification token

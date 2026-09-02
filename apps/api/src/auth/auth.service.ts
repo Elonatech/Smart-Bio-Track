@@ -3,7 +3,10 @@ import {
   UnauthorizedException,
   BadRequestException,
   InternalServerErrorException,
+  ConflictException,
+  Logger,
 } from '@nestjs/common';
+import { Prisma, User } from '@prisma/client';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { randomUUID } from 'crypto';
 import * as argon2 from 'argon2';
@@ -21,6 +24,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { CreatePendingOrganizationDto } from './dto/create-pending-organization.dto';
 import { VerifyOrganizationDto } from './dto/verify-organization.dto';
+import { ResendVerificationDto } from './dto/resend-verification.dto';
 import {
   PASSWORD_RESET_TOKEN_TTL_MINUTES,
   REFRESH_TOKEN_TTL_DAYS,
@@ -35,6 +39,8 @@ import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -126,6 +132,68 @@ export class AuthService {
     };
   }
   /**
+   * Issues a fresh verification token for a signup still waiting on its email.
+   *
+   * Like forgotPassword, this always answers identically — a pending signup is
+   * keyed by email address, so a distinguishing response would reveal which
+   * addresses are mid-registration.
+   */
+  async resendOrganizationVerification(dto: ResendVerificationDto) {
+    const genericResponse = {
+      message:
+        'If that email is awaiting verification, a new link has been sent.',
+    };
+
+    const normalizedEmail = dto.email.toLowerCase().trim();
+
+    const pending = await this.prisma.pendingOrganizationSignup.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!pending) {
+      return genericResponse;
+    }
+
+    // An expired signup is not revived here — the row is cleared out so the
+    // address is free again, and the caller starts over.
+    if (pending.expiresAt < new Date()) {
+      await this.prisma.pendingOrganizationSignup.delete({
+        where: { id: pending.id },
+      });
+      return genericResponse;
+    }
+
+    const rawToken = generateToken();
+
+    // Rotating the hash invalidates the previous link the moment a new one is
+    // requested, matching how forgotPassword retires unused reset tokens.
+    await this.prisma.pendingOrganizationSignup.update({
+      where: { id: pending.id },
+      data: {
+        tokenHash: hashToken(rawToken),
+        expiresAt: expiryInDays(PENDING_ORG_SIGNUP_TOKEN_TTL_DAYS),
+      },
+    });
+
+    try {
+      await this.mailService.sendOrganizationVerificationEmail(
+        normalizedEmail,
+        rawToken,
+      );
+    } catch (error) {
+      // Swallowed for the same reason as forgotPassword — a 500 here would
+      // distinguish a real pending signup from an unknown address.
+      this.logger.error(
+        `Verification resend failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    return genericResponse;
+  }
+
+  /**
    * Second half of self-service org signup: redeems the token from
    * createPendingOrganization and takes the fields that weren't collected
    * up front — organization name, the admin's own name, and industry.
@@ -158,32 +226,51 @@ export class AuthService {
 
     const employeeId = await this.generateUniqueEmployeeId();
 
-    const user = await this.prisma.$transaction(async (tx) => {
-      const organization = await tx.organization.create({
-        data: {
-          name: organizationName,
-          email: stored.email,
-          industry,
-        },
+    let user: User;
+
+    try {
+      user = await this.prisma.$transaction(async (tx) => {
+        const organization = await tx.organization.create({
+          data: {
+            name: organizationName,
+            email: stored.email,
+            industry,
+          },
+        });
+
+        const created = await tx.user.create({
+          data: {
+            employeeId,
+            name: adminName,
+            email: stored.email,
+            passwordHash: stored.passwordHash,
+            role: 'SUPER_ADMIN',
+            status: 'ACTIVE',
+            organizationId: organization.id,
+          },
+        });
+
+        // The pending row's only job was to survive until this moment.
+        await tx.pendingOrganizationSignup.delete({ where: { id: stored.id } });
+
+        return created;
       });
-
-      const created = await tx.user.create({
-        data: {
-          employeeId,
-          name: adminName,
-          email: stored.email,
-          passwordHash: stored.passwordHash,
-          role: 'SUPER_ADMIN',
-          status: 'ACTIVE',
-          organizationId: organization.id,
-        },
-      });
-
-      // The pending row's only job was to survive until this moment.
-      await tx.pendingOrganizationSignup.delete({ where: { id: stored.id } });
-
-      return created;
-    });
+    } catch (e) {
+      // The name and email were free when step one ran and when this method
+      // started, but a signup can sit pending for seven days — long enough for
+      // another organization to claim either in between. Postgres catches the
+      // race; without this the caller gets an opaque 500 for something they
+      // could actually act on.
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'That organization name or email address has already been taken. Please start again.',
+        );
+      }
+      throw e;
+    }
 
     return this.issueTokens(user.id, user.email, user.role);
   }
@@ -394,13 +481,23 @@ export class AuthService {
       });
     });
 
-    return {
-      ...genericResponse,
-      // TEMPORARY: no email service exists yet, so the token is returned
-      // directly. This MUST be removed once notifications ship — until then
-      // anyone can request a reset for a known address and read the token.
-      resetToken: rawToken,
-    };
+    try {
+      await this.mailService.sendPasswordResetEmail(user.email, rawToken);
+    } catch (error) {
+      // Deliberately swallowed. Every other path through this method returns
+      // the same generic response, so letting a send failure surface as a 500
+      // would turn this endpoint back into the enumeration oracle the generic
+      // response exists to prevent: unknown address → 200, real address whose
+      // email failed → 500. The token is already stored; the user can ask for
+      // another one.
+      this.logger.error(
+        `Password reset email failed to send: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    return genericResponse;
   }
 
   /**

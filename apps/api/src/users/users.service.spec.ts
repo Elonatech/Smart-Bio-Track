@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -12,8 +13,17 @@ describe('UsersService', () => {
     department: { findFirst: jest.fn() },
     office: { findFirst: jest.fn() },
     activationToken: { create: jest.fn() },
+    organization: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   };
+
+  const mockMail = {
+    sendActivationEmail: jest.fn().mockResolvedValue(undefined),
+  };
+
+  /** The raw activation token, which now only ever leaves via the email. */
+  const emailedToken = (): string =>
+    mockMail.sendActivationEmail.mock.calls[0][1] as string;
 
   const baseDto = {
     employeeId: 'EMP100',
@@ -25,6 +35,10 @@ describe('UsersService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockPrisma.user.findUnique.mockResolvedValue(null);
+    mockPrisma.organization.findUnique.mockResolvedValue({
+      id: orgId,
+      name: 'Acme Corp',
+    });
     // Run the transaction callback against the same mock client.
     mockPrisma.$transaction.mockImplementation(
       (cb: (tx: typeof mockPrisma) => unknown) => cb(mockPrisma),
@@ -34,6 +48,7 @@ describe('UsersService', () => {
       providers: [
         UsersService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: MailService, useValue: mockMail },
       ],
     }).compile();
 
@@ -59,7 +74,10 @@ describe('UsersService', () => {
       );
 
       expect(result.role).toBe('SUPER_ADMIN');
-      expect(result.activationToken).toEqual(expect.any(String));
+      // The token is emailed, never returned — returning it would let anyone
+      // who can read the response activate the account.
+      expect(result).not.toHaveProperty('activationToken');
+      expect(emailedToken()).toEqual(expect.any(String));
     });
 
     it('forbids an HR_ADMIN from creating a SUPER_ADMIN', async () => {
@@ -134,12 +152,12 @@ describe('UsersService', () => {
         officeId: null,
       });
 
-      const result = await service.provision(baseDto, 'SUPER_ADMIN', orgId);
+      await service.provision(baseDto, 'SUPER_ADMIN', orgId);
 
       const tokenArg = mockPrisma.activationToken.create.mock.calls[0][0] as {
         data: { tokenHash: string };
       };
-      expect(tokenArg.data.tokenHash).not.toBe(result.activationToken);
+      expect(tokenArg.data.tokenHash).not.toBe(emailedToken());
       expect(tokenArg.data.tokenHash).toHaveLength(64); // sha256 hex
     });
 

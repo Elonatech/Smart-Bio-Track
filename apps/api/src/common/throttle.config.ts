@@ -50,3 +50,12 @@ export const THROTTLE_REFRESH = { default: { ttl: MINUTE, limit: 10 } };
 
 /** Spam organization creation — the only genuinely public write endpoint. */
 export const THROTTLE_ORG_REGISTRATION = { default: { ttl: HOUR, limit: 3 } };
+
+/**
+ * Resending a verification link is the cheapest way to bomb someone's inbox:
+ * one request, one email, and unlike registration it can be repeated against
+ * an address that already has a pending signup. Tighter than registration.
+ */
+export const THROTTLE_RESEND_VERIFICATION = {
+  default: { ttl: HOUR, limit: 3 },
+};

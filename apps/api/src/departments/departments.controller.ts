@@ -17,11 +17,13 @@ import { UpdateDepartmentDto } from './dto/update-department.dto';
 import { Roles } from '../auth/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 interface AuthenticatedRequest {
   user: { id: string; email: string; role: UserRole; organizationId: string };
 }
 
+@ApiBearerAuth()
 @Controller('departments')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class DepartmentsController {

@@ -18,8 +18,10 @@ import { createTestPrismaClient, truncateAll } from './database';
  * the HTTP response there was no way for a test to complete a signup at all.
  * Capturing the send is that missing seam.
  */
+type SentKind = 'verification' | 'activation' | 'reset';
+
 export class FakeMailService {
-  readonly verificationEmails: Array<{ email: string; token: string }> = [];
+  readonly sent: Array<{ kind: SentKind; email: string; token: string }> = [];
 
   sendEmail(): Promise<void> {
     return Promise.resolve();
@@ -29,22 +31,32 @@ export class FakeMailService {
     email: string,
     token: string,
   ): Promise<void> {
-    this.verificationEmails.push({ email, token });
+    this.sent.push({ kind: 'verification', email, token });
+    return Promise.resolve();
+  }
+
+  sendActivationEmail(email: string, token: string): Promise<void> {
+    this.sent.push({ kind: 'activation', email, token });
+    return Promise.resolve();
+  }
+
+  sendPasswordResetEmail(email: string, token: string): Promise<void> {
+    this.sent.push({ kind: 'reset', email, token });
     return Promise.resolve();
   }
 
   clear(): void {
-    this.verificationEmails.length = 0;
+    this.sent.length = 0;
   }
 
-  /** The most recent verification token sent to `email`. */
-  tokenFor(email: string): string {
-    const match = [...this.verificationEmails]
+  /** The most recent token of `kind` sent to `email`. */
+  tokenFor(email: string, kind: SentKind = 'verification'): string {
+    const match = [...this.sent]
       .reverse()
-      .find((sent) => sent.email === email.toLowerCase());
+      .find((s) => s.kind === kind && s.email === email.toLowerCase());
 
     if (!match) {
-      throw new Error(`No verification email was sent to ${email}`);
+      throw new Error(`No ${kind} email was sent to ${email}`);
     }
 
     return match.token;
@@ -140,7 +152,11 @@ export interface RegisterOrganizationOptions {
 export async function registerOrganization(
   ctx: TestContext,
   options: RegisterOrganizationOptions,
-): Promise<{ accessToken: string; refreshToken: string }> {
+): Promise<{
+  accessToken: string;
+  refreshToken: string;
+  employeeId: string;
+}> {
   const {
     organizationName,
     email,
@@ -161,5 +177,20 @@ export async function registerOrganization(
     .send({ token, organizationName, adminName, industry })
     .expect(200);
 
-  return verified.body.data as { accessToken: string; refreshToken: string };
+  // The admin's employee ID is generated server-side and never returned, so a
+  // test that needs it (logging in by employee ID) has to read it back.
+  const admin = await ctx.prisma.user.findUnique({
+    where: { email: email.toLowerCase() },
+  });
+
+  if (!admin) {
+    throw new Error(`No admin user was created for ${email}`);
+  }
+
+  const tokens = verified.body.data as {
+    accessToken: string;
+    refreshToken: string;
+  };
+
+  return { ...tokens, employeeId: admin.employeeId };
 }

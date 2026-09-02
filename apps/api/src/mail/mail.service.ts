@@ -86,7 +86,7 @@ export class MailService {
     htmlContent: string,
   ): Promise<void> {
     const recipients = to.map((r) => r.email).join(', ');
-    this.logger.log(`Sending "${subject}" to ${recipients}`);
+    const startedAt = Date.now();
 
     const payload: BrevoEmailPayload = {
       sender: { email: BREVO_SENDER_EMAIL, name: BREVO_SENDER_NAME },
@@ -132,7 +132,12 @@ export class MailService {
       throw new Error('Failed to send email');
     }
 
-    this.logger.log(`Sent "${subject}" to ${recipients}`);
+    // One line per send, on success only. The failure paths above log their
+    // own reason, so an attempt that produces nothing here has already said
+    // why at error level.
+    this.logger.log(
+      `Sent "${subject}" to ${recipients} (${Date.now() - startedAt}ms)`,
+    );
   }
 
   /**
@@ -162,5 +167,49 @@ export class MailService {
       'Verify your email to finish registering',
       html,
     );
+  }
+
+  /**
+   * Sent when an admin provisions a staff account. The invitee sets their own
+   * password at this link — we never create one for them, so there is no
+   * temporary password to leak.
+   */
+  async sendActivationEmail(
+    email: string,
+    token: string,
+    organizationName: string,
+  ): Promise<void> {
+    const link = `${APP_WEB_URL}/complete-registration?token=${encodeURIComponent(token)}`;
+
+    const html = layout(
+      'Activate your account',
+      `
+        <p>${escapeHtml(organizationName)} has created an account for you on ${escapeHtml(BREVO_SENDER_NAME)}. Set a password to activate it.</p>
+        ${button(link, 'Set my password')}
+        <p style="font-size: 13px; color: #666;">
+          This link expires in 7 days.
+        </p>
+      `,
+    );
+
+    await this.sendEmail([{ email }], 'Activate your account', html);
+  }
+
+  async sendPasswordResetEmail(email: string, token: string): Promise<void> {
+    const link = `${APP_WEB_URL}/reset-password?token=${encodeURIComponent(token)}`;
+
+    const html = layout(
+      'Reset your password',
+      `
+        <p>We received a request to reset your password.</p>
+        ${button(link, 'Reset password')}
+        <p style="font-size: 13px; color: #666;">
+          This link expires in 30 minutes. If you did not request this, ignore
+          this email — your password will not change.
+        </p>
+      `,
+    );
+
+    await this.sendEmail([{ email }], 'Reset your password', html);
   }
 }
