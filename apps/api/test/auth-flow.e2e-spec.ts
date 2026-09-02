@@ -320,6 +320,38 @@ describe('Auth flow and RBAC (integration)', () => {
     });
   });
 
+  describe('delete account', () => {
+    it('requires authentication', async () => {
+      await request(httpServer(ctx))
+        .delete('/api/auth/account')
+        .expect(401);
+    });
+
+    it('deletes the authenticated user and revokes all sessions', async () => {
+      const empToken = await onboard('EMPLOYEE', 'emp5');
+      const empUser = await ctx.prisma.user.findUnique({
+        where: { email: 'emp5@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .delete('/api/auth/account')
+        .set('Authorization', `Bearer ${empToken}`)
+        .expect(200);
+
+      // User is gone
+      const deleted = await ctx.prisma.user.findUnique({
+        where: { email: 'emp5@acme.test' },
+      });
+      expect(deleted).toBeNull();
+
+      // All tokens are gone (cascade delete)
+      const tokenCount = await ctx.prisma.activationToken.count({
+        where: { userId: empUser?.id },
+      });
+      expect(tokenCount).toBe(0);
+    });
+  });
+
   describe('password reset', () => {
     it('reveals nothing about whether an email is registered', async () => {
       const known = await request(httpServer(ctx))

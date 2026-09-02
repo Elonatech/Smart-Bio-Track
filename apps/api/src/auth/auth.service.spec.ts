@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  UnauthorizedException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,6 +20,7 @@ describe('AuthService', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     },
     organization: { findUnique: jest.fn() },
     department: { findUnique: jest.fn() },
@@ -394,6 +399,36 @@ describe('AuthService', () => {
       expect(result).toEqual({ message: 'Signed out of 3 session(s)' });
     });
   });
+
+  describe('deleteAccount', () => {
+    it('deletes the user account', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'user@example.com',
+      });
+
+      const result = await service.deleteAccount('user-1');
+
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+      });
+      expect(mockPrisma.user.delete).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+      });
+      expect(result.message).toMatch(/Account deleted/);
+    });
+
+    it('throws when user not found', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.deleteAccount('unknown-id')).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+
+      expect(mockPrisma.user.delete).not.toHaveBeenCalled();
+    });
+  });
+
   describe('forgotPassword', () => {
     const activeUser = { id: 'user-1', status: 'ACTIVE' };
 

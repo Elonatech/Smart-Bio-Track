@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -127,6 +128,15 @@ export class AuthController {
   @ResponseMessage('Profile retrieved.')
   me(@Req() req: { user: unknown }) {
     return req.user;
+  }
+
+  // Deletes the authenticated caller's account — all sessions are revoked via cascade
+  @Delete('account')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Account deleted successfully.')
+  deleteAccount(@Req() req: { user: { id: string } }) {
+    return this.authService.deleteAccount(req.user.id);
   }
 
   // Placeholder for an admin-only route to demonstrate role-based access control

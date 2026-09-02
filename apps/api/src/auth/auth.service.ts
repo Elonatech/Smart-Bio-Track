@@ -4,6 +4,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
   ConflictException,
+  UnprocessableEntityException,
   Logger,
 } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
@@ -539,6 +540,18 @@ export class AuthService {
     });
 
     return { message: 'Password has been reset. Please sign in again.' };
+  }
+
+  async deleteAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user) {
+      throw new UnprocessableEntityException('User not found');
+    }
+
+    await this.prisma.user.delete({ where: { id: userId } });
+
+    return { message: 'Account deleted successfully.' };
   }
 
   private async issueTokens(userId: string, email: string, role: string) {
