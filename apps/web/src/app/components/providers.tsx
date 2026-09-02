@@ -8,6 +8,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/lib/store/auth-store';
+import { ToastViewport } from './Toast';
 
 // This component wraps your entire app (see layout.tsx, where it wraps
 // {children}). Anything that needs to be set up ONCE, and be available
@@ -40,9 +41,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
   // component below it in the tree via React Context, so any component
   // can call React Query hooks (useQuery, useMutation) without prop
   // drilling the client down manually.
+  // ToastViewport is react-hot-toast's renderer, mounted once so any
+  // page or modal can call useToast() (see components/Toast.tsx). It's a
+  // sibling rather than a wrapper because react-hot-toast keeps its own
+  // store outside React context — nothing needs to be nested inside it.
   return (
     <QueryClientProvider client={queryClient}>
       {children}
+      <ToastViewport />
     </QueryClientProvider>
   );
 }

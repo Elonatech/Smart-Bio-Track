@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Info, Search } from "lucide-react";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { DataTable } from "@/app/components/dashboard/DataTable";
 
 // Seeded example data — there is no Attendance/Punch Prisma model and
 // no attendance module in apps/api/src, so nothing here comes from the
@@ -146,83 +147,90 @@ export default function EmployeeAttendancePage() {
         service is connected.
       </div>
 
-      <div className="bg-surface border border-neutral/20 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral/20">
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Date
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Clock in
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Clock out
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Total
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Office
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Status
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Trust score
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDays.map((day) => (
-                <tr
-                  key={day.id}
-                  className="border-b border-neutral/10 last:border-0"
-                >
-                  <td className="px-6 py-4 font-medium text-heading whitespace-nowrap">
-                    {day.date}
-                  </td>
-                  <td className="px-6 py-4 text-neutral whitespace-nowrap">
-                    {day.clockIn ?? "—"}
-                  </td>
-                  <td className="px-6 py-4 text-neutral whitespace-nowrap">
-                    {day.clockOut ?? "—"}
-                  </td>
-                  <td className="px-6 py-4 text-neutral whitespace-nowrap">
-                    {day.totalHours}
-                  </td>
-                  <td className="px-6 py-4 text-neutral whitespace-nowrap">
-                    {day.office}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-block rounded px-2 py-1 text-xs font-medium ${
-                        STATUS_STYLES[day.status].className
-                      }`}
-                    >
-                      {STATUS_STYLES[day.status].label}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-neutral whitespace-nowrap">
-                    {day.trustScore ?? "—"}
-                  </td>
-                </tr>
-              ))}
-              {filteredDays.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="px-6 py-8 text-center text-sm text-neutral"
-                  >
-                    No attendance records match these filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        rows={filteredDays}
+        getRowKey={(day) => day.id}
+        emptyMessage="No attendance records match these filters."
+        pageSize={10}
+        itemLabel="days"
+        renderCardHeader={(day) => (
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-semibold text-heading">{day.date}</p>
+            <span
+              className={`inline-block rounded px-2 py-1 text-xs font-medium ${
+                STATUS_STYLES[day.status].className
+              }`}
+            >
+              {STATUS_STYLES[day.status].label}
+            </span>
+          </div>
+        )}
+        columns={[
+          {
+            key: "date",
+            header: "Date",
+            hideOnMobile: true,
+            render: (day) => (
+              <span className="font-medium text-heading whitespace-nowrap">
+                {day.date}
+              </span>
+            ),
+          },
+          {
+            key: "clockIn",
+            header: "Clock in",
+            render: (day) => (
+              <span className="text-neutral tabular-nums">
+                {day.clockIn ?? "—"}
+              </span>
+            ),
+          },
+          {
+            key: "clockOut",
+            header: "Clock out",
+            render: (day) => (
+              <span className="text-neutral tabular-nums">
+                {day.clockOut ?? "—"}
+              </span>
+            ),
+          },
+          {
+            key: "totalHours",
+            header: "Total",
+            render: (day) => (
+              <span className="text-neutral tabular-nums">{day.totalHours}</span>
+            ),
+          },
+          {
+            key: "office",
+            header: "Office",
+            render: (day) => <span className="text-neutral">{day.office}</span>,
+          },
+          {
+            key: "status",
+            header: "Status",
+            hideOnMobile: true,
+            render: (day) => (
+              <span
+                className={`inline-block rounded px-2 py-1 text-xs font-medium ${
+                  STATUS_STYLES[day.status].className
+                }`}
+              >
+                {STATUS_STYLES[day.status].label}
+              </span>
+            ),
+          },
+          {
+            key: "trustScore",
+            header: "Trust score",
+            render: (day) => (
+              <span className="text-neutral tabular-nums">
+                {day.trustScore ?? "—"}
+              </span>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

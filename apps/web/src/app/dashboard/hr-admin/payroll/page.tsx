@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { downloadCsv } from "@/lib/csv";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { useToast } from "@/app/components/Toast";
+import { DataTable } from "@/app/components/dashboard/DataTable";
 
 // Payroll hand-off for HR. UI only — there's no Attendance model in
 // prisma/schema.prisma and no payroll endpoint, so the rows are example
@@ -80,6 +82,7 @@ const naira = new Intl.NumberFormat("en-NG", {
 });
 
 export default function HRAdminPayrollPage() {
+  const toast = useToast();
   const [cycle, setCycle] = useState(CYCLES[0].value);
 
   const cycleLabel =
@@ -136,10 +139,14 @@ export default function HRAdminPayrollPage() {
         totals.grossPay,
       ],
     ]);
+    toast.success(
+      "Payroll exported successfully",
+      PAYROLL_ROWS.length + " employees saved as CSV for the " + cycleLabel + " cycle."
+    );
   }
 
   return (
-    <div className="pb-8">
+    <div>
       <div className="bg-surface border border-neutral/20 rounded-xl overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
           <div>
@@ -177,110 +184,117 @@ export default function HRAdminPayrollPage() {
             </button>
           </div>
         </div>
+      </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-y border-neutral/20">
-                <th className="text-left px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Employee
-                </th>
-                <th className="text-left px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  ID
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Verified hours
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Overtime
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Deductions
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Gross pay
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {PAYROLL_ROWS.map((row) => (
-                <tr
-                  key={row.employeeId}
-                  className="border-b border-neutral/10 last:border-0"
+      <div className="mt-4">
+        <DataTable
+          rows={PAYROLL_ROWS}
+          getRowKey={(row) => row.employeeId}
+          emptyMessage={`No verified hours in the ${cycleLabel} cycle.`}
+          pageSize={15}
+          itemLabel="employees"
+          renderCardHeader={(row) => (
+            <div className="min-w-0">
+              <p className="font-semibold text-heading break-words">
+                {row.name}
+              </p>
+              <p className="text-[12px] text-neutral">{row.employeeId}</p>
+            </div>
+          )}
+          renderFooter={() => (
+            <tr className="border-t border-neutral/20 bg-background/60">
+              <td className="px-5 py-4 font-semibold text-heading whitespace-nowrap">
+                Total
+                <span className="block text-[12px] font-normal text-neutral">
+                  {PAYROLL_ROWS.length} employees
+                </span>
+              </td>
+              <td className="px-5 py-4 hidden lg:table-cell" />
+              <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
+                {totals.verifiedHours}h
+              </td>
+              <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
+                {totals.overtimeHours}h
+              </td>
+              <td className="px-5 py-4 text-right font-semibold text-alert tabular-nums">
+                {totals.deductions > 0 ? naira.format(totals.deductions) : "—"}
+              </td>
+              <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
+                {naira.format(totals.grossPay)}
+              </td>
+            </tr>
+          )}
+          columns={[
+            {
+              key: "name",
+              header: "Employee",
+              hideOnMobile: true,
+              render: (row) => (
+                <span className="font-medium text-heading whitespace-nowrap">
+                  {row.name}
+                </span>
+              ),
+            },
+            {
+              key: "employeeId",
+              header: "ID",
+              hideOnMobile: true,
+              render: (row) => (
+                <span className="text-neutral whitespace-nowrap">
+                  {row.employeeId}
+                </span>
+              ),
+            },
+            {
+              key: "verifiedHours",
+              header: "Verified hours",
+              align: "right",
+              render: (row) => (
+                <span className="text-heading tabular-nums">
+                  {row.verifiedHours}h
+                </span>
+              ),
+            },
+            {
+              key: "overtimeHours",
+              header: "Overtime",
+              align: "right",
+              render: (row) => (
+                <span
+                  className={`tabular-nums ${
+                    row.overtimeHours > 0 ? "text-heading" : "text-neutral"
+                  }`}
                 >
-                  <td className="px-5 py-4 font-medium text-heading whitespace-nowrap">
-                    {row.name}
-                  </td>
-                  <td className="px-5 py-4 text-neutral whitespace-nowrap">
-                    {row.employeeId}
-                  </td>
-                  <td className="px-5 py-4 text-right text-heading tabular-nums">
-                    {row.verifiedHours}h
-                  </td>
-                  {/* Zero overtime is muted rather than bold — it's the
-                      normal case, and only the non-zero ones matter. */}
-                  <td
-                    className={`px-5 py-4 text-right tabular-nums ${
-                      row.overtimeHours > 0 ? "text-heading" : "text-neutral"
-                    }`}
-                  >
-                    {row.overtimeHours}h
-                  </td>
-                  <td
-                    className={`px-5 py-4 text-right tabular-nums ${
-                      row.deductions > 0 ? "text-alert" : "text-neutral"
-                    }`}
-                  >
-                    {row.deductions > 0 ? naira.format(row.deductions) : "—"}
-                  </td>
-                  <td className="px-5 py-4 text-right font-medium text-heading tabular-nums">
-                    {naira.format(row.grossPay)}
-                  </td>
-                </tr>
-              ))}
-
-              {PAYROLL_ROWS.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-5 py-10 text-center text-sm text-neutral"
-                  >
-                    No verified hours in the {cycleLabel} cycle.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-
-            {PAYROLL_ROWS.length > 0 && (
-              <tfoot>
-                <tr className="border-t border-neutral/20 bg-background/60">
-                  <td className="px-5 py-4 font-semibold text-heading whitespace-nowrap">
-                    Total
-                    <span className="block text-[12px] font-normal text-neutral">
-                      {PAYROLL_ROWS.length} employees
-                    </span>
-                  </td>
-                  <td className="px-5 py-4" />
-                  <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
-                    {totals.verifiedHours}h
-                  </td>
-                  <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
-                    {totals.overtimeHours}h
-                  </td>
-                  <td className="px-5 py-4 text-right font-semibold text-alert tabular-nums">
-                    {totals.deductions > 0
-                      ? naira.format(totals.deductions)
-                      : "—"}
-                  </td>
-                  <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
-                    {naira.format(totals.grossPay)}
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
+                  {row.overtimeHours}h
+                </span>
+              ),
+            },
+            {
+              key: "deductions",
+              header: "Deductions",
+              align: "right",
+              render: (row) => (
+                <span
+                  className={`tabular-nums ${
+                    row.deductions > 0 ? "text-alert" : "text-neutral"
+                  }`}
+                >
+                  {row.deductions > 0 ? naira.format(row.deductions) : "—"}
+                </span>
+              ),
+            },
+            {
+              key: "grossPay",
+              header: "Gross pay",
+              align: "right",
+              render: (row) => (
+                <span className="font-medium text-heading tabular-nums">
+                  {naira.format(row.grossPay)}
+                </span>
+              ),
+            },
+          ]}
+        />
       </div>
     </div>
   );

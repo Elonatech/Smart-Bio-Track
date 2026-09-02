@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Lock, Search } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { DataTable } from "@/app/components/dashboard/DataTable";
 
 // Seeded example data — no backend AuditLog model or API exists yet
 // (no Prisma model, no controller/service, confirmed by search). This
@@ -101,61 +102,65 @@ export default function SuperAdminAuditLogsPage() {
         Immutable record · hash-chained and retained for 7 years
       </div>
 
-      <div className="bg-surface border border-neutral/20 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-neutral/20">
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Timestamp
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Actor
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Action
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Target
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  IP address
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredLogs.map((log) => (
-                <tr key={log.id} className="border-b border-neutral/10 last:border-0">
-                  <td className="px-6 py-4 text-neutral whitespace-nowrap">
-                    {log.timestamp}
-                  </td>
-                  <td className="px-6 py-4 font-medium text-heading whitespace-nowrap">
-                    {log.actor}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="inline-block rounded bg-neutral/10 px-2 py-1 text-xs font-mono text-heading">
-                      {log.action}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-neutral whitespace-nowrap">
-                    {log.target}
-                  </td>
-                  <td className="px-6 py-4 text-neutral whitespace-nowrap">
-                    {log.ipAddress}
-                  </td>
-                </tr>
-              ))}
-              {filteredLogs.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-neutral">
-                    No matching audit entries.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DataTable
+        rows={filteredLogs}
+        getRowKey={(log) => log.id}
+        emptyMessage="No matching audit entries."
+        pageSize={15}
+        itemLabel="entries"
+       
+        renderCardHeader={(log) => (
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-heading wrap-break-word">
+              {log.actor}
+            </p>
+            <p className="text-[12px] text-neutral">{log.timestamp}</p>
+          </div>
+        )}
+        columns={[
+          {
+            key: "timestamp",
+            header: "Timestamp",
+            hideOnMobile: true,
+            render: (log) => (
+              <span className="text-neutral whitespace-nowrap">
+                {log.timestamp}
+              </span>
+            ),
+          },
+          {
+            key: "actor",
+            header: "Actor",
+            hideOnMobile: true,
+            render: (log) => (
+              <span className="font-medium text-heading">{log.actor}</span>
+            ),
+          },
+          {
+            key: "action",
+            header: "Action",
+            render: (log) => (
+              <span className="inline-block rounded bg-neutral/10 px-2 py-1 text-xs font-mono text-heading break-all">
+                {log.action}
+              </span>
+            ),
+          },
+          {
+            key: "target",
+            header: "Target",
+            render: (log) => <span className="text-neutral">{log.target}</span>,
+          },
+          {
+            key: "ipAddress",
+            header: "IP address",
+            render: (log) => (
+              <span className="text-neutral whitespace-nowrap">
+                {log.ipAddress}
+              </span>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

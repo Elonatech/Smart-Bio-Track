@@ -24,7 +24,7 @@ export function Hero() {
             Start Free Trial →
           </Link>
           <Link
-            href="/contact"
+            href="/demo"
             className="rounded-md border border-neutral/30 px-5 py-3 text-sm font-medium text-heading hover:bg-neutral/10 transition-colors"
           >
             Book a Demo

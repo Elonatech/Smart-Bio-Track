@@ -20,11 +20,14 @@ export interface Holiday extends HolidayFormValues {
 }
 
 interface HolidayModalProps {
+  /** Present = editing that holiday; absent = adding a new one. Same
+      shape as OfficeFormModal, so both modals behave alike. */
+  holiday?: Holiday;
   onClose: () => void;
   onSave: (values: HolidayFormValues) => void;
 }
 
-export function HolidayModal({ onClose, onSave }: HolidayModalProps) {
+export function HolidayModal({ holiday, onClose, onSave }: HolidayModalProps) {
   const {
     register,
     handleSubmit,
@@ -33,15 +36,13 @@ export function HolidayModal({ onClose, onSave }: HolidayModalProps) {
     formState: { errors },
   } = useForm<HolidayFormValues>({
     resolver: zodResolver(holidayFormSchema),
+    // Pre-filled when editing so the form shows what the holiday
+    // currently is, rather than blanks to retype.
     defaultValues: {
-      name: "",
-      date: "",
-      repeatsAnnually: false,
-      // No Type picker on this form by design. The PUBLIC entries are
-      // the pre-seeded national calendar; anything an admin adds by hand
-      // is a company holiday, so it defaults there rather than asking a
-      // question with an obvious answer.
-      type: "COMPANY",
+      name: holiday?.name ?? "",
+      date: holiday?.date ?? "",
+      repeatsAnnually: holiday?.repeatsAnnually ?? false,
+      type: holiday?.type ?? "COMPANY",
     },
   });
 
@@ -58,7 +59,9 @@ export function HolidayModal({ onClose, onSave }: HolidayModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
       <div className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6">
         <div className="flex items-start justify-between gap-4 mb-1">
-          <h2 className="text-lg font-semibold text-heading">Add holiday</h2>
+          <h2 className="text-lg font-semibold text-heading">
+            {holiday ? "Edit holiday" : "Add holiday"}
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -73,8 +76,7 @@ export function HolidayModal({ onClose, onSave }: HolidayModalProps) {
             label on a calendar, it suspends attendance expectations for
             everyone in the organization. */}
         <p className="text-sm text-neutral mb-5">
-          Attendance expectations are suspended for every employee on this
-          date.
+          Attendance expectations are suspended for every employee on this date.
         </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -119,14 +121,31 @@ export function HolidayModal({ onClose, onSave }: HolidayModalProps) {
             </div>
           </div>
 
+          <div>
+            <label
+              htmlFor="type"
+              className="block text-sm font-medium text-heading mb-1"
+            >
+              Type
+            </label>
+            <select
+              id="type"
+              {...register("type")}
+              className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="COMPANY">Company — your organization only</option>
+              <option value="PUBLIC">Public — national holiday</option>
+            </select>
+          </div>
+
           <div className="flex items-start justify-between gap-4 rounded-md border border-neutral/30 px-4 py-3">
             <div className="min-w-0">
               <p className="text-sm font-medium text-heading">
                 Repeats every year
               </p>
               <p className="text-[12px] text-neutral">
-                Fixed-date public holidays repeat automatically; moveable
-                feasts should stay off.
+                Fixed-date public holidays repeat automatically; moveable feasts
+                should stay off.
               </p>
             </div>
             <div className="shrink-0 pt-0.5">
@@ -152,7 +171,7 @@ export function HolidayModal({ onClose, onSave }: HolidayModalProps) {
               type="submit"
               className="rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90"
             >
-              Save holiday
+              {holiday ? "Save changes" : "Save holiday"}
             </button>
           </div>
         </form>

@@ -19,11 +19,21 @@ import { Transform } from 'class-transformer';
  */
 export class CreateUserDto {
   @IsString()
-  @IsNotEmpty({ message: 'Employee ID is required' })
+  /**
+   * Optional. Omit it and the server generates one (role-prefixed, e.g.
+   * "HR-7K2X9") — the same treatment the founding Super Admin already got
+   * at verifyOrganization.
+   *
+   * Still accepted so an organization migrating from an existing HR system
+   * can keep the IDs its staff already know.
+   */
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'Employee ID cannot be blank' })
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
-  employeeId: string;
+  employeeId?: string;
 
   @IsString()
   @IsNotEmpty({ message: 'Name is required' })

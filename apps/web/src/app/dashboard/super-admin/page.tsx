@@ -2,6 +2,7 @@
 
 import { Clock4, MapPinned, ShieldAlert, Users } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { SetupReminderBanner } from "@/app/components/dashboard/SetupReminderBanner";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 
@@ -17,6 +18,10 @@ export default function SuperAdminDashboardPage() {
 
   return (
     <div>
+      {/* Only renders while the org has no offices — the way back into
+          the setup wizard for anyone who skipped or abandoned it. */}
+      <SetupReminderBanner />
+
       <TodayStatusCard />
 
       <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

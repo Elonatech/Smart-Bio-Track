@@ -10,8 +10,10 @@ import {
   type ForgotPasswordFormValues,
 } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
+import { useToast } from "@/app/components/Toast";
 
 export default function ForgotPasswordPage() {
+  const toast = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   // Once the request succeeds, swap the form out for a confirmation
@@ -33,14 +35,30 @@ export default function ForgotPasswordPage() {
     setIsSubmitting(true);
 
     try {
-      // NOTE: POST /auth/forgot-password doesn't exist on the backend
-      // yet (flagged as a missing endpoint in the engineering docs) —
-      // this will fail until it's built, same situation login/register
-      // were in before their endpoints existed.
+      // The endpoint exists and creates a real reset token, but the
+      // backend does NOT email it yet — auth.service.ts returns
+      // `resetToken` in the response instead. So this page tells the
+      // user to check their inbox and nothing arrives: the self-service
+      // flow cannot currently complete.
+      //
+      // The token is deliberately ignored here rather than displayed.
+      // The invite modals show their link because an authenticated admin
+      // triggered them; this page is public, so rendering the token
+      // would hand account takeover to anyone who knows an email
+      // address. auth.service.ts flags the same risk on the response.
+      //
+      // When MailService is wired in, this needs no change — the token
+      // simply stops coming back and starts arriving by email.
       await appClient.post("/auth/forgot-password", values);
       setIsSubmitted(true);
+      toast.success(
+        "Reset link requested successfully",
+        "If an account exists for that address, a link is on its way."
+      );
     } catch (error) {
-      setServerError(extractErrorMessage(error));
+      const message = extractErrorMessage(error);
+      setServerError(message);
+      toast.error("Could not request a reset", message);
     } finally {
       setIsSubmitting(false);
     }
@@ -107,11 +125,23 @@ export default function ForgotPasswordPage() {
                 <span className="font-medium text-heading">
                   {getValues("email")}
                 </span>
-                , we've sent a link to reset your password.
+                , we&apos;ve sent a link to reset your password.
               </p>
+              {/* A mistyped email is the most likely reason nothing
+                  arrives, and the confirmation is deliberately vague
+                  about whether the account exists — so the user can't
+                  tell a typo from a missing account. Give them the way
+                  back rather than making them reload the page. */}
+              <button
+                type="button"
+                onClick={() => setIsSubmitted(false)}
+                className="mt-6 block w-full text-sm font-medium text-primary hover:underline"
+              >
+                Use a different email
+              </button>
               <Link
                 href="/auth/login"
-                className="mt-6 inline-block text-sm font-medium text-primary"
+                className="mt-3 inline-block text-sm font-medium text-neutral hover:text-heading"
               >
                 Back to sign in
               </Link>
@@ -148,7 +178,7 @@ export default function ForgotPasswordPage() {
                       id="email"
                       type="email"
                       {...register("email")}
-                      className="w-full rounded-md border border-n eutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                   </div>
                   {errors.email && (

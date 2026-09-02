@@ -20,17 +20,24 @@ export const loginSchema = z.object({
 
 export type LoginFormValues = z.infer<typeof loginSchema>;
 
+// Org signup is TWO steps on the backend:
+//
+//   1. POST /auth/register-organization  { email, password }
+//      -> stores a PendingOrganizationSignup row and emails a link.
+//         Returns a message only — no tokens, nothing to log in with.
+//   2. POST /auth/verify-organization    { token, organizationName,
+//                                          adminName, industry }
+//      -> redeems the token, creates the real Organization + its
+//         SUPER_ADMIN, and returns the token pair.
+//
+// So this schema covers step one only. It deliberately does NOT collect
+// an employee ID any more: the backend generates the admin's itself
+// (see apps/api/src/common/employee-id.util.ts, e.g. "ADM-7K2X9").
+//
+// confirmPassword is client-side only — CreatePendingOrganizationDto
+// takes just email and password, so it's stripped before the request.
 export const registerSchema = z
   .object({
-    organizationName: z
-      .string()
-      .min(3, { message: "Organization Name is required" }),
-    adminEmployeeId: z
-      .string()
-      .min(2, { message: "Admin employee ID is required" }),
-    adminName: z.string().min(2, { message: "Admin Name is required" }),
-    // Matches CreateOrganizationDto's `email` field — renamed from the
-    // earlier `workEmail` to match the backend exactly.
     email: z.string().email({ message: "Enter a valid email address" }),
     password: z
       .string()
@@ -47,6 +54,22 @@ export const registerSchema = z
   });
 
 export type RegisterFormValues = z.infer<typeof registerSchema>;
+
+// Step two. Matches VerifyOrganizationDto exactly (apps/api/src/auth/
+// dto/verify-organization.dto.ts). `token` isn't here — it comes from
+// the emailed link's query string rather than being typed, same as the
+// activation flow.
+export const verifyOrganizationSchema = z.object({
+  organizationName: z
+    .string()
+    .min(3, { message: "Organization name must be at least 3 characters" }),
+  adminName: z.string().min(2, { message: "Your full name is required" }),
+  industry: z.string().min(1, { message: "Industry is required" }),
+});
+
+export type VerifyOrganizationFormValues = z.infer<
+  typeof verifyOrganizationSchema
+>;
 
 export const forgotPasswordSchema = z.object({
   email: z.string().email({ message: "Enter a valid email address" }),

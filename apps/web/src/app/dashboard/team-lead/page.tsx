@@ -137,7 +137,7 @@ export default function TeamLeadDashboardPage() {
   const onLeaveCount = TEAM.filter((m) => m.status === "ON_LEAVE").length;
 
   return (
-    <div className="pb-8">
+    <div>
       <TodayStatusCard />
 
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">

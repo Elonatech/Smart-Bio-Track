@@ -207,7 +207,7 @@ export default function EmployeeDashboardPage() {
   const maxHours = Math.max(...WEEK.map((d) => d.hours), 1);
 
   return (
-    <div className="pb-8">
+    <div>
       {/* Row 1 — today's status (wide) + the three punch readouts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">

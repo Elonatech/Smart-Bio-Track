@@ -76,7 +76,7 @@ const TIERS: Tier[] = [
 export function Pricing() {
   return (
     <section id="pricing" className="bg-background py-20">
-      <div className="mx-auto max-w-7xl px-6">
+      <div className="mx-auto max-w-7xl px-6 sm:px-10 lg:px-16">
         <h2 className="text-3xl font-semibold text-heading">Pricing</h2>
         <p className="mt-2 text-neutral">
           Billed monthly in Naira, per active employee. Annual contracts

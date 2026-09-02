@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { Toggle } from "@/app/components/dashboard/Toggle";
+import { useToast } from "@/app/components/Toast";
  
 
 const REQUIRED_SIGNALS = [
@@ -26,6 +27,7 @@ type SignalKey = (typeof REQUIRED_SIGNALS)[number]["key"];
 type PolicyKey = (typeof SECURITY_POLICIES)[number]["key"];
 
 export default function SuperAdminSettingsPage() {
+  const toast = useToast();
   const orgName = useAuthStore((state) => state.user?.organizationName) ?? "Your organization";
   usePageHeader("Organization settings", "Changes are written to the immutable audit log");
 
@@ -83,8 +85,19 @@ export default function SuperAdminSettingsPage() {
           </div>
         </div>
 
+        {/* This button previously had no onClick at all — it looked
+            live and did nothing on click, with no feedback either way.
+            There's no settings endpoint (no model for any of this), so
+            it confirms what actually happened rather than implying a
+            save that didn't occur. */}
         <button
           type="button"
+          onClick={() =>
+            toast.info(
+              "Thresholds applied on this screen",
+              "Not saved to the server yet — organization settings have no backend model."
+            )
+          }
           className="rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90"
         >
           Save thresholds

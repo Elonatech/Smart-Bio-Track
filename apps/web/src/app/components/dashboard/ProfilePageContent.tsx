@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
+import { useToast } from "@/app/components/Toast";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 import { Toggle } from "@/app/components/dashboard/Toggle";
@@ -67,6 +68,7 @@ const NOTIFICATION_PREFS = [
 ] as const;
 
 export function ProfilePageContent() {
+  const toast = useToast();
   // Seed from the store so something renders immediately, then refresh
   // from /auth/me — the stored copy could be stale if an admin changed
   // something since the last login.
@@ -126,13 +128,19 @@ export function ProfilePageContent() {
         setResetLink(
           `${window.location.origin}/auth/reset-password?token=${data.resetToken}`
         );
+        toast.success(
+          "Reset link generated successfully",
+          "Open it to set a new password. This signs you out everywhere."
+        );
       } else {
         setResetError(
           "No reset link was generated — please contact your administrator."
         );
       }
     } catch (error) {
-      setResetError(extractErrorMessage(error));
+      const message = extractErrorMessage(error);
+      setResetError(message);
+      toast.error("Could not generate a reset link", message);
     } finally {
       setIsSendingReset(false);
     }
@@ -141,12 +149,13 @@ export function ProfilePageContent() {
   function handleCopy() {
     if (!resetLink) return;
     navigator.clipboard.writeText(resetLink);
+    toast.success("Reset link copied");
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   }
 
   return (
-    <div className="pb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
       {/* ---- Left: identity ---- */}
       <div className="bg-surface border border-neutral/20 rounded-xl p-5">
         <h6 className="text-[15px] font-semibold text-heading">

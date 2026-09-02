@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ShieldCheck, LogOut, PanelLeftClose, PanelLeftOpen, X, ChevronsRight, ChevronsLeft } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { useToast } from "@/app/components/Toast";
 import type { SidebarItem } from "./sidebarConfig";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -38,9 +39,11 @@ export function Sidebar({
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const toast = useToast();
 
   function handleSignOut() {
     logout();
+    toast.success("Signed out successfully");
     router.push("/auth/login");
   }
 

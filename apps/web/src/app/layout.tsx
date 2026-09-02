@@ -3,8 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./components/providers";
 
-// Inter, per the design system spec — "a precise, modern, technical
-// sans-serif," not the default Next.js starter font (Geist).
+
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],

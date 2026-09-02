@@ -90,7 +90,7 @@ export default function HRAdminDashboardPage() {
   usePageHeader("HR dashboard", `${today} · WAT`);
 
   return (
-    <div className="pb-8">
+    <div>
       {/* Today's status — HR admins clock in like everyone else. */}
       <TodayStatusCard />
 

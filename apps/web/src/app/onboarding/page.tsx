@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { appClient } from "@/lib/api-client";
+import { appClient, extractErrorMessage } from "@/lib/api-client";
+import { useToast } from "@/app/components/Toast";
+import { getDashboardPath } from "@/lib/roleRoutes";
+import { useAuthStore } from "@/lib/store/auth-store";
 import { PartyPopper } from "lucide-react";
 import { StepProgress } from "@/app/components/onboarding/StepProgress";
 import { StepOrgProfile } from "@/app/components/onboarding/StepOrgProfile";
@@ -19,8 +22,38 @@ import StepWorkRules from "@/app/components/onboarding/StepWorkRules";
 import StepDepartments from "@/app/components/onboarding/StepDepartments";
 import StepInviteTeam from "@/app/components/onboarding/StepInviteTeam";
 
+// Wizard progress is saved per user so "Continue setup" resumes where
+// you stopped instead of restarting at step 1. Keyed by user id because
+// this is a shared browser in plenty of small offices — signing in as
+// someone else must not inherit their half-finished setup.
+//
+// localStorage rather than sessionStorage: the gap between abandoning
+// setup and coming back is often days, not minutes.
+function getProgressKey(userId: string) {
+  return `onboarding-progress:${userId}`;
+}
+
+interface SavedProgress {
+  currentStep: number;
+  payload: Partial<OnboardingPayload>;
+}
+
+interface InviteLink {
+  name: string;
+  email: string;
+  link: string;
+}
+
 export default function OnboardingPage() {
+  const toast = useToast();
   const router = useRouter();
+  const userId = useAuthStore((state) => state.user?.id);
+  const isHydrated = useAuthStore((state) => state.isHydrated);
+
+  // Gates both restoring and saving. Without it the save effect fires on
+  // first render with the empty initial state and wipes the very
+  // progress we're about to read back.
+  const [isRestored, setIsRestored] = useState(false);
 
   // 1-indexed to match StepProgress and the spec's "Step 1 of 6"
   // framing. Going "back" is just decrementing this; going forward is
@@ -36,6 +69,67 @@ export default function OnboardingPage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [inviteLinks, setInviteLinks] = useState<InviteLink[]>([]);
+  const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+
+  // Setup is done at this point, so drop the saved progress — a later
+  // visit should start clean, not replay a finished wizard.
+  function goToWelcome() {
+    if (userId) {
+      try {
+        localStorage.removeItem(getProgressKey(userId));
+      } catch {
+        // A stale key is harmless.
+      }
+    }
+    const orgName = payload.orgProfile?.organizationName ?? "";
+    router.push(`/onboarding/welcome?org=${encodeURIComponent(orgName)}`);
+  }
+
+  function handleCopyLink(invite: InviteLink) {
+    navigator.clipboard.writeText(invite.link);
+    toast.success("Activation link copied", "Send it to " + invite.name + ".");
+    setCopiedEmail(invite.email);
+    setTimeout(() => setCopiedEmail(null), 2000);
+  }
+
+  // Restore once the auth store has settled, so we know whose progress
+  // to look for.
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    if (userId) {
+      try {
+        const raw = localStorage.getItem(getProgressKey(userId));
+        if (raw) {
+          const saved = JSON.parse(raw) as SavedProgress;
+          setPayload(saved.payload ?? {});
+          // Clamp: a saved step from an older build with a different
+          // number of steps shouldn't strand someone on a blank screen.
+          setCurrentStep(Math.min(Math.max(saved.currentStep ?? 1, 1), 6));
+        }
+      } catch {
+        // Corrupt or unreadable — start fresh rather than crash.
+      }
+    }
+
+    setIsRestored(true);
+  }, [isHydrated, userId]);
+
+  // Save on every change, so progress survives a closed tab, not just an
+  // in-app navigation.
+  useEffect(() => {
+    if (!isRestored || !userId) return;
+    try {
+      localStorage.setItem(
+        getProgressKey(userId),
+        JSON.stringify({ currentStep, payload } satisfies SavedProgress)
+      );
+    } catch {
+      // Storage full or blocked — the wizard still works, it just won't
+      // resume.
+    }
+  }, [isRestored, userId, currentStep, payload]);
 
   // Called by a step's onNext. Merges that step's data into the
   // accumulated payload under the given key, then advances the step.
@@ -54,31 +148,150 @@ export default function OnboardingPage() {
     setCurrentStep((step) => Math.max(1, step - 1));
   }
 
+  // Advances WITHOUT writing anything into `payload`, so a skipped step
+  // sends nothing to the API in handleFinish. Distinct from onNext,
+  // which records the step's values first.
+  function handleSkipStep() {
+    setCurrentStep((step) => step + 1);
+  }
+
+  // Leaves setup entirely. Goes to the dashboard rather than the welcome
+  // screen, because "Your workspace is live" would be a lie about an org
+  // with no office, no departments and no team.
+  //
+  // Nothing is lost by leaving: the dashboard shows a banner back to
+  // this wizard for as long as the org has no offices (see
+  // SetupReminderBanner).
+  function handleSkipSetup() {
+    router.push(getDashboardPath("SUPER_ADMIN"));
+  }
+
   // Called only from the final step (step 6's confirmation screen).
   //
-  // TEMPORARY: the real POST /organizations/setup endpoint doesn't
-  // exist on the backend yet (only /auth/register-organization,
-  // /offices, /departments exist individually, nothing accepts this
-  // wizard's combined payload, and work rules/invites have no endpoint
-  // at all). Skipping the network call for now so the UI flow can be
-  // built/reviewed independently of backend work — re-enable the
-  // commented-out block once the backend side is ready, and remove
-  // this comment.
+  // There is no single POST /organizations/setup that takes this whole
+  // payload — this used to call one and it never existed, so the wizard
+  // collected six steps of data and threw all of it away. Now each part
+  // goes to the endpoint that actually exists:
+  //
+  //   office       -> POST /offices       (real)
+  //   departments  -> POST /departments   (real, one call each)
+  //   orgProfile   -> nowhere. The Organization was already created at
+  //                   /verify-organization, and there's no PATCH
+  //                   /organizations to rename it or set a logo.
+  //   workRules    -> nowhere. No WorkRule model or module exists.
+  //   inviteTeam   -> POST /users        (real, one call each)
+  //
+  // Requests run in sequence rather than Promise.all so a failure points
+  // at the thing that failed instead of a race of unrelated errors.
   async function handleFinish() {
     setSubmitError(null);
     setIsSubmitting(true);
     try {
-      // await appClient.post("/organizations/setup", payload);
-      const orgName = payload.orgProfile?.organizationName ?? "";
-      router.push(`/onboarding/welcome?org=${encodeURIComponent(orgName)}`);
-    } catch {
-      setSubmitError(
-        "Something went wrong setting up your workspace. Please try again."
+      // MUST be idempotent. There's no transaction spanning these calls,
+      // so any failure part-way leaves some records created — and office
+      // names, department names and emails are all unique. Without this,
+      // a retry after a partial failure fails forever on "already
+      // exists", with no way to move forward or back.
+      //
+      // So: read what's already there, and only create what's missing.
+      const [existingOffices, existingDepartments, existingUsers] =
+        await Promise.all([
+          appClient
+            .get<{ name: string }[]>("/offices")
+            .catch(() => ({ data: [] as { name: string }[] })),
+          appClient
+            .get<{ name: string }[]>("/departments")
+            .catch(() => ({ data: [] as { name: string }[] })),
+          appClient
+            .get<{ email: string }[]>("/users")
+            .catch(() => ({ data: [] as { email: string }[] })),
+        ]);
+
+      const officeNames = new Set(
+        existingOffices.data.map((o) => o.name.trim().toLowerCase())
       );
+      const departmentNames = new Set(
+        existingDepartments.data.map((d) => d.name.trim().toLowerCase())
+      );
+      const userEmails = new Set(
+        existingUsers.data.map((u) => u.email.trim().toLowerCase())
+      );
+
+      if (
+        payload.office &&
+        !officeNames.has(payload.office.officeName.trim().toLowerCase())
+      ) {
+        // `address` and `landmark` are collected by the step but
+        // CreateOfficeDto has no columns for them, so they're dropped
+        // here rather than silently rejected by the API.
+        await appClient.post("/offices", {
+          name: payload.office.officeName,
+          latitude: payload.office.latitude,
+          longitude: payload.office.longitude,
+          geofenceRadiusMeters: payload.office.geofenceRadiusMeters,
+        });
+      }
+
+      for (const department of payload.departments?.departments ?? []) {
+        if (departmentNames.has(department.name.trim().toLowerCase())) continue;
+        await appClient.post("/departments", { name: department.name });
+      }
+
+      // Same endpoint the Add person modal uses. Each creates a PENDING
+      // user plus an activation token. NOTE: the backend does not email
+      // that token yet (users.service.ts still returns it in the
+      // response instead), so invitees won't receive anything until
+      // MailService is wired into provision().
+      // The activation token comes back ONCE, in this response, and is
+      // never retrievable again: no resend endpoint exists, and
+      // forgot-password refuses non-ACTIVE users (auth.service.ts checks
+      // status !== 'ACTIVE' and returns a tokenless generic response).
+      // Discarding it stranded invitees with no way to activate, so the
+      // links are captured and shown before leaving this page.
+      const links: InviteLink[] = [];
+      for (const invite of payload.inviteTeam?.invites ?? []) {
+        if (userEmails.has(invite.email.trim().toLowerCase())) continue;
+        const { data } = await appClient.post<{ activationToken: string }>(
+          "/users",
+          {
+            name: invite.name,
+            email: invite.email,
+            role: invite.role,
+          }
+        );
+        links.push({
+          name: invite.name,
+          email: invite.email,
+          link: `${window.location.origin}/auth/activate?token=${data.activationToken}`,
+        });
+      }
+
+      // Hold on this page while there are links to hand out — navigating
+      // straight to the welcome screen would lose them permanently.
+      toast.success(
+        "Workspace set up successfully",
+        "Your office, departments and invites have been saved."
+      );
+
+      if (links.length > 0) {
+        setInviteLinks(links);
+        return;
+      }
+
+      goToWelcome();
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      setSubmitError(message);
+      toast.error("Setup could not finish", message);
     } finally {
       setIsSubmitting(false);
     }
   }
+
+  // Saved progress is read in an effect, so the first render always has
+  // the empty initial state. Rendering it would flash step 1 before
+  // jumping to the restored step.
+  if (!isRestored) return null;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4 sm:p-8">
@@ -159,7 +372,87 @@ export default function OnboardingPage() {
           />
         )}
 
-        {currentStep === 6 && (
+        {/* Setup is optional — nothing in the schema requires an office,
+            a department or a single colleague (departmentId and officeId
+            are both nullable on User). Offering the exits explicitly
+            beats the old behaviour, where the only way out was closing
+            the tab, which then made the wizard unreachable forever.
+            Hidden on step 6, which is the confirmation, not a form. */}
+        {currentStep < 6 && inviteLinks.length === 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 mt-6 pt-4 border-t border-neutral/20">
+            <button
+              type="button"
+              onClick={handleSkipStep}
+              className="text-sm font-medium text-neutral hover:text-heading"
+            >
+              Skip this step
+            </button>
+            <button
+              type="button"
+              onClick={handleSkipSetup}
+              className="text-sm font-medium text-neutral hover:text-heading"
+            >
+              Skip setup and go to dashboard &rarr;
+            </button>
+          </div>
+        )}
+
+        {/* Shown after Finish setup when invites were created. These
+            links exist ONLY here — the token is returned once by
+            POST /users and can never be fetched again, so this screen
+            replaces the confirmation rather than sitting alongside it. */}
+        {inviteLinks.length > 0 && (
+          <div className="py-2">
+            <h2 className="text-lg font-semibold text-heading mb-1">
+              Send these activation links
+            </h2>
+            <p className="text-sm text-neutral mb-4">
+              No invitation emails are sent yet, and these links can&apos;t be
+              retrieved again — copy them now and pass them on directly.
+            </p>
+
+            <div className="space-y-3">
+              {inviteLinks.map((invite) => (
+                <div
+                  key={invite.email}
+                  className="rounded-md border border-neutral/30 p-3"
+                >
+                  <p className="text-sm font-medium text-heading">
+                    {invite.name}
+                  </p>
+                  <p className="text-[12px] text-neutral mb-2">
+                    {invite.email}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={invite.link}
+                      className="flex-1 min-w-0 rounded-md border border-neutral/40 px-3 py-2 text-xs text-heading bg-background"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleCopyLink(invite)}
+                      className="shrink-0 rounded-md border border-neutral/30 px-3 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
+                    >
+                      {copiedEmail === invite.email ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={goToWelcome}
+              className="mt-6 w-full rounded-md bg-primary text-white py-2 text-sm font-medium hover:bg-primary/90"
+            >
+              I&apos;ve saved these links — continue
+            </button>
+          </div>
+        )}
+
+        {currentStep === 6 && inviteLinks.length === 0 && (
           <div className="flex flex-col items-center text-center py-4">
             <div className="h-16 w-16 rounded-full bg-success/10 flex items-center justify-center mb-4">
               <PartyPopper className="h-7 w-7 text-success" strokeWidth={1.75} />
@@ -181,7 +474,29 @@ export default function OnboardingPage() {
               className="rounded-md bg-primary text-white px-6 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
             >
               {isSubmitting ? "Setting up..." : "Finish setup"}
-            </button>  
+            </button>
+
+            {/* Step 6 previously had ONLY "Finish setup", so an error
+                here — a duplicate office name, say — left you stuck with
+                no way to correct it and no way out. */}
+            <div className="flex flex-wrap items-center justify-center gap-4 mt-6 pt-4 border-t border-neutral/20 w-full">
+              <button
+                type="button"
+                onClick={handleBack}
+                disabled={isSubmitting}
+                className="text-sm font-medium text-neutral hover:text-heading disabled:opacity-40"
+              >
+                &larr; Back
+              </button>
+              <button
+                type="button"
+                onClick={handleSkipSetup}
+                disabled={isSubmitting}
+                className="text-sm font-medium text-neutral hover:text-heading disabled:opacity-40"
+              >
+                Skip setup and go to dashboard &rarr;
+              </button>
+            </div>
           </div>
         )}
       </div>

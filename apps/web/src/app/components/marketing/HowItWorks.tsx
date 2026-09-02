@@ -36,7 +36,7 @@ function StepList({ title, steps }: { title: string; steps: Step[] }) {
 export function HowItWorks() {
   return (
     <section className="bg-background py-20">
-      <div className="mx-auto max-w-7xl px-6">
+      <div className="mx-auto max-w-7xl px-6 sm:px-10 lg:px-16">
         <h2 className="text-3xl font-semibold text-heading">How it works</h2>
         <div className="mt-10 grid gap-6 sm:grid-cols-2">
           <StepList title="For Organizations" steps={ORG_STEPS} />

@@ -51,9 +51,19 @@ export const departmentsSchema = z.object({
 });
 export type DepartmentsValues = z.infer<typeof departmentsSchema>;
 
+// Matches CreateUserDto (apps/api/src/users/dto/create-users.dto.ts).
+//
+// No employeeId field: the server generates one, prefixed by role —
+// HR-7K2X9, TL-…, EMP-… — via generateUniqueEmployeeId() in
+// common/employee-id.util.ts. It's globally unique, so only the server
+// can safely mint it; a browser can't see other organizations' IDs.
+//
+// The DTO still accepts an employeeId if one is sent, for organizations
+// migrating from an existing HR system. This form doesn't offer that.
 export const inviteTeamSchema = z.object({
   invites: z.array(
     z.object({
+      name: z.string().min(2, { message: "Name is required" }),
       email: z.string().email({ message: "Enter a valid email" }),
       role: z.enum(["HR_ADMIN", "TEAM_LEAD", "EMPLOYEE"]),
     })

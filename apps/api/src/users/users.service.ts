@@ -12,6 +12,7 @@ import {
   generateToken,
   hashToken,
 } from '../common/token.util';
+import { generateUniqueEmployeeId } from '../common/employee-id.util';
 
 /**
  * Which roles each role is allowed to provision.
@@ -54,15 +55,24 @@ export class UsersService {
       throw new BadRequestException('A user with this email already exists');
     }
 
-    const existingByEmployeeId = await this.prisma.user.findUnique({
-      where: { employeeId: dto.employeeId },
-    });
+    // Only worth checking when the caller supplied one. A generated ID is
+    // already guaranteed unused by generateUniqueEmployeeId, which does
+    // its own lookup and retries on collision.
+    if (dto.employeeId) {
+      const existingByEmployeeId = await this.prisma.user.findUnique({
+        where: { employeeId: dto.employeeId },
+      });
 
-    if (existingByEmployeeId) {
-      throw new BadRequestException(
-        'A user with this employee ID already exists',
-      );
+      if (existingByEmployeeId) {
+        throw new BadRequestException(
+          'A user with this employee ID already exists',
+        );
+      }
     }
+
+    const employeeId =
+      dto.employeeId ??
+      (await generateUniqueEmployeeId(this.prisma, dto.role));
 
     // Both lookups are scoped to the caller's organization, so an admin
     // cannot attach a new user to another tenant's department or office.
@@ -89,7 +99,7 @@ export class UsersService {
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
-          employeeId: dto.employeeId,
+          employeeId,
           name: dto.name,
           email: normalizedEmail,
           role: dto.role,

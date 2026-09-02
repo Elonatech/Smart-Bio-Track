@@ -50,7 +50,7 @@ const INDUSTRIES: Industry[] = [
 export function WhoItsFor() {
   return (
     <section className="bg-neutral/[0.03] py-20">
-      <div className="mx-auto max-w-7xl px-6">
+      <div className="mx-auto max-w-7xl px-6 sm:px-10 lg:px-16">
         <p className="text-xs font-semibold uppercase tracking-wide text-primary">
           Who it&apos;s for
         </p>

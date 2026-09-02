@@ -80,7 +80,7 @@ export function TrustSignalsSection() {
   const active = SIGNALS[activeIndex];
 
   return (
-    <section id="features" className="mx-auto max-w-7xl px-6 py-20">
+    <section id="features" className="mx-auto max-w-7xl px-6 sm:px-10 lg:px-16 py-20">
       <p className="text-xs font-semibold uppercase tracking-wide text-primary">
         The Trust Score Engine
       </p>

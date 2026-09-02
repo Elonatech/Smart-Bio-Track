@@ -61,7 +61,11 @@ export default function DashboardLayout({
           />
           <div className="flex-1 flex flex-col min-w-0">
             <DashboardNavbar onOpenMobileMenu={() => setIsMobileOpen(true)} />
-            <main className="flex-1 overflow-y-auto bg-background px-6 xl:px-10 sm:pt-6 pt-4">
+            {/* pb-10 lives here rather than on each page: every dashboard
+                route shares this scroll container, so one rule gives them
+                all breathing room at the bottom, instead of ~20 pages
+                each remembering their own margin and drifting apart. */}
+            <main className="flex-1 overflow-y-auto bg-background px-6 xl:px-10 sm:pt-6 pt-4 pb-10">
               {children}
             </main>
           </div>

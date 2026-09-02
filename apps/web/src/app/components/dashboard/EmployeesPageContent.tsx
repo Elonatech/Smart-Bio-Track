@@ -6,7 +6,10 @@ import { appClient } from "@/lib/api-client";
 import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
 import { ROLE_CREATION_MATRIX, ROLE_LABEL } from "@/lib/roleCreationMatrix";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { DataTable } from "@/app/components/dashboard/DataTable";
 import { AddPersonModal } from "@/app/components/dashboard/AddPersonModal";
+import { EditEmployeeModal } from "@/app/components/dashboard/EditEmployeeModal";
+import { DeleteEmployeeModal } from "@/app/components/dashboard/DeleteEmployeeModal";
 import {
   EmployeeDetailModal,
   type EmployeeDetail,
@@ -52,9 +55,7 @@ const STATUS_STYLE: Record<EmployeeListItem["status"], string> = {
 
 export function EmployeesPageContent() {
   const currentRole = useAuthStore((state) => state.user?.role);
-  // One flow for adding anyone — the role dropdown inside the modal
-  // offers exactly these. An empty list means this user can't create
-  // anybody (TEAM_LEAD, EMPLOYEE), so the button is hidden entirely.
+
   const allowedRoles = currentRole ? ROLE_CREATION_MATRIX[currentRole] : [];
   const canAddPeople = allowedRoles.length > 0;
 
@@ -66,6 +67,8 @@ export function EmployeesPageContent() {
   const [search, setSearch] = useState("");
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [viewingEmployee, setViewingEmployee] = useState<EmployeeListItem | null>(null);
+  const [editingEmployee, setEditingEmployee] = useState<EmployeeListItem | null>(null);
+  const [deletingEmployee, setDeletingEmployee] = useState<EmployeeListItem | null>(null);
 
   const fetchAll = useCallback(() => {
     setIsLoading(true);
@@ -110,7 +113,7 @@ export function EmployeesPageContent() {
   }, [employees, search]);
 
   return (
-    <div>
+    <div >
       <div className="flex flex-wrap items-center justify-end gap-3 mb-6">
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral" />
@@ -148,77 +151,123 @@ export function EmployeesPageContent() {
       )}
 
       {!isLoading && filteredEmployees.length > 0 && (
-        <div className="bg-surface border border-neutral/20 rounded-xl overflow-hidden p-5">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-neutral/20">
-                  <th className="text-left  py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                    Employee
-                  </th>
-                  <th className="text-left  py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                    ID
-                  </th>
-                  <th className="text-left  py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                    Department
-                  </th>
-                  <th className="text-left  py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                    Role
-                  </th>
-                  <th className="text-left  py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                    Office
-                  </th>
-                  <th className="text-left  py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                    Status
-                  </th>
-                  <th className=" py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {filteredEmployees.map((employee) => (
-                  <tr key={employee.id} className="border-b border-neutral/10 last:border-0">
-                    <td className=" py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-3">
-                        <span className="h-8 w-8 shrink-0 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">
-                          {getInitials(employee.name)}
-                        </span>
-                        <span className="font-semibold text-heading">{employee.name}</span>
-                      </div>
-                    </td>
-                    <td className=" py-4 text-neutral whitespace-nowrap">
-                      {employee.employeeId}
-                    </td>
-                    <td className=" py-4 text-neutral whitespace-nowrap">
-                      {employee.departmentId ? departmentName[employee.departmentId] ?? "—" : "—"}
-                    </td>
-                    <td className=" py-4 text-neutral whitespace-nowrap">
-                      {ROLE_LABEL[employee.role]}
-                    </td>
-                    <td className=" py-4 text-neutral whitespace-nowrap">
-                      {employee.officeId ? officeName[employee.officeId] ?? "—" : "—"}
-                    </td>
-                    <td className=" py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-block rounded px-2 py-1 text-xs font-medium ${STATUS_STYLE[employee.status]}`}
-                      >
-                        {employee.status}
-                      </span>
-                    </td>
-                    <td className=" py-4 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => setViewingEmployee(employee)}
-                        className="text-sm font-medium text-primary hover:underline"
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <DataTable
+          rows={filteredEmployees}
+          getRowKey={(employee) => employee.id}
+          emptyMessage="No employees match your search."
+          pageSize={10}
+          itemLabel="employees"
+          // On mobile the person's identity leads the card; the matching
+          // columns below set hideOnMobile so they aren't repeated.
+          renderCardHeader={(employee) => (
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="h-9 w-9 shrink-0 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">
+                {getInitials(employee.name)}
+              </span>
+              <div className="min-w-0">
+                <p className="font-semibold text-heading wrap-break-word">
+                  {employee.name}
+                </p>
+                <p className="text-[12px] text-neutral">
+                  {employee.employeeId}
+                </p>
+              </div>
+            </div>
+          )}
+          columns={[
+            {
+              key: "employee",
+              header: "Employee",
+              hideOnMobile: true,
+              render: (employee) => (
+                <div className="flex items-center gap-3">
+                  <span className="h-8 w-8 shrink-0 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">
+                    {getInitials(employee.name)}
+                  </span>
+                  <span className="font-semibold text-heading">
+                    {employee.name}
+                  </span>
+                </div>
+              ),
+            },
+            {
+              key: "employeeId",
+              header: "ID",
+              hideOnMobile: true,
+              render: (employee) => (
+                <span className="text-neutral">{employee.employeeId}</span>
+              ),
+            },
+            {
+              key: "department",
+              header: "Department",
+              render: (employee) => (
+                <span className="text-neutral">
+                  {employee.departmentId
+                    ? departmentName[employee.departmentId] ?? "—"
+                    : "—"}
+                </span>
+              ),
+            },
+            {
+              key: "role",
+              header: "Role",
+              render: (employee) => (
+                <span className="text-neutral">{ROLE_LABEL[employee.role]}</span>
+              ),
+            },
+            {
+              key: "office",
+              header: "Office",
+              render: (employee) => (
+                <span className="text-neutral">
+                  {employee.officeId ? officeName[employee.officeId] ?? "—" : "—"}
+                </span>
+              ),
+            },
+            {
+              key: "status",
+              header: "Status",
+              render: (employee) => (
+                <span
+                  className={`inline-block rounded px-2 py-1 text-xs font-medium ${STATUS_STYLE[employee.status]}`}
+                >
+                  {employee.status}
+                </span>
+              ),
+            },
+            {
+              key: "actions",
+              header: "",
+              align: "right",
+              render: (employee) => (
+                <div className="flex items-center justify-end gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setViewingEmployee(employee)}
+                    className="text-sm font-medium text-primary hover:underline"
+                  >
+                    View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingEmployee(employee)}
+                    className="text-sm font-medium text-primary hover:underline"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeletingEmployee(employee)}
+                    className="text-sm font-medium text-alert hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ),
+            },
+          ]}
+        />
       )}
 
       {isAddPersonOpen && (
@@ -226,6 +275,23 @@ export function EmployeesPageContent() {
           allowedRoles={allowedRoles}
           onClose={() => setIsAddPersonOpen(false)}
           onInvited={fetchAll}
+        />
+      )}
+
+      {editingEmployee && (
+        <EditEmployeeModal
+          employee={editingEmployee}
+          allowedRoles={allowedRoles}
+          onClose={() => setEditingEmployee(null)}
+          onSaved={fetchAll}
+        />
+      )}
+
+      {deletingEmployee && (
+        <DeleteEmployeeModal
+          employee={deletingEmployee}
+          onClose={() => setDeletingEmployee(null)}
+          onDeleted={fetchAll}
         />
       )}
 

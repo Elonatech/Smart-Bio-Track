@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
+import { useToast } from "@/app/components/Toast";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
 import type { UserRole } from "@/lib/store/auth-store";
 
@@ -30,9 +31,14 @@ import type { UserRole } from "@/lib/store/auth-store";
 // User model that none of those three columns exist at all. They're
 // still collected to match the design, but stripped before the request
 // and flagged to the admin.
+// No employeeId field: the server generates one, prefixed by role —
+// ADM-, HR-, TL-, EMP- — via generateUniqueEmployeeId() in
+// apps/api/src/common/employee-id.util.ts. It's globally unique, so only
+// the server can safely mint it. CreateUserDto still accepts one if sent,
+// for orgs migrating from an existing HR system; this form doesn't offer
+// that.
 const addPersonSchema = z.object({
   role: z.string().min(1, { message: "Role is required" }),
-  employeeId: z.string().min(1, { message: "Employee ID is required" }),
   name: z.string().min(2, { message: "Name is required" }),
   email: z.string().email({ message: "Enter a valid email address" }),
   phoneNumber: z.string().optional(),
@@ -87,6 +93,7 @@ export function AddPersonModal({
   onClose,
   onInvited,
 }: AddPersonModalProps) {
+  const toast = useToast();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activationLink, setActivationLink] = useState<string | null>(null);
@@ -131,7 +138,6 @@ export function AddPersonModal({
       // Only send what the backend actually accepts — phoneNumber,
       // jobRole, and workRule have nowhere to go (see note above).
       const { data } = await appClient.post<ProvisionResponse>("/users", {
-        employeeId: values.employeeId,
         name: values.name,
         email: values.email,
         role: values.role,
@@ -143,9 +149,15 @@ export function AddPersonModal({
       setActivationLink(
         `${window.location.origin}/auth/activate?token=${data.activationToken}`
       );
+      toast.success(
+        values.name + " added successfully",
+        "Copy the activation link and send it to them — no invite email is sent yet."
+      );
       onInvited();
     } catch (error) {
-      setServerError(extractErrorMessage(error));
+      const message = extractErrorMessage(error);
+      setServerError(message);
+      toast.error("Could not add this person", message);
     } finally {
       setIsSubmitting(false);
     }
@@ -154,6 +166,7 @@ export function AddPersonModal({
   function handleCopy() {
     if (!activationLink) return;
     navigator.clipboard.writeText(activationLink);
+    toast.success("Activation link copied", "Paste it to " + "the new user directly.");
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   }
@@ -241,37 +254,23 @@ export function AddPersonModal({
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="employeeId" className="block text-sm font-medium text-heading mb-1">
-                    Employee ID
-                  </label>
-                  <input
-                    id="employeeId"
-                    type="text"
-                    placeholder="EMP-1204"
-                    {...register("employeeId")}
-                    className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  {errors.employeeId && (
-                    <p className="mt-1 text-sm text-alert">{errors.employeeId.message}</p>
-                  )}
-                </div>
-                <div>
-                  <label htmlFor="name" className="block text-sm font-medium text-heading mb-1">
-                    Full name
-                  </label>
-                  <input
-                    id="name"
-                    type="text"
-                    placeholder="Chinedu Okafor"
-                    {...register("name")}
-                    className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                  {errors.name && (
-                    <p className="mt-1 text-sm text-alert">{errors.name.message}</p>
-                  )}
-                </div>
+              {/* Full width now that Employee ID no longer shares this
+                  row — a lone field in a two-column grid renders at half
+                  width with an empty gap beside it. */}
+              <div>
+                <label htmlFor="name" className="block text-sm font-medium text-heading mb-1">
+                  Full name
+                </label>
+                <input
+                  id="name"
+                  type="text"
+                  placeholder="Chinedu Okafor"
+                  {...register("name")}
+                  className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                {errors.name && (
+                  <p className="mt-1 text-sm text-alert">{errors.name.message}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">

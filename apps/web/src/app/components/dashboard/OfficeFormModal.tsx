@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
+import { useToast } from "@/app/components/Toast";
 
 const officeFormSchema = z.object({
   name: z.string().min(3, { message: "Name must be at least 3 characters" }),
@@ -31,6 +32,7 @@ interface OfficeFormModalProps {
 }
 
 export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalProps) {
+  const toast = useToast();
   const isEditing = Boolean(office);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,10 +64,23 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
       } else {
         await appClient.post("/offices", values);
       }
+      // Names the office rather than saying "Office created" — after
+      // adding several in a row, which one succeeded matters.
+      toast.success(
+        office
+          ? `${values.name} updated successfully`
+          : `${values.name} created successfully`,
+        `Geo-fence radius ${values.geofenceRadiusMeters} m`
+      );
       onSaved();
       onClose();
     } catch (error) {
-      setServerError(extractErrorMessage(error));
+      const message = extractErrorMessage(error);
+      setServerError(message);
+      toast.error(
+        office ? "Could not update this office" : "Could not create this office",
+        message
+      );
     } finally {
       setIsSubmitting(false);
     }

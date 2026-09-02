@@ -8,6 +8,12 @@
    every utility using it follow, with no dark: variant needed on the
    element itself. Never hardcode a hex in a component (e.g.
    bg-[#1f3965]); it can't respond to the theme. */
+/* 
+   :root is the light default; the .dark block below flips it. */
+:root {
+  color-scheme: light;
+}
+
 @theme {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
@@ -36,10 +42,17 @@
    want since we're giving users an explicit toggle. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Dark theme. The status colours are NOT the same hexes as light —
-   they're lifted and desaturated slightly so they hold their contrast
-   against a dark surface instead of glowing. */
+select,
+option {
+  background-color: var(--color-surface);
+  color: var(--color-heading);
+}
+
 .dark {
+  /* Repaints native select popups, date pickers and scrollbars for dark
+     mode — see the note on :root above. */
+  color-scheme: dark;
+
   --color-primary: #5f86c8;
   --color-success: #139e6f;
   --color-warning: #d98b09;

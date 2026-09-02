@@ -62,6 +62,22 @@ export function FeatureSlider() {
     return () => clearInterval(timer);
   }, [index]);
 
+  // Only the visible slide is in the DOM, and only slide 0 carries
+  // `priority` — so every auto-advance used to fetch its image on
+  // demand, flashing empty for a moment. Warming them in the background
+  // after first paint fixes that without competing with the real LCP
+  // image for bandwidth during load.
+  //
+  // It's also why Next warned that /Images/hero-trustscore was the LCP
+  // element: the slider had already advanced past slide 0 by the time
+  // LCP settled, making a lazily-loaded image the largest paint.
+  useEffect(() => {
+    SLIDES.slice(1).forEach((item) => {
+      const preloaded = new window.Image();
+      preloaded.src = item.image;
+    });
+  }, []);
+
   function goTo(next: number) {
     setIndex((next + SLIDES.length) % SLIDES.length);
   }
@@ -87,7 +103,7 @@ export function FeatureSlider() {
 
         <div className="absolute inset-0 bg-linear-to-t from-black/70 via-black/20 to-transparent" />
 
-        <div className="relative mx-auto flex h-full max-w-7xl items-end px-6 pb-16">
+        <div className="relative mx-auto flex h-full max-w-7xl items-end px-6 sm:px-10 lg:px-16 pb-16">
           <div className="max-w-lg text-white">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur">
               Core feature {index + 1} of {SLIDES.length}

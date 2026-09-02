@@ -4,10 +4,12 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { useToast } from "@/app/components/Toast";
 import {
   HolidayModal,
   type Holiday,
 } from "@/app/components/dashboard/HolidayModal";
+import { ConfirmDialog } from "@/app/components/dashboard/ConfirmDialog";
 
 // repeatsAnnually is false for the moveable feasts — Eid follows the
 // lunar calendar and Good Friday moves with Easter, so neither can be
@@ -32,19 +34,47 @@ function formatDate(iso: string) {
 }
 
 export default function SuperAdminHolidaysPage() {
+  const toast = useToast();
   const orgName =
     useAuthStore((state) => state.user?.organizationName) ??
     "Your organization";
   const [holidays, setHolidays] = useState<Holiday[]>(INITIAL_HOLIDAYS);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<"create" | Holiday | null>(null);
+  const [deletingHoliday, setDeletingHoliday] = useState<Holiday | null>(null);
 
   usePageHeader("Holiday calendar", `${orgName} · 2026`);
 
   function handleSave(values: Omit<Holiday, "id">) {
-    setHolidays((prev) =>
-      [...prev, { ...values, id: crypto.randomUUID() }].sort((a, b) =>
-        a.date.localeCompare(b.date)
-      )
+    const isEdit = Boolean(modalMode && modalMode !== "create");
+
+    if (modalMode && modalMode !== "create") {
+      const editingId = modalMode.id;
+      setHolidays((prev) =>
+        prev
+          .map((holiday) =>
+            holiday.id === editingId ? { ...values, id: editingId } : holiday
+          )
+          .sort((a, b) => a.date.localeCompare(b.date))
+      );
+    } else {
+      setHolidays((prev) =>
+        [...prev, { ...values, id: crypto.randomUUID() }].sort((a, b) =>
+          a.date.localeCompare(b.date)
+        )
+      );
+    }
+
+    toast.success(
+      values.name + (isEdit ? " updated successfully" : " added successfully"),
+      "Shown on the calendar only — holidays are not saved to the server yet."
+    );
+  }
+
+  function handleDelete(holiday: Holiday) {
+    setHolidays((prev) => prev.filter((existing) => existing.id !== holiday.id));
+    toast.success(
+      holiday.name + " deleted successfully",
+      "Attendance expectations apply on that date again."
     );
   }
 
@@ -54,47 +84,85 @@ export default function SuperAdminHolidaysPage() {
         <div className="flex justify-end">
           <button
             type="button"
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => setModalMode("create")}
             className="inline-flex items-center gap-2 bg-primary text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:bg-primary/90 mb-2"
           >
             <Plus className="h-4 w-4" strokeWidth={2} />
             Add holiday
           </button>
         </div>
+        {/* Stacks on phones. The old single row put a fixed-width date, a
+            truncating name and a type badge on one line, so the name —
+            the only part that identifies the holiday — was the first
+            thing squeezed to nothing. */}
         {holidays.map((holiday, index) => (
           <div
             key={holiday.id}
-            className={`flex items-center justify-between py-3 ${
+            className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4 py-3 ${
               index !== holidays.length - 1 ? "border-b border-neutral/10" : ""
             }`}
           >
-            <div className="flex items-center gap-6 min-w-0">
-              <span className="text-sm text-neutral whitespace-nowrap w-28 shrink-0">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:gap-6 min-w-0">
+              <span className="text-sm text-neutral whitespace-nowrap sm:w-28 sm:shrink-0">
                 {formatDate(holiday.date)}
               </span>
-              <span className="text-sm font-medium text-heading truncate">
+              {/* break-words, not truncate: a long name wraps onto a
+                  second line instead of disappearing behind an ellipsis. */}
+              <span className="text-sm font-medium text-heading break-words min-w-0">
                 {holiday.name}
               </span>
+            </div>
+
+            <div className="flex items-center gap-3 shrink-0">
               {/* Otherwise the modal's repeat toggle would vanish the
                   moment you save — nothing on the page would show what
                   you set. */}
               {holiday.repeatsAnnually && (
-                <span className="text-[11px] text-neutral whitespace-nowrap shrink-0">
+                <span className="text-[11px] text-neutral whitespace-nowrap">
                   Repeats yearly
                 </span>
               )}
+              <span className="text-xs font-medium tracking-wide uppercase text-neutral border-b border-neutral/30 pb-0.5">
+                {holiday.type}
+              </span>
+
+              {/* Every holiday can now be corrected or removed — a date
+                  typed wrong was previously permanent for the session. */}
+              <button
+                type="button"
+                onClick={() => setModalMode(holiday)}
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeletingHoliday(holiday)}
+                className="text-sm font-medium text-alert hover:underline"
+              >
+                Delete
+              </button>
             </div>
-            <span className="text-xs font-medium tracking-wide uppercase text-neutral border-b border-neutral/30 pb-0.5 shrink-0 ml-4">
-              {holiday.type}
-            </span>
           </div>
         ))}
       </div>
 
-      {isModalOpen && (
+      {modalMode && (
         <HolidayModal
-          onClose={() => setIsModalOpen(false)}
+          holiday={modalMode === "create" ? undefined : modalMode}
+          onClose={() => setModalMode(null)}
           onSave={handleSave}
+        />
+      )}
+
+      {deletingHoliday && (
+        <ConfirmDialog
+          title={`Delete ${deletingHoliday.name}?`}
+          description="Attendance expectations will apply on that date again, and anyone who does not clock in will count as absent."
+          note="Removed from this screen only — holidays are not saved to the server yet."
+          confirmLabel="Delete holiday"
+          onConfirm={() => handleDelete(deletingHoliday)}
+          onClose={() => setDeletingHoliday(null)}
         />
       )}
     </div>

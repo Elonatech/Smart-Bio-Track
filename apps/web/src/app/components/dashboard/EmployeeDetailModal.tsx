@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, Copy, Check } from "lucide-react";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
+import { useToast } from "@/app/components/Toast";
 import type { UserRole } from "@/lib/store/auth-store";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
 
@@ -23,6 +24,7 @@ interface EmployeeDetailModalProps {
 }
 
 export function EmployeeDetailModal({ employee, onClose }: EmployeeDetailModalProps) {
+  const toast = useToast();
   const [isConfirmingReset, setIsConfirmingReset] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
@@ -43,15 +45,22 @@ export function EmployeeDetailModal({ employee, onClose }: EmployeeDetailModalPr
       );
       if (data.resetToken) {
         setResetLink(`${window.location.origin}/auth/reset-password?token=${data.resetToken}`);
+        toast.success(
+          "Reset link generated successfully",
+          "Copy it and send it to " + employee.name + " — no email is sent yet."
+        );
       } else {
         // PENDING/never-activated users get the generic response with
         // no token (see auth.service.ts) — nothing to relay in that case.
-        setResetError(
-          "No reset link was generated — this account may not be active yet."
-        );
+        const inactive =
+          "No reset link was generated — this account may not be active yet.";
+        setResetError(inactive);
+        toast.error("Could not generate a reset link", inactive);
       }
     } catch (error) {
-      setResetError(extractErrorMessage(error));
+      const message = extractErrorMessage(error);
+      setResetError(message);
+      toast.error("Could not generate a reset link", message);
     } finally {
       setIsSendingReset(false);
     }
@@ -60,6 +69,7 @@ export function EmployeeDetailModal({ employee, onClose }: EmployeeDetailModalPr
   function handleCopy() {
     if (!resetLink) return;
     navigator.clipboard.writeText(resetLink);
+    toast.success("Reset link copied", "Send it to " + employee.name + ".");
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   }

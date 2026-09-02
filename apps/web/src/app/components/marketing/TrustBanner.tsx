@@ -8,7 +8,7 @@ const POINTS = [
 export function TrustBanner() {
   return (
     <section id="trust" className="bg-primary py-20 text-white">
-      <div className="mx-auto grid max-w-7xl gap-10 px-6 lg:grid-cols-2 lg:items-center">
+      <div className="mx-auto grid max-w-7xl gap-10 px-6 sm:px-10 lg:px-16 lg:grid-cols-2 lg:items-center">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-white/70">
             Trust & Security

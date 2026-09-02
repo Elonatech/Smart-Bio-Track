@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, AlertTriangle } from "lucide-react";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
+import { useToast } from "@/app/components/Toast";
 import type { Office } from "./OfficeFormModal";
 
 interface DeleteOfficeModalProps {
@@ -12,6 +13,7 @@ interface DeleteOfficeModalProps {
 }
 
 export function DeleteOfficeModal({ office, onClose, onDeleted }: DeleteOfficeModalProps) {
+  const toast = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,10 +22,13 @@ export function DeleteOfficeModal({ office, onClose, onDeleted }: DeleteOfficeMo
     setIsDeleting(true);
     try {
       await appClient.delete(`/offices/${office.id}`);
+      toast.success(office.name + " deleted successfully", "Employees assigned to it will need a new office.");
       onDeleted();
       onClose();
     } catch (err) {
-      setError(extractErrorMessage(err));
+      const message = extractErrorMessage(err);
+      setError(message);
+      toast.error("Could not delete this office", message);
     } finally {
       setIsDeleting(false);
     }

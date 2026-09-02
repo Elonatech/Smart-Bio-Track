@@ -37,7 +37,16 @@ appClient.interceptors.request.use((config) => {
 // would be nonsensical (login 401ing IS the real answer) or would
 // create an infinite loop (refresh 401ing must not trigger... another
 // refresh attempt).
-const NO_REFRESH_RETRY_PATHS = ["/auth/login", "/auth/refresh", "/auth/register-organization", "/auth/register"];
+const NO_REFRESH_RETRY_PATHS = [
+  "/auth/login",
+  "/auth/refresh",
+  "/auth/register-organization",
+  // Step two of org signup. Unauthenticated by nature — a failure here
+  // means the emailed token is bad or expired, which no amount of
+  // refreshing an access token can fix.
+  "/auth/verify-organization",
+  "/auth/register",
+];
 
 // Queues concurrent 401s that arrive while a single refresh is already
 // in flight, so three simultaneous requests failing at once (common —

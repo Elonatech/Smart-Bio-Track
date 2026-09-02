@@ -11,6 +11,7 @@ import {
   type ActivateAccountFormValues,
 } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
+import { useToast } from "@/app/components/Toast";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 import { getDashboardPath } from "@/lib/roleRoutes";
 
@@ -35,6 +36,7 @@ interface MeResponse {
 }
 
 function ActivateAccountForm() {
+  const toast = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
   const login = useAuthStore((state) => state.login);
@@ -82,10 +84,16 @@ function ActivateAccountForm() {
         organizationName: me.data.organizationName,
       };
 
+      toast.success(
+        "Account activated successfully",
+        "Your password is set and you are signed in."
+      );
       login(user, accessToken, refreshToken);
       router.push(getDashboardPath(user.role));
     } catch (error) {
-      setServerError(extractErrorMessage(error));
+      const message = extractErrorMessage(error);
+      setServerError(message);
+      toast.error("Could not activate your account", message);
     } finally {
       setIsSubmitting(false);
     }

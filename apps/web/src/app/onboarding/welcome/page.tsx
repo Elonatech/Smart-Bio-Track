@@ -11,27 +11,38 @@ import {
   CheckCircle2,
 } from "lucide-react";
 
+// These point into the Super Admin dashboard, NOT back into the setup
+// wizard — the wizard is a one-time first-login flow and re-entering it
+// would restart six steps to add one office.
+//
+// They were previously "/employees", "/offices" and "/invite", none of
+// which are real routes: every dashboard page lives under
+// /dashboard/<role>/... (see roleRoutes.ts), so all three 404'd.
+//
+// "Invite your team" has no page of its own — inviting happens through
+// the Add person modal on the Employees page, which is where this sends
+// you.
 const GETTING_STARTED_ITEMS = [
   {
     icon: Users,
     title: "Add employees",
     description:
       "Import your staff list or add people one by one, with departments and shift assignments.",
-    href: "/employees",
+    href: "/dashboard/super-admin/employees",
   },
   {
     icon: Building2,
     title: "Add another office",
     description:
       "Create additional geo-fences for your branches, warehouses and field sites.",
-    href: "/offices",
+    href: "/dashboard/super-admin/offices",
   },
   {
     icon: Mail,
     title: "Invite your team",
     description:
       "Send invitations to HR admins and team leads — they set a password and register a device.",
-    href: "/invite",
+    href: "/dashboard/super-admin/employees",
   },
 ];
 

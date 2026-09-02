@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { MapPin, Plus } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { appClient } from "@/lib/api-client";
@@ -74,10 +75,23 @@ export default function SuperAdminOfficesPage() {
       )}
 
       {!isLoading && offices.length === 0 && (
-        <p className="text-sm text-neutral">
-          No offices yet — click &quot;Add office&quot; to create your first
-          one.
-        </p>
+        <div className="text-sm text-neutral">
+          <p>
+            No offices yet — click &quot;Add office&quot; to create your first
+            one.
+          </p>
+          {/* A permanent route back into the setup wizard, independent of
+              the dashboard banner. The banner can be dismissed for a
+              session; this link can't disappear, so there's always a way
+              back to the guided flow. */}
+          <p className="mt-1">
+            Prefer the guided version?{" "}
+            <Link href="/onboarding" className="text-primary font-medium">
+              Run the setup wizard
+            </Link>
+            .
+          </p>
+        </div>
       )}
 
       {!isLoading && offices.length > 0 && (

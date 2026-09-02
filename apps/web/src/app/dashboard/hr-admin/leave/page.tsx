@@ -136,7 +136,7 @@ export default function HRAdminLeavePage() {
   }
 
   return (
-    <div className="pb-8">
+    <div>
       <div className="flex flex-wrap gap-2 mb-6">
         {FILTERS.map((option) => (
           <button

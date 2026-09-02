@@ -11,6 +11,7 @@ import {
   type ActivateAccountFormValues,
 } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
+import { useToast } from "@/app/components/Toast";
 
 // Redeems a reset token from either self-service /auth/forgot-password
 // or an admin's "Reset password" action on an employee (both hit the
@@ -20,6 +21,7 @@ import { appClient, extractErrorMessage } from "@/lib/api-client";
 // user to log in again normally, so this page redirects to /auth/login
 // on success instead of logging them in directly.
 function ResetPasswordForm() {
+  const toast = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -47,8 +49,14 @@ function ResetPasswordForm() {
     try {
       await appClient.post("/auth/reset-password", { token, ...values });
       setIsDone(true);
+      toast.success(
+        "Password changed successfully",
+        "Sign in again with your new password."
+      );
     } catch (error) {
-      setServerError(extractErrorMessage(error));
+      const message = extractErrorMessage(error);
+      setServerError(message);
+      toast.error("Could not reset your password", message);
     } finally {
       setIsSubmitting(false);
     }
@@ -89,10 +97,22 @@ function ResetPasswordForm() {
             </p>
 
             {!token && (
-              <div className="rounded-md bg-alert/10 border border-alert/30 text-alert text-sm px-3 py-2">
-                This reset link is missing its token — check the link you
-                were given, or request a new one.
-              </div>
+              <>
+                <div className="rounded-md bg-alert/10 border border-alert/30 text-alert text-sm px-3 py-2">
+                  This reset link is missing its token — check the link you
+                  were given, or request a new one.
+                </div>
+                {/* The copy said "request a new one" without offering any
+                    way to do it, leaving a dead end on the one screen
+                    where the user is already stuck. */}
+                <button
+                  type="button"
+                  onClick={() => router.push("/auth/forgot-password")}
+                  className="mt-4 w-full rounded-md bg-primary text-white py-2 text-sm font-medium hover:bg-primary/90"
+                >
+                  Request a new link
+                </button>
+              </>
             )}
 
             {token && (

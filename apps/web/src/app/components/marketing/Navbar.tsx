@@ -12,7 +12,7 @@ const NAV_LINKS = [
 export function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-neutral/10 bg-surface/80 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 sm:px-10 lg:px-16 py-4">
         <Link href="/" className="flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-primary" strokeWidth={1.75} />
           <span className="text-base font-semibold text-heading">

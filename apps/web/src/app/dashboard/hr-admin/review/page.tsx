@@ -14,7 +14,7 @@ export default function HRAdminReviewQueuePage() {
   );
 
   return (
-    <div className="pb-8">
+    <div>
       <FlaggedPunchList
         punches={SAMPLE_FLAGGED_PUNCHES}
         emptyMessage="Nothing to review. Every punch cleared automatically."

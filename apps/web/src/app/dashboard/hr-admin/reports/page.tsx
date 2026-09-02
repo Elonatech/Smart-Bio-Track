@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { downloadCsv } from "@/lib/csv";
+import { DataTable } from "@/app/components/dashboard/DataTable";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { useToast } from "@/app/components/Toast";
 import type { Office } from "@/app/components/dashboard/OfficeFormModal";
 
 // Attendance reporting for HR. UI only — there's no Attendance model in
@@ -94,6 +96,7 @@ function formatIsoDate(iso: string): string {
 }
 
 export default function HRAdminReportsPage() {
+  const toast = useToast();
   const [fromDate, setFromDate] = useState("2026-08-01");
   const [toDate, setToDate] = useState("2026-08-10");
   const [office, setOffice] = useState(ALL_OFFICES);
@@ -179,12 +182,16 @@ export default function HRAdminReportsPage() {
         totals.totalHours,
       ],
     ]);
+    toast.success(
+      "Report exported successfully",
+      rows.length + " departments saved as CSV."
+    );
   }
 
   const isRangeValid = fromDate <= toDate;
 
   return (
-    <div className="pb-8">
+    <div>
       <div className="bg-surface border border-neutral/20 rounded-xl overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
           <h6 className="text-[15px] font-semibold text-heading">
@@ -243,97 +250,90 @@ export default function HRAdminReportsPage() {
           <p className="px-5 pb-3 text-sm text-alert">{officesError}</p>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-y border-neutral/20">
-                <th className="text-left px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Department
-                </th>
-                {COLUMNS.map((column) => (
-                  <th
-                    key={column.key}
-                    className={`text-right px-5   text-xs font-medium tracking-wide uppercase ${column.tone}`}
-                  >
-                    {column.label}
-                  </th>
-                ))}
-                <th className="text-right px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Total hours
-                </th>
-              </tr>
-            </thead>
+      </div>
 
-            <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={row.department}
-                  className="border-b border-neutral/10 last:border-0"
+      <div className="mt-4">
+        <DataTable
+          rows={rows}
+          getRowKey={(row) => row.department}
+          emptyMessage={
+            <>
+              No attendance recorded at {office} in this range.
+              <span className="block mt-1 text-[12px]">
+                The office list is live, but the figures above are still example
+                data and aren&apos;t linked to your real offices yet.
+              </span>
+            </>
+          }
+          renderCardHeader={(row) => (
+            <div className="min-w-0">
+              <p className="font-semibold text-heading wrap-break-word">
+                {row.department}
+              </p>
+              <p className="text-[12px] text-neutral">{row.office}</p>
+            </div>
+          )}
+          renderFooter={() => (
+            <tr className="border-t border-neutral/20 bg-background/60">
+              <td className="px-5 py-4 font-semibold text-heading whitespace-nowrap">
+                All departments
+                <span className="block text-[12px] font-normal text-neutral">
+                  Weighted by hours
+                </span>
+              </td>
+              {COLUMNS.map((column) => (
+                <td
+                  key={column.key}
+                  className={`px-5 py-4 text-right font-semibold tabular-nums ${column.tone}`}
                 >
-                  <td className="px-5 py-2 font-medium text-heading whitespace-nowrap">
-                    {row.department}
-                    {office === ALL_OFFICES && (
-                      <span className="block text-[12px] font-normal text-neutral">
-                        {row.office}
-                      </span>
-                    )}
-                  </td>
-                  {COLUMNS.map((column) => (
-                    <td
-                      key={column.key}
-                      className={`px-5 py-4 text-right tabular-nums ${column.tone}`}
-                    >
-                      {row[column.key].toFixed(1)}%
-                    </td>
-                  ))}
-                  <td className="px-5 py-4 text-right text-heading tabular-nums">
-                    {row.totalHours.toLocaleString("en-GB")}
-                  </td>
-                </tr>
+                  {totals[column.key].toFixed(1)}%
+                </td>
               ))}
-
-              {rows.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={COLUMNS.length + 2}
-                    className="px-5 py-10 text-center text-sm text-neutral"
-                  >
-                    No attendance recorded at {office} in this range.
-                    <span className="block mt-1 text-[12px]">
-                      The office list is live, but the figures above are still
-                      example data and aren&apos;t linked to your real offices
-                      yet.
-                    </span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-
-            {rows.length > 0 && (
-              <tfoot>
-                <tr className="border-t border-neutral/20 bg-background/60">
-                  <td className="px-5 py-4 font-semibold text-heading whitespace-nowrap">
-                    All departments
+              <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
+                {totals.totalHours.toLocaleString("en-GB")}
+              </td>
+            </tr>
+          )}
+          columns={[
+            {
+              key: "department",
+              header: "Department",
+              hideOnMobile: true,
+              render: (row) => (
+                <div className="whitespace-nowrap">
+                  <span className="font-medium text-heading">
+                    {row.department}
+                  </span>
+                  {office === ALL_OFFICES && (
                     <span className="block text-[12px] font-normal text-neutral">
-                      Weighted by hours
+                      {row.office}
                     </span>
-                  </td>
-                  {COLUMNS.map((column) => (
-                    <td
-                      key={column.key}
-                      className={`px-5 py-4 text-right font-semibold tabular-nums ${column.tone}`}
-                    >
-                      {totals[column.key].toFixed(1)}%
-                    </td>
-                  ))}
-                  <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
-                    {totals.totalHours.toLocaleString("en-GB")}
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
+                  )}
+                </div>
+              ),
+            },
+            ...COLUMNS.map((column) => ({
+              key: column.key,
+              header: column.label,
+              align: "right" as const,
+              render: (row: DepartmentRow) => (
+                <span className={`tabular-nums ${column.tone}`}>
+                  {row[column.key].toFixed(1)}%
+                </span>
+              ),
+            })),
+            {
+              key: "totalHours",
+              header: "Total hours",
+              align: "right" as const,
+              render: (row: DepartmentRow) => (
+                <span className="text-heading tabular-nums">
+                  {row.totalHours.toLocaleString("en-GB")}
+                </span>
+              ),
+            },
+          ]}
+        />
       </div>
     </div>
   );

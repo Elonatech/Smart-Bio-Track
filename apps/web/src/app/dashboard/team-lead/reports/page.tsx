@@ -3,8 +3,10 @@
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { downloadCsv } from "@/lib/csv";
+import { DataTable } from "@/app/components/dashboard/DataTable";
 import { TEAM_DEPARTMENT } from "@/lib/teamLeadScope";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { useToast } from "@/app/components/Toast";
 
 
 
@@ -90,6 +92,7 @@ function firstName(fullName: string): string {
 }
 
 export default function TeamLeadReportsPage() {
+  const toast = useToast();
   const [week, setWeek] = useState(WEEKS[0].value);
 
   const weekLabel =
@@ -147,10 +150,14 @@ export default function TeamLeadReportsPage() {
         totals.leaveDays,
       ],
     ]);
+    toast.success(
+      "Report exported successfully",
+      TEAM_WEEK.length + " team members saved as CSV."
+    );
   }
 
   return (
-    <div className="pb-8">
+    <div>
       <div className="bg-surface border border-neutral/20 rounded-xl p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -276,91 +283,115 @@ export default function TeamLeadReportsPage() {
         </div>
       </div>
 
-      {/* The numbers behind the chart. A bar shows who's short; this
-          shows why — late days, absences, approved leave. */}
-      <div className="bg-surface border border-neutral/20 rounded-xl mt-6 overflow-hidden">
-        <div className="px-5 py-4">
-          <h6 className="text-[15px] font-semibold text-heading">
-            Per-person breakdown
-          </h6>
-        </div>
+      <div className="mt-6">
+        <h6 className="text-[15px] font-semibold text-heading mb-3">
+          Per-person breakdown
+        </h6>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-y border-neutral/20">
-                <th className="text-left px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Team member
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral">
-                  Hours
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium tracking-wide uppercase text-warning">
-                  Late days
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium tracking-wide uppercase text-alert">
-                  Absent days
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium tracking-wide uppercase text-info">
-                  Leave days
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {TEAM_WEEK.map((member) => (
-                <tr
-                  key={member.name}
-                  className="border-b border-neutral/10 last:border-0"
-                >
-                  <td className="px-5 py-4 whitespace-nowrap">
-                    <span className="block font-medium text-heading">
-                      {member.name}
-                    </span>
-                    <span className="block text-[12px] text-neutral">
-                      {member.jobTitle}
-                    </span>
-                  </td>
-                  <td
-                    className={`px-5 py-4 text-right tabular-nums ${
-                      member.hours < EXPECTED_WEEKLY_HOURS
-                        ? "text-neutral"
-                        : "text-heading font-medium"
-                    }`}
-                  >
-                    {member.hours}h
-                  </td>
-                  <MetricCell value={member.lateDays} tone="text-warning" />
-                  <MetricCell value={member.absentDays} tone="text-alert" />
-                  <MetricCell value={member.leaveDays} tone="text-info" />
-                </tr>
-              ))}
-            </tbody>
-
-            <tfoot>
-              <tr className="border-t border-neutral/20 bg-background/60">
-                <td className="px-5 py-4 font-semibold text-heading whitespace-nowrap">
-                  Total
-                  <span className="block text-[12px] font-normal text-neutral">
-                    {TEAM_WEEK.length} team members
+        <DataTable
+          rows={TEAM_WEEK}
+          getRowKey={(member) => member.name}
+          emptyMessage="No one is assigned to your team yet."
+          renderCardHeader={(member) => (
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold text-heading break-words">
+                  {member.name}
+                </p>
+                <p className="text-[12px] text-neutral">{member.jobTitle}</p>
+              </div>
+              <span
+                className={`text-sm tabular-nums shrink-0 ${
+                  member.hours < EXPECTED_WEEKLY_HOURS
+                    ? "text-neutral"
+                    : "text-heading font-medium"
+                }`}
+              >
+                {member.hours}h
+              </span>
+            </div>
+          )}
+          renderFooter={() => (
+            <tr className="border-t border-neutral/20 bg-background/60">
+              <td className="px-5 py-4 font-semibold text-heading whitespace-nowrap">
+                Total
+                <span className="block text-[12px] font-normal text-neutral">
+                  {TEAM_WEEK.length} team members
+                </span>
+              </td>
+              <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
+                {totals.hours.toFixed(1)}h
+              </td>
+              <td className="px-5 py-4 text-right font-semibold text-warning tabular-nums">
+                {totals.lateDays}
+              </td>
+              <td className="px-5 py-4 text-right font-semibold text-alert tabular-nums">
+                {totals.absentDays}
+              </td>
+              <td className="px-5 py-4 text-right font-semibold text-info tabular-nums">
+                {totals.leaveDays}
+              </td>
+            </tr>
+          )}
+          columns={[
+            {
+              key: "member",
+              header: "Team member",
+              hideOnMobile: true,
+              render: (member) => (
+                <div className="whitespace-nowrap">
+                  <span className="block font-medium text-heading">
+                    {member.name}
                   </span>
-                </td>
-                <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
-                  {totals.hours.toFixed(1)}h
-                </td>
-                <td className="px-5 py-4 text-right font-semibold text-warning tabular-nums">
-                  {totals.lateDays}
-                </td>
-                <td className="px-5 py-4 text-right font-semibold text-alert tabular-nums">
-                  {totals.absentDays}
-                </td>
-                <td className="px-5 py-4 text-right font-semibold text-info tabular-nums">
-                  {totals.leaveDays}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+                  <span className="block text-[12px] text-neutral">
+                    {member.jobTitle}
+                  </span>
+                </div>
+              ),
+            },
+            {
+              key: "hours",
+              header: "Hours",
+              align: "right",
+              hideOnMobile: true,
+              render: (member) => (
+                <span
+                  className={`tabular-nums ${
+                    member.hours < EXPECTED_WEEKLY_HOURS
+                      ? "text-neutral"
+                      : "text-heading font-medium"
+                  }`}
+                >
+                  {member.hours}h
+                </span>
+              ),
+            },
+            {
+              key: "lateDays",
+              header: "Late days",
+              align: "right",
+              render: (member) => (
+                <MetricValue value={member.lateDays} tone="text-warning" />
+              ),
+            },
+            {
+              key: "absentDays",
+              header: "Absent days",
+              align: "right",
+              render: (member) => (
+                <MetricValue value={member.absentDays} tone="text-alert" />
+              ),
+            },
+            {
+              key: "leaveDays",
+              header: "Leave days",
+              align: "right",
+              render: (member) => (
+                <MetricValue value={member.leaveDays} tone="text-info" />
+              ),
+            },
+          ]}
+        />
       </div>
     </div>
   );
@@ -368,14 +399,10 @@ export default function TeamLeadReportsPage() {
 
 // Zero is the good outcome for all three of these columns, so it's
 // muted — only the non-zero values should draw the eye.
-function MetricCell({ value, tone }: { value: number; tone: string }) {
+function MetricValue({ value, tone }: { value: number; tone: string }) {
   return (
-    <td
-      className={`px-5 py-4 text-right tabular-nums ${
-        value > 0 ? tone : "text-neutral"
-      }`}
-    >
+    <span className={`tabular-nums ${value > 0 ? tone : "text-neutral"}`}>
       {value > 0 ? value : "—"}
-    </td>
+    </span>
   );
 }

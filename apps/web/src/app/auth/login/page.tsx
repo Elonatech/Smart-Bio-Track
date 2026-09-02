@@ -17,6 +17,7 @@ import { loginSchema, type LoginFormValues } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 import { getDashboardPath } from "@/lib/roleRoutes";
+import { useToast } from "@/app/components/Toast";
 import Link from "next/link";
 
 interface LoginResponse {
@@ -38,6 +39,7 @@ interface MeResponse {
 }
 
 export default function LoginPage() {
+  const toast = useToast();
   const router = useRouter();
   const login = useAuthStore((state) => state.login);
 
@@ -99,6 +101,7 @@ export default function LoginPage() {
 
       // Save the session (localStorage + in-memory store) — see
       // auth-store.ts for exactly what this does.
+      toast.success(user.name ? `Welcome back, ${user.name.split(" ")[0]}` : "Signed in");
       login(user, accessToken, refreshToken);
 
       router.push(getDashboardPath(user.role));
@@ -106,7 +109,9 @@ export default function LoginPage() {
       // extractErrorMessage handles the backend's inconsistent error
       // shapes (plain string, class-validator array, or the doubly-
       // wrapped NestJS HttpException object) — see api-client.ts.
-      setServerError(extractErrorMessage(error));
+      const message = extractErrorMessage(error);
+      setServerError(message);
+      toast.error("Could not sign in", message);
     } finally {
       setIsSubmitting(false);
     }
