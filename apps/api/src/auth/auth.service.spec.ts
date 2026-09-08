@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  UnauthorizedException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,6 +20,7 @@ describe('AuthService', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     },
     organization: { findUnique: jest.fn() },
     department: { findUnique: jest.fn() },
@@ -45,6 +50,7 @@ describe('AuthService', () => {
 
   const mockMail = {
     sendOrganizationVerificationEmail: jest.fn().mockResolvedValue(undefined),
+    sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -192,6 +198,28 @@ describe('AuthService', () => {
       );
     });
 
+    it('refuses to rotate the token of a suspended user', async () => {
+      // JwtStrategy would reject the access token this returns, so issuing one
+      // means a 200 followed immediately by a 401 on the next request.
+      mockPrisma.refreshToken.findUnique.mockResolvedValue({
+        id: 'rt-1',
+        revoked: false,
+        expiresAt: new Date(Date.now() + 10000),
+        userId: 'user-1',
+      });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'jane@example.com',
+        role: 'EMPLOYEE',
+        status: 'SUSPENDED',
+      });
+
+      await expect(service.refresh('valid-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
     it('revokes the old token and issues a new pair', async () => {
       mockPrisma.refreshToken.findUnique.mockResolvedValue({
         id: 'rt-1',
@@ -203,6 +231,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'jane@example.com',
         role: 'EMPLOYEE',
+        status: 'ACTIVE',
       });
 
       const result = await service.refresh('valid-token');
@@ -393,6 +422,36 @@ describe('AuthService', () => {
       expect(result).toEqual({ message: 'Signed out of 3 session(s)' });
     });
   });
+
+  describe('deleteAccount', () => {
+    it('deletes the user account', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'user@example.com',
+      });
+
+      const result = await service.deleteAccount('user-1');
+
+      expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+      });
+      expect(mockPrisma.user.delete).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+      });
+      expect(result.message).toMatch(/Account deleted/);
+    });
+
+    it('throws when user not found', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.deleteAccount('unknown-id')).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+
+      expect(mockPrisma.user.delete).not.toHaveBeenCalled();
+    });
+  });
+
   describe('forgotPassword', () => {
     const activeUser = { id: 'user-1', status: 'ACTIVE' };
 
@@ -421,21 +480,21 @@ describe('AuthService', () => {
     it('stores only a hash and invalidates any earlier unused token', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(activeUser);
 
-      // resetToken is the temporary stand-in for emailing the link; it is
-      // only present on the success path, hence the narrowing.
-      const result = (await service.forgotPassword({
-        email: 'jane@x.com',
-      })) as { message: string; resetToken: string };
+      await service.forgotPassword({ email: 'jane@x.com' });
 
       expect(mockPrisma.passwordResetToken.updateMany).toHaveBeenCalledWith({
         where: { userId: 'user-1', usedAt: null },
         data: { usedAt: expect.any(Date) },
       });
 
+      // The raw token now leaves only through the email.
+      const emailed = mockMail.sendPasswordResetEmail.mock
+        .calls[0][1] as string;
+
       const created = mockPrisma.passwordResetToken.create.mock.calls[0][0] as {
         data: { tokenHash: string };
       };
-      expect(created.data.tokenHash).not.toBe(result.resetToken);
+      expect(created.data.tokenHash).not.toBe(emailed);
       expect(created.data.tokenHash).toHaveLength(64);
     });
   });

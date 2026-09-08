@@ -1,19 +1,41 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 
 describe('UsersService', () => {
   let service: UsersService;
   const orgId = 'org-1';
 
   const mockPrisma = {
-    user: { findUnique: jest.fn(), create: jest.fn(), findMany: jest.fn() },
+    user: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      findMany: jest.fn(),
+    },
     department: { findFirst: jest.fn() },
     office: { findFirst: jest.fn() },
     activationToken: { create: jest.fn() },
+    refreshToken: { updateMany: jest.fn() },
+    organization: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   };
+
+  const mockMail = {
+    sendActivationEmail: jest.fn().mockResolvedValue(undefined),
+  };
+
+  /** The raw activation token, which now only ever leaves via the email. */
+  const emailedToken = (): string =>
+    mockMail.sendActivationEmail.mock.calls[0][1] as string;
 
   const baseDto = {
     employeeId: 'EMP100',
@@ -25,6 +47,10 @@ describe('UsersService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockPrisma.user.findUnique.mockResolvedValue(null);
+    mockPrisma.organization.findUnique.mockResolvedValue({
+      id: orgId,
+      name: 'Acme Corp',
+    });
     // Run the transaction callback against the same mock client.
     mockPrisma.$transaction.mockImplementation(
       (cb: (tx: typeof mockPrisma) => unknown) => cb(mockPrisma),
@@ -34,6 +60,7 @@ describe('UsersService', () => {
       providers: [
         UsersService,
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: MailService, useValue: mockMail },
       ],
     }).compile();
 
@@ -59,7 +86,10 @@ describe('UsersService', () => {
       );
 
       expect(result.role).toBe('SUPER_ADMIN');
-      expect(result.activationToken).toEqual(expect.any(String));
+      // The token is emailed, never returned — returning it would let anyone
+      // who can read the response activate the account.
+      expect(result).not.toHaveProperty('activationToken');
+      expect(emailedToken()).toEqual(expect.any(String));
     });
 
     it('forbids an HR_ADMIN from creating a SUPER_ADMIN', async () => {
@@ -134,12 +164,12 @@ describe('UsersService', () => {
         officeId: null,
       });
 
-      const result = await service.provision(baseDto, 'SUPER_ADMIN', orgId);
+      await service.provision(baseDto, 'SUPER_ADMIN', orgId);
 
       const tokenArg = mockPrisma.activationToken.create.mock.calls[0][0] as {
         data: { tokenHash: string };
       };
-      expect(tokenArg.data.tokenHash).not.toBe(result.activationToken);
+      expect(tokenArg.data.tokenHash).not.toBe(emailedToken());
       expect(tokenArg.data.tokenHash).toHaveLength(64); // sha256 hex
     });
 
@@ -178,6 +208,136 @@ describe('UsersService', () => {
         where: Record<string, unknown>;
       };
       expect(arg.where).toEqual({ organizationId: orgId });
+    });
+  });
+
+  describe('toggleStatus / delete', () => {
+    const admin = {
+      id: 'admin-1',
+      role: 'SUPER_ADMIN' as const,
+      organizationId: orgId,
+    };
+
+    const target = {
+      id: 'user-2',
+      employeeId: 'EMP200',
+      name: 'Bob Employee',
+      email: 'bob@example.com',
+      role: 'EMPLOYEE' as const,
+      status: 'ACTIVE' as const,
+    };
+
+    beforeEach(() => {
+      mockPrisma.user.findFirst.mockResolvedValue(target);
+      mockPrisma.user.update.mockImplementation(
+        (args: { data: { status: string } }) => ({
+          ...target,
+          status: args.data.status,
+        }),
+      );
+    });
+
+    it('suspends an active user and revokes their refresh tokens', async () => {
+      const result = await service.toggleStatus(target.id, admin);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: target.id },
+        data: { status: 'SUSPENDED' },
+      });
+      // Access tokens die via JwtStrategy, but refresh tokens are a separate
+      // store and would otherwise outlive the suspension.
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: target.id, revoked: false },
+        data: { revoked: true },
+      });
+      expect(result.status).toBe('SUSPENDED');
+    });
+
+    it('restores a suspended user without touching refresh tokens', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({
+        ...target,
+        status: 'SUSPENDED',
+      });
+
+      const result = await service.toggleStatus(target.id, admin);
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: target.id },
+        data: { status: 'ACTIVE' },
+      });
+      expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalled();
+      expect(result.status).toBe('ACTIVE');
+    });
+
+    it('refuses to toggle a PENDING user', async () => {
+      // ACTIVE with a null passwordHash is a state login rejects, so the users
+      // list would show an account nobody can sign in to.
+      mockPrisma.user.findFirst.mockResolvedValue({
+        ...target,
+        status: 'PENDING',
+      });
+
+      await expect(service.toggleStatus(target.id, admin)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('scopes the lookup to the caller organization', async () => {
+      await service.toggleStatus(target.id, admin);
+
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({
+        where: { id: target.id, organizationId: orgId },
+      });
+    });
+
+    it('treats a user in another organization as not found', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.toggleStatus(target.id, admin)).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(service.delete(target.id, admin)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('refuses to let a caller act on their own account', async () => {
+      await expect(service.toggleStatus(admin.id, admin)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.delete(admin.id, admin)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockPrisma.user.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('forbids an HR_ADMIN from suspending or deleting a SUPER_ADMIN', async () => {
+      // Otherwise the role ceiling on provisioning is pointless: an HR_ADMIN
+      // could suspend every SUPER_ADMIN and own the organization.
+      const hr = { ...admin, id: 'hr-1', role: 'HR_ADMIN' as const };
+      mockPrisma.user.findFirst.mockResolvedValue({
+        ...target,
+        role: 'SUPER_ADMIN',
+      });
+
+      await expect(service.toggleStatus(target.id, hr)).rejects.toThrow(
+        ForbiddenException,
+      );
+      await expect(service.delete(target.id, hr)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expect(mockPrisma.user.delete).not.toHaveBeenCalled();
+    });
+
+    it('deletes a user the caller has authority over', async () => {
+      const result = await service.delete(target.id, admin);
+
+      expect(mockPrisma.user.delete).toHaveBeenCalledWith({
+        where: { id: target.id },
+      });
+      expect(result.message).toContain(target.name);
     });
   });
 });

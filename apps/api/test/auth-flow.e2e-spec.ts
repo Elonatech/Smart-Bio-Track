@@ -10,6 +10,7 @@ describe('Auth flow and RBAC (integration)', () => {
   let ctx: TestContext;
   let adminToken: string;
   let adminRefresh: string;
+  let adminEmployeeId: string;
 
   beforeAll(async () => {
     ctx = await createTestApp();
@@ -26,6 +27,7 @@ describe('Auth flow and RBAC (integration)', () => {
 
     adminToken = tokens.accessToken;
     adminRefresh = tokens.refreshToken;
+    adminEmployeeId = tokens.employeeId;
   });
 
   afterAll(async () => {
@@ -34,7 +36,7 @@ describe('Auth flow and RBAC (integration)', () => {
 
   /** Provisions a user and completes their registration; returns their token. */
   const onboard = async (role: string, suffix: string) => {
-    const provisioned = await request(httpServer(ctx))
+    await request(httpServer(ctx))
       .post('/api/users')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
@@ -48,7 +50,7 @@ describe('Auth flow and RBAC (integration)', () => {
     const activated = await request(httpServer(ctx))
       .post('/api/auth/complete-registration')
       .send({
-        token: provisioned.body.data.activationToken,
+        token: ctx.mail.tokenFor(`${suffix}@acme.test`, 'activation'),
         password: 'Passw0rd!',
         confirmPassword: 'Passw0rd!',
       })
@@ -79,7 +81,7 @@ describe('Auth flow and RBAC (integration)', () => {
       await request(httpServer(ctx))
         .post('/api/auth/complete-registration')
         .send({
-          token: provisioned.body.data.activationToken,
+          token: ctx.mail.tokenFor('bob@acme.test', 'activation'),
           password: 'Passw0rd!',
           confirmPassword: 'Passw0rd!',
         })
@@ -91,7 +93,7 @@ describe('Auth flow and RBAC (integration)', () => {
     });
 
     it('refuses to reuse an activation token', async () => {
-      const provisioned = await request(httpServer(ctx))
+      await request(httpServer(ctx))
         .post('/api/users')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
@@ -102,7 +104,7 @@ describe('Auth flow and RBAC (integration)', () => {
         })
         .expect(201);
 
-      const token = provisioned.body.data.activationToken;
+      const token = ctx.mail.tokenFor('carol@acme.test', 'activation');
 
       await request(httpServer(ctx))
         .post('/api/auth/complete-registration')
@@ -145,7 +147,7 @@ describe('Auth flow and RBAC (integration)', () => {
     it('accepts an employee ID', async () => {
       await request(httpServer(ctx))
         .post('/api/auth/login')
-        .send({ identifier: 'SA001', password: 'Passw0rd!' })
+        .send({ identifier: adminEmployeeId, password: 'Passw0rd!' })
         .expect(200);
     });
 
@@ -318,6 +320,101 @@ describe('Auth flow and RBAC (integration)', () => {
     });
   });
 
+  describe('delete account', () => {
+    it('requires authentication', async () => {
+      await request(httpServer(ctx)).delete('/api/auth/account').expect(401);
+    });
+
+    it('deletes the authenticated user and revokes all sessions', async () => {
+      const empToken = await onboard('EMPLOYEE', 'emp5');
+      const empUser = await ctx.prisma.user.findUnique({
+        where: { email: 'emp5@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .delete('/api/auth/account')
+        .set('Authorization', `Bearer ${empToken}`)
+        .expect(200);
+
+      // User is gone
+      const deleted = await ctx.prisma.user.findUnique({
+        where: { email: 'emp5@acme.test' },
+      });
+      expect(deleted).toBeNull();
+
+      // All tokens are gone (cascade delete)
+      const tokenCount = await ctx.prisma.activationToken.count({
+        where: { userId: empUser?.id },
+      });
+      expect(tokenCount).toBe(0);
+    });
+  });
+
+  describe('suspension', () => {
+    it('kills an existing session and lets a restore sign in again', async () => {
+      const empToken = await onboard('EMPLOYEE', 'susp');
+      const emp = await ctx.prisma.user.findUnique({
+        where: { email: 'susp@acme.test' },
+      });
+
+      // Working before.
+      await request(httpServer(ctx))
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${empToken}`)
+        .expect(200);
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${emp?.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // Dead immediately — JwtStrategy re-reads status per request, so the
+      // unexpired access token stops working without waiting for its TTL.
+      await request(httpServer(ctx))
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${empToken}`)
+        .expect(401);
+
+      await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'susp@acme.test', password: 'Passw0rd!' })
+        .expect(401);
+
+      // Toggling back restores access.
+      await request(httpServer(ctx))
+        .patch(`/api/users/${emp?.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'susp@acme.test', password: 'Passw0rd!' })
+        .expect(200);
+    });
+
+    it('will not refresh a session for a user suspended outside the toggle', async () => {
+      await onboard('EMPLOYEE', 'susp2');
+
+      const login = await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'susp2@acme.test', password: 'Passw0rd!' })
+        .expect(200);
+
+      // Suspended straight in the database, so the refresh token survives —
+      // this is the case PATCH /users/:id/status would otherwise have cleaned
+      // up, and the only way refresh's own status check is reached.
+      await ctx.prisma.user.update({
+        where: { email: 'susp2@acme.test' },
+        data: { status: 'SUSPENDED' },
+      });
+
+      await request(httpServer(ctx))
+        .post('/api/auth/refresh')
+        .send({ refreshToken: login.body.data.refreshToken })
+        .expect(401);
+    });
+  });
+
   describe('password reset', () => {
     it('reveals nothing about whether an email is registered', async () => {
       const known = await request(httpServer(ctx))
@@ -335,7 +432,7 @@ describe('Auth flow and RBAC (integration)', () => {
     });
 
     it('resets the password and revokes every existing session', async () => {
-      const forgot = await request(httpServer(ctx))
+      await request(httpServer(ctx))
         .post('/api/auth/forgot-password')
         .send({ email: 'ada@acme.test' })
         .expect(200);
@@ -343,7 +440,7 @@ describe('Auth flow and RBAC (integration)', () => {
       await request(httpServer(ctx))
         .post('/api/auth/reset-password')
         .send({
-          token: forgot.body.data.resetToken,
+          token: ctx.mail.tokenFor('ada@acme.test', 'reset'),
           password: 'BrandNew1!',
           confirmPassword: 'BrandNew1!',
         })
@@ -368,13 +465,13 @@ describe('Auth flow and RBAC (integration)', () => {
     });
 
     it('refuses to reuse a reset token', async () => {
-      const forgot = await request(httpServer(ctx))
+      await request(httpServer(ctx))
         .post('/api/auth/forgot-password')
         .send({ email: 'ada@acme.test' })
         .expect(200);
 
       const body = {
-        token: forgot.body.data.resetToken,
+        token: ctx.mail.tokenFor('ada@acme.test', 'reset'),
         password: 'BrandNew1!',
         confirmPassword: 'BrandNew1!',
       };
@@ -437,6 +534,79 @@ describe('Auth flow and RBAC (integration)', () => {
         .expect(401);
 
       expect(res.body.error.code).toBe('UNAUTHORIZED');
+    });
+  });
+
+  describe('resending organization verification', () => {
+    const pendingEmail = 'newco@test.local';
+
+    const startSignup = () =>
+      request(httpServer(ctx))
+        .post('/api/auth/register-organization')
+        .send({ email: pendingEmail, password: 'Passw0rd!' })
+        .expect(201);
+
+    it('answers identically for a pending signup and an unknown email', async () => {
+      await startSignup();
+
+      const known = await request(httpServer(ctx))
+        .post('/api/auth/resend-organization-verification')
+        .send({ email: pendingEmail })
+        .expect(200);
+
+      const unknown = await request(httpServer(ctx))
+        .post('/api/auth/resend-organization-verification')
+        .send({ email: 'nobody@test.local' })
+        .expect(200);
+
+      expect(known.body.message).toBe(unknown.body.message);
+    });
+
+    it('sends a new link and retires the previous one', async () => {
+      await startSignup();
+      const first = ctx.mail.tokenFor(pendingEmail);
+
+      await request(httpServer(ctx))
+        .post('/api/auth/resend-organization-verification')
+        .send({ email: pendingEmail })
+        .expect(200);
+
+      const second = ctx.mail.tokenFor(pendingEmail);
+      expect(second).not.toBe(first);
+
+      // The superseded link must be dead, not merely duplicated.
+      await request(httpServer(ctx))
+        .post('/api/auth/verify-organization')
+        .send({
+          token: first,
+          organizationName: 'New Co',
+          adminName: 'New Admin',
+          industry: 'Technology',
+        })
+        .expect(400);
+
+      await request(httpServer(ctx))
+        .post('/api/auth/verify-organization')
+        .send({
+          token: second,
+          organizationName: 'New Co',
+          adminName: 'New Admin',
+          industry: 'Technology',
+        })
+        .expect(200);
+    });
+
+    it('sends nothing for an email with no pending signup', async () => {
+      // beforeEach already registers Acme, so count the delta rather than
+      // expecting an empty log.
+      const before = ctx.mail.sent.length;
+
+      await request(httpServer(ctx))
+        .post('/api/auth/resend-organization-verification')
+        .send({ email: 'nobody@test.local' })
+        .expect(200);
+
+      expect(ctx.mail.sent).toHaveLength(before);
     });
   });
 });

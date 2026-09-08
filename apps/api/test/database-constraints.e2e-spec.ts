@@ -165,7 +165,7 @@ describe('Database constraints (integration)', () => {
       await request(httpServer(ctx))
         .post('/api/auth/complete-registration')
         .send({
-          token: provisioned.body.data.activationToken,
+          token: ctx.mail.tokenFor('cascade@test.local', 'activation'),
           password: 'Passw0rd!',
           confirmPassword: 'Passw0rd!',
         })

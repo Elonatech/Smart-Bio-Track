@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { UserRole } from '@prisma/client';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import { OfficesService } from './office.service';
 import { CreateOfficeDto } from './dto/create-office.dto';
 import { UpdateOfficeDto } from './dto/update-office.dto';
@@ -21,6 +22,7 @@ interface AuthenticatedRequest {
   user: { id: string; email: string; role: UserRole; organizationId: string };
 }
 
+@ApiBearerAuth()
 @Controller('offices')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OfficeController {

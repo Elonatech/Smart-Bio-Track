@@ -195,5 +195,38 @@ describe('Tenant isolation (integration)', () => {
       });
       expect(created?.organization.name).toBe('Globex Inc');
     });
+
+    it("cannot suspend or delete another organization's user", async () => {
+      const acmeUser = await request(httpServer(ctx))
+        .post('/api/users')
+        .set('Authorization', `Bearer ${acmeToken}`)
+        .send({
+          employeeId: 'ACME-900',
+          name: 'Acme Staffer',
+          email: 'staffer@test.local',
+          role: 'EMPLOYEE',
+        })
+        .expect(201);
+
+      const victimId = acmeUser.body.data.id as string;
+
+      // Globex holds a valid admin token and a real user ID. Only the
+      // organization scope in the lookup stands between them.
+      await request(httpServer(ctx))
+        .patch(`/api/users/${victimId}/status`)
+        .set('Authorization', `Bearer ${globexToken}`)
+        .expect(404);
+
+      await request(httpServer(ctx))
+        .delete(`/api/users/${victimId}`)
+        .set('Authorization', `Bearer ${globexToken}`)
+        .expect(404);
+
+      const survivor = await ctx.prisma.user.findUnique({
+        where: { id: victimId },
+      });
+      expect(survivor).not.toBeNull();
+      expect(survivor?.status).toBe('PENDING');
+    });
   });
 });
