@@ -8,12 +8,15 @@ import {
 
 interface StepInviteTeamProps {
   defaultValues?: Partial<InviteTeamValues>;
+  /** Department names captured in the previous step. */
+  departmentNames: string[];
   onNext: (values: InviteTeamValues) => void;
   onBack?: () => void;
 }
 
 const StepInviteTeam = ({
   defaultValues,
+  departmentNames,
   onNext,
   onBack,
 }: StepInviteTeamProps) => {
@@ -21,6 +24,7 @@ const StepInviteTeam = ({
     register,
     handleSubmit,
     control,
+    watch,
     formState: { errors },
   } = useForm<InviteTeamValues>({
     resolver: zodResolver(inviteTeamSchema),
@@ -34,6 +38,10 @@ const StepInviteTeam = ({
     control,
     name: "invites",
   });
+
+  // Watched so the department field can mark itself required the moment a
+  // row is switched to Team Lead, rather than only on submit.
+  const invites = watch("invites");
 
   const onSubmit = (values: InviteTeamValues) => {
     onNext(values);
@@ -100,13 +108,47 @@ const StepInviteTeam = ({
                 <option value="EMPLOYEE">Employee</option>
               </select>
             </div>
+
+            {/* Department is collected here rather than left for later
+                because there is no PATCH /users/:id yet — an invite sent
+                without one cannot be corrected from the dashboard at all.
+                Values are department NAMES; they have no ids until the
+                wizard finishes and creates them. */}
+            <div>
+              <select
+                {...register(`invites.${index}.department`)}
+                className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="">
+                  {invites?.[index]?.role === "TEAM_LEAD"
+                    ? "Select a department (required)"
+                    : "No department yet (optional)"}
+                </option>
+                {departmentNames.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              {errors.invites?.[index]?.department && (
+                <p className="mt-1 text-sm text-alert">
+                  {errors.invites[index]?.department?.message}
+                </p>
+              )}
+              {invites?.[index]?.role === "TEAM_LEAD" && (
+                <p className="mt-1 text-xs text-neutral">
+                  A Team Lead&apos;s dashboard only shows their own
+                  department&apos;s attendance.
+                </p>
+              )}
+            </div>
           </div>
         ))}
 
         <button
           type="button"
           onClick={() =>
-            append({ name: "", email: "", role: "TEAM_LEAD" })
+            append({ name: "", email: "", role: "TEAM_LEAD", department: "" })
           }
           className="w-full rounded-md border border-neutral/30 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
         >

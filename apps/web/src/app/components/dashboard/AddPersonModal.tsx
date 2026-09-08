@@ -37,16 +37,29 @@ import type { UserRole } from "@/lib/store/auth-store";
 // the server can safely mint it. CreateUserDto still accepts one if sent,
 // for orgs migrating from an existing HR system; this form doesn't offer
 // that.
-const addPersonSchema = z.object({
-  role: z.string().min(1, { message: "Role is required" }),
-  name: z.string().min(2, { message: "Name is required" }),
-  email: z.string().email({ message: "Enter a valid email address" }),
-  phoneNumber: z.string().optional(),
-  departmentId: z.string().optional(),
-  officeId: z.string().optional(),
-  jobRole: z.string().optional(),
-  workRule: z.string().optional(),
-});
+const addPersonSchema = z
+  .object({
+    role: z.string().min(1, { message: "Role is required" }),
+    name: z.string().min(2, { message: "Name is required" }),
+    email: z.string().email({ message: "Enter a valid email address" }),
+    phoneNumber: z.string().optional(),
+    departmentId: z.string().optional(),
+    officeId: z.string().optional(),
+    jobRole: z.string().optional(),
+    workRule: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    // Same rule the onboarding invite step enforces: a Team Lead's whole
+    // dashboard is scoped to one department, and with no PATCH /users/:id
+    // an omission here cannot be fixed from the dashboard afterwards.
+    if (values.role === "TEAM_LEAD" && !values.departmentId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["departmentId"],
+        message: "A Team Lead must be assigned a department",
+      });
+    }
+  });
 
 type AddPersonFormValues = z.infer<typeof addPersonSchema>;
 

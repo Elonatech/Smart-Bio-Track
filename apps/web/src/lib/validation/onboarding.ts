@@ -62,11 +62,30 @@ export type DepartmentsValues = z.infer<typeof departmentsSchema>;
 // migrating from an existing HR system. This form doesn't offer that.
 export const inviteTeamSchema = z.object({
   invites: z.array(
-    z.object({
-      name: z.string().min(2, { message: "Name is required" }),
-      email: z.string().email({ message: "Enter a valid email" }),
-      role: z.enum(["HR_ADMIN", "TEAM_LEAD", "EMPLOYEE"]),
-    })
+    z
+      .object({
+        name: z.string().min(2, { message: "Name is required" }),
+        email: z.string().email({ message: "Enter a valid email" }),
+        role: z.enum(["HR_ADMIN", "TEAM_LEAD", "EMPLOYEE"]),
+        // The department NAME, not an id: departments are only created
+        // when the wizard finishes, so no id exists while this form is
+        // being filled in. onboarding/page.tsx maps name -> id after
+        // POST /departments and before POST /users.
+        department: z.string().optional(),
+      })
+      .superRefine((invite, ctx) => {
+        // A Team Lead with no department is a broken account, not merely
+        // an incomplete one: every Team Lead page is scoped to a
+        // department, and there is no PATCH /users/:id to set it later.
+        // Employees and HR Admins are org-wide, so theirs stays optional.
+        if (invite.role === "TEAM_LEAD" && !invite.department) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["department"],
+            message: "A Team Lead must be assigned a department",
+          });
+        }
+      })
   ), // deliberately allowed to be empty — inviting people is optional at this step
 });
 export type InviteTeamValues = z.infer<typeof inviteTeamSchema>;

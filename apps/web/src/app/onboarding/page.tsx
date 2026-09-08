@@ -222,6 +222,29 @@ export default function OnboardingPage() {
         await appClient.post("/departments", { name: department.name });
       }
 
+      // Re-read rather than collecting ids from the POST responses above:
+      // that loop skips departments which already existed, and those need
+      // ids too. One extra request buys a map covering both cases.
+      //
+      // Keyed on the trimmed, lowercased name because that is how the
+      // uniqueness check above compares them; the invite form stores names,
+      // not ids, since ids don't exist while the wizard is being filled in.
+      const departmentIdByName = new Map<string, string>();
+      try {
+        const { data } = await appClient.get<{ id: string; name: string }[]>(
+          "/departments"
+        );
+        for (const department of data) {
+          departmentIdByName.set(
+            department.name.trim().toLowerCase(),
+            department.id
+          );
+        }
+      } catch {
+        // Non-fatal: invites still go out, just without a department.
+        // Losing the whole setup over this would be worse.
+      }
+
       // Same endpoint the Add person modal uses. Each creates a PENDING
       // user, and provision() now emails them the activation link itself
       // (users.service.ts calls sendActivationEmail). Nothing comes back
@@ -234,6 +257,9 @@ export default function OnboardingPage() {
           name: invite.name,
           email: invite.email,
           role: invite.role,
+          departmentId: invite.department
+            ? departmentIdByName.get(invite.department.trim().toLowerCase())
+            : undefined,
         });
         invitedCount += 1;
       }
@@ -334,6 +360,9 @@ export default function OnboardingPage() {
         {currentStep === 5 && (
           <StepInviteTeam
             defaultValues={payload.inviteTeam}
+            departmentNames={
+              payload.departments?.departments.map((d) => d.name) ?? []
+            }
             onNext={(values: InviteTeamValues) =>
               handleStepComplete("inviteTeam", values)
             }

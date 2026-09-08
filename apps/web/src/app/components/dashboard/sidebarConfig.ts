@@ -11,6 +11,7 @@ import {
   Wallet,
   CalendarClock,
   AlertTriangle,
+  Network,
   User,
 } from "lucide-react";
 import type { UserRole } from "@/lib/store/auth-store";
@@ -38,6 +39,7 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
   SUPER_ADMIN: [
     { label: "Overview", href: SUPER_ADMIN_ROOT, icon: LayoutDashboard },
     { label: "Employees", href: `${SUPER_ADMIN_ROOT}/employees`, icon: Users },
+    { label: "Departments", href: `${SUPER_ADMIN_ROOT}/departments`, icon: Network },
     { label: "Offices & Geo-Fences", href: `${SUPER_ADMIN_ROOT}/offices`, icon: Building2 },
     { label: "Work Rules", href: `${SUPER_ADMIN_ROOT}/work-rules`, icon: Clock },
     { label: "Holiday Calendar", href: `${SUPER_ADMIN_ROOT}/holidays`, icon: Calendar },
