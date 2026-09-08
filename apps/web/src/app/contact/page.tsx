@@ -10,7 +10,7 @@ import { Navbar } from "../components/marketing/Navbar";
 import { Footer } from "../components/marketing/Footer";
 import { useToast } from "@/app/components/Toast";
 
-const SALES_EMAIL = "testingelon1@gmail.com   ";
+const SALES_EMAIL = "testingelon1@gmail.com";
 const SUPPORT_EMAIL = "support@elonatech.com.ng";
 
 const TOPICS = [
@@ -161,7 +161,7 @@ export default function ContactPage() {
                   </p>
                  
                   <p className="mt-4 text-sm text-neutral">
-                    Nothing opened? Write to us directly at
+                    Nothing opened? Write to us directly at{" "}
                     <a
                       href={`mailto:${sentTo}`}
                       className="font-medium text-primary hover:underline wrap-break-word"
