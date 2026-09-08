@@ -41,10 +41,6 @@ function ActivateAccountForm() {
   const searchParams = useSearchParams();
   const login = useAuthStore((state) => state.login);
 
-  // No email service exists yet (see users.service.ts's comment on
-  // `activationToken`), so this token arrives via whatever link the
-  // admin manually relayed to the invitee — it's just a query param,
-  // not something typed into the form.
   const token = searchParams.get("token");
 
   const [isSubmitting, setIsSubmitting] = useState(false);

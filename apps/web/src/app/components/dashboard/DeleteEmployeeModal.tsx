@@ -6,14 +6,6 @@ import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import type { EditableEmployee } from "./EditEmployeeModal";
 
-// Removing someone who has left the organization.
-//
-// Flip this to true once the backend exposes the endpoint. See the note
-// below on why that endpoint probably shouldn't be a hard row delete.
-const DELETE_ENDPOINT_READY = false;
-const NO_ENDPOINT_HINT =
-  "No endpoint removes a user yet — DELETE /users/:id doesn't exist.";
-
 interface DeleteEmployeeModalProps {
   employee: EditableEmployee;
   onClose: () => void;
@@ -34,7 +26,10 @@ export function DeleteEmployeeModal({
     setIsDeleting(true);
     try {
       await appClient.delete(`/users/${employee.id}`);
-      toast.success(employee.name + " removed successfully", "Their attendance history is kept for reporting.");
+      toast.success(
+        employee.name + " removed successfully",
+        "Their account and sign-in access have been permanently deleted."
+      );
       onDeleted();
       onClose();
     } catch (err) {
@@ -73,20 +68,21 @@ export function DeleteEmployeeModal({
               in. {employee.email} · {employee.employeeId}
             </p>
 
-            {/* Worth saying out loud, because it's the difference between
-                "removed from the org" and "erased from the record". */}
-            <p className="text-sm text-neutral mt-3">
-              Their past attendance stays in reports and the audit trail —
-              those records belong to the organization, not the account.
+            {/* DELETE /users/:id is a hard row delete (users.service.ts),
+                not a soft archive — the record and its tokens are gone and
+                cannot be restored. Saying so plainly matters: an earlier
+                draft of this copy claimed their history was retained, which
+                would have made this button look far safer than it is. */}
+            <p className="text-sm text-alert mt-3">
+              This permanently deletes their account. It cannot be undone, and
+              re-adding them later creates a new employee ID.
             </p>
 
-            {!DELETE_ENDPOINT_READY && (
-              <p className="text-xs text-neutral mt-3 border-t border-neutral/20 pt-3">
-                Removal is disabled until the backend exposes an endpoint for
-                it. Suspending from the employee detail view is the current
-                alternative.
-              </p>
-            )}
+            <p className="text-xs text-neutral mt-3 border-t border-neutral/20 pt-3">
+              Only removing someone who has actually left? If they may return,
+              suspend them from the detail view instead — that keeps the
+              account and can be reversed.
+            </p>
 
             {error && <p className="mt-3 text-sm text-alert">{error}</p>}
 
@@ -101,9 +97,8 @@ export function DeleteEmployeeModal({
               <button
                 type="button"
                 onClick={handleConfirm}
-                disabled={!DELETE_ENDPOINT_READY || isDeleting}
-                title={DELETE_ENDPOINT_READY ? undefined : NO_ENDPOINT_HINT}
-                className="rounded-md bg-alert text-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isDeleting}
+                className="rounded-md bg-alert text-white px-4 py-2 text-sm font-medium hover:bg-alert/90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isDeleting ? "Removing..." : "Remove"}
               </button>

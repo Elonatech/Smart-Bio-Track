@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Copy, Check } from "lucide-react";
+import { X, MailCheck } from "lucide-react";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import type { UserRole } from "@/lib/store/auth-store";
@@ -21,42 +21,75 @@ export interface EmployeeDetail {
 interface EmployeeDetailModalProps {
   employee: EmployeeDetail;
   onClose: () => void;
+  /** Refetches the employee list after a status change. */
+  onStatusChanged: () => void;
 }
 
-export function EmployeeDetailModal({ employee, onClose }: EmployeeDetailModalProps) {
+export function EmployeeDetailModal({
+  employee,
+  onClose,
+  onStatusChanged,
+}: EmployeeDetailModalProps) {
   const toast = useToast();
   const [isConfirmingReset, setIsConfirmingReset] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
-  const [resetLink, setResetLink] = useState<string | null>(null);
-  const [isCopied, setIsCopied] = useState(false);
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
+
+  // PATCH /users/:id/status is a toggle, not a one-way suspend, so the
+  // button has to read the current status to say what it will do.
+  const isSuspended = employee.status === "SUSPENDED";
+
+  // The backend rejects this for PENDING users: they have never set a
+  // password, so there is no active account to suspend and flipping them
+  // to ACTIVE would create a row the list calls active but login refuses.
+  // Withdrawing an unaccepted invite is a delete, not a suspend.
+  const isPending = employee.status === "PENDING";
+
+  async function handleToggleStatus() {
+    setIsTogglingStatus(true);
+    try {
+      await appClient.patch(`/users/${employee.id}/status`, {});
+      toast.success(
+        isSuspended
+          ? employee.name + " restored successfully"
+          : employee.name + " suspended successfully",
+        isSuspended
+          ? "They can sign in and clock in again."
+          : "They are signed out and cannot sign in until restored."
+      );
+      onStatusChanged();
+      onClose();
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      toast.error(
+        isSuspended
+          ? "Could not restore this person"
+          : "Could not suspend this person",
+        message
+      );
+    } finally {
+      setIsTogglingStatus(false);
+    }
+  }
+  const [isResetSent, setIsResetSent] = useState(false);
 
   async function handleConfirmReset() {
     setResetError(null);
     setIsSendingReset(true);
     try {
-      // Real endpoint, really works — POST /auth/forgot-password returns
-      // a resetToken directly in the response (same temporary hack as
-      // the invite activation token: no email service exists yet, so
-      // whoever triggers this has to relay the link manually).
-      const { data } = await appClient.post<{ resetToken?: string }>(
-        "/auth/forgot-password",
-        { email: employee.email }
+      // POST /auth/forgot-password emails the link itself and answers with
+      // the same generic response either way — deliberately, so the endpoint
+      // can't be used to discover which addresses have accounts. That means
+      // a 200 here confirms the request was accepted, NOT that an email went
+      // out: a PENDING or unknown account produces this identical response.
+      // The copy below says so rather than promising delivery.
+      await appClient.post("/auth/forgot-password", { email: employee.email });
+      setIsResetSent(true);
+      toast.success(
+        "Password reset requested successfully",
+        `If ${employee.email} belongs to an active account, a reset email is on its way.`
       );
-      if (data.resetToken) {
-        setResetLink(`${window.location.origin}/auth/reset-password?token=${data.resetToken}`);
-        toast.success(
-          "Reset link generated successfully",
-          "Copy it and send it to " + employee.name + " — no email is sent yet."
-        );
-      } else {
-        // PENDING/never-activated users get the generic response with
-        // no token (see auth.service.ts) — nothing to relay in that case.
-        const inactive =
-          "No reset link was generated — this account may not be active yet.";
-        setResetError(inactive);
-        toast.error("Could not generate a reset link", inactive);
-      }
     } catch (error) {
       const message = extractErrorMessage(error);
       setResetError(message);
@@ -64,14 +97,6 @@ export function EmployeeDetailModal({ employee, onClose }: EmployeeDetailModalPr
     } finally {
       setIsSendingReset(false);
     }
-  }
-
-  function handleCopy() {
-    if (!resetLink) return;
-    navigator.clipboard.writeText(resetLink);
-    toast.success("Reset link copied", "Send it to " + employee.name + ".");
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
   }
 
   return (
@@ -124,23 +149,26 @@ export function EmployeeDetailModal({ employee, onClose }: EmployeeDetailModalPr
         </p>
 
         {isConfirmingReset ? (
-          resetLink ? (
+          isResetSent ? (
             <div>
-              <p className="text-sm text-neutral mb-3">
-                No email service is set up yet — copy this link and send it
-                to {employee.name.split(" ")[0]} directly.
-              </p>
-              <div className="flex items-center gap-2 rounded-md border border-neutral/40 px-3 py-2 bg-neutral/5">
-                <span className="text-xs text-heading truncate flex-1">{resetLink}</span>
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  aria-label="Copy link"
-                  className="shrink-0 text-primary hover:text-primary/80"
-                >
-                  {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </button>
+              <div className="flex items-start gap-3 rounded-md border border-success/30 bg-success/10 px-3 py-3">
+                <MailCheck
+                  className="h-5 w-5 shrink-0 text-success"
+                  strokeWidth={1.75}
+                />
+                <p className="text-sm text-heading">
+                  If{" "}
+                  <span className="font-medium wrap-break-word">
+                    {employee.email}
+                  </span>{" "}
+                  belongs to an active account, a password reset email has
+                  been sent. The link expires shortly.
+                </p>
               </div>
+              <p className="mt-3 text-xs text-neutral">
+                Accounts that were never activated get no reset email — send
+                them a fresh invitation instead.
+              </p>
               <button
                 type="button"
                 onClick={onClose}
@@ -193,11 +221,24 @@ export function EmployeeDetailModal({ employee, onClose }: EmployeeDetailModalPr
             </button>
             <button
               type="button"
-              disabled
-              title="Not available yet — no backend endpoint exists to change a user's status."
-              className="flex-1 rounded-md bg-alert/40 text-white px-4 py-2 text-sm font-medium cursor-not-allowed"
+              onClick={handleToggleStatus}
+              disabled={isPending || isTogglingStatus}
+              title={
+                isPending
+                  ? "They haven't accepted their invitation yet, so there is no active account to suspend. Remove them instead."
+                  : undefined
+              }
+              className={`flex-1 rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed ${
+                isSuspended ? "bg-success hover:bg-success/90" : "bg-alert hover:bg-alert/90"
+              }`}
             >
-              Suspend employee
+              {isTogglingStatus
+                ? isSuspended
+                  ? "Restoring..."
+                  : "Suspending..."
+                : isSuspended
+                  ? "Restore access"
+                  : "Suspend employee"}
             </button>
           </div>
         )}

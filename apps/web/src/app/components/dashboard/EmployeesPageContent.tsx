@@ -312,6 +312,7 @@ export function EmployeesPageContent() {
               : null,
           }}
           onClose={() => setViewingEmployee(null)}
+          onStatusChanged={fetchAll}
         />
       )}
     </div>

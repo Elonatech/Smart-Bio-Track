@@ -35,20 +35,14 @@ export default function ForgotPasswordPage() {
     setIsSubmitting(true);
 
     try {
-      // The endpoint exists and creates a real reset token, but the
-      // backend does NOT email it yet — auth.service.ts returns
-      // `resetToken` in the response instead. So this page tells the
-      // user to check their inbox and nothing arrives: the self-service
-      // flow cannot currently complete.
+      // The endpoint emails the reset link itself and stores only a hash
+      // of the token, so nothing usable comes back here — as intended.
       //
-      // The token is deliberately ignored here rather than displayed.
-      // The invite modals show their link because an authenticated admin
-      // triggered them; this page is public, so rendering the token
-      // would hand account takeover to anyone who knows an email
-      // address. auth.service.ts flags the same risk on the response.
-      //
-      // When MailService is wired in, this needs no change — the token
-      // simply stops coming back and starts arriving by email.
+      // The response is deliberately identical whether or not the address
+      // has an account, which is why the confirmation below is worded as a
+      // conditional ("if an account exists"). Saying "we've sent you an
+      // email" would leak which addresses are registered, undoing the
+      // protection the generic response exists to provide.
       await appClient.post("/auth/forgot-password", values);
       setIsSubmitted(true);
       toast.success(

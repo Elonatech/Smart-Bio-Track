@@ -16,7 +16,7 @@ import { useToast } from "@/app/components/Toast";
 // Redeems a reset token from either self-service /auth/forgot-password
 // or an admin's "Reset password" action on an employee (both hit the
 // same backend POST /auth/reset-password, same token shape). Unlike
-// /auth/activate, resetPassword() does NOT return fresh tokens (see
+// /complete-registration, resetPassword() does NOT return fresh tokens (see
 // auth.service.ts) — it just revokes existing sessions and expects the
 // user to log in again normally, so this page redirects to /auth/login
 // on success instead of logging them in directly.

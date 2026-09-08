@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import {
-  Check,
   CircleCheck,
-  Copy,
   KeyRound,
+  MailCheck,
   RefreshCw,
   ShieldCheck,
   Trash2,
@@ -89,8 +88,7 @@ export function ProfilePageContent() {
   const [isConfirmingReset, setIsConfirmingReset] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
-  const [resetLink, setResetLink] = useState<string | null>(null);
-  const [isCopied, setIsCopied] = useState(false);
+  const [isResetSent, setIsResetSent] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -117,26 +115,15 @@ export function ProfilePageContent() {
     setResetError(null);
     setIsSendingReset(true);
     try {
-      // Real endpoint. Returns the resetToken directly in the response
-      // because no email service exists yet — the same temporary hack
-      // the invite flow uses.
-      const { data } = await appClient.post<{ resetToken?: string }>(
-        "/auth/forgot-password",
-        { email: profile.email }
+      // The endpoint emails the link and returns the same generic response
+      // whatever the outcome, so it can't be used to probe which addresses
+      // exist. Nothing comes back to display.
+      await appClient.post("/auth/forgot-password", { email: profile.email });
+      setIsResetSent(true);
+      toast.success(
+        "Password reset email sent successfully",
+        "Follow the link in your inbox. Setting a new password signs you out everywhere."
       );
-      if (data.resetToken) {
-        setResetLink(
-          `${window.location.origin}/auth/reset-password?token=${data.resetToken}`
-        );
-        toast.success(
-          "Reset link generated successfully",
-          "Open it to set a new password. This signs you out everywhere."
-        );
-      } else {
-        setResetError(
-          "No reset link was generated — please contact your administrator."
-        );
-      }
     } catch (error) {
       const message = extractErrorMessage(error);
       setResetError(message);
@@ -144,14 +131,6 @@ export function ProfilePageContent() {
     } finally {
       setIsSendingReset(false);
     }
-  }
-
-  function handleCopy() {
-    if (!resetLink) return;
-    navigator.clipboard.writeText(resetLink);
-    toast.success("Reset link copied");
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
   }
 
   return (
@@ -294,7 +273,7 @@ export function ProfilePageContent() {
             of every device.
           </p>
 
-          {!isConfirmingReset && !resetLink && (
+          {!isConfirmingReset && !isResetSent && (
             <button
               type="button"
               onClick={() => setIsConfirmingReset(true)}
@@ -305,7 +284,7 @@ export function ProfilePageContent() {
             </button>
           )}
 
-          {isConfirmingReset && !resetLink && (
+          {isConfirmingReset && !isResetSent && (
             <div className="mt-4">
               <p className="text-sm text-neutral">
                 This revokes your current sessions. You&apos;ll need to sign in
@@ -336,30 +315,21 @@ export function ProfilePageContent() {
 
           {resetError && <p className="mt-3 text-sm text-alert">{resetError}</p>}
 
-          {resetLink && (
-            <div className="mt-4">
-              <p className="text-sm text-neutral mb-2">
-                Open this link to set your new password:
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={resetLink}
-                  className="flex-1 min-w-0 rounded-md border border-neutral/40 px-3 py-2 text-xs text-heading bg-background"
-                />
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  aria-label="Copy reset link"
-                  className="rounded-md border border-neutral/30 p-2.5 text-neutral hover:text-heading"
-                >
-                  {isCopied ? (
-                    <Check className="h-4 w-4 text-success" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </button>
+          {isResetSent && (
+            <div className="mt-4 flex items-start gap-3 rounded-md border border-success/30 bg-success/10 px-3 py-3">
+              <MailCheck
+                className="h-5 w-5 shrink-0 text-success"
+                strokeWidth={1.75}
+              />
+              <div>
+                <p className="text-sm text-heading">
+                  Check your inbox — we&apos;ve emailed you a link to set a new
+                  password.
+                </p>
+                <p className="mt-1 text-xs text-neutral">
+                  It expires shortly. Nothing there? Look in spam, then try
+                  again.
+                </p>
               </div>
             </div>
           )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Copy, Check } from "lucide-react";
+import { X, MailCheck } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -69,10 +69,6 @@ interface ProvisionResponse {
   email: string;
   role: UserRole;
   status: string;
-  // TEMPORARY on the backend — see users.service.ts's comment on this
-  // field: returned directly in the response only because no email
-  // service exists yet.
-  activationToken: string;
 }
 
 interface AddPersonModalProps {
@@ -96,8 +92,10 @@ export function AddPersonModal({
   const toast = useToast();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activationLink, setActivationLink] = useState<string | null>(null);
-  const [isCopied, setIsCopied] = useState(false);
+  // The invited person, once created. The API emails the activation link
+  // itself now and returns no token, so there is nothing left to copy —
+  // this holds what the admin still needs to see afterwards.
+  const [invited, setInvited] = useState<ProvisionResponse | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [offices, setOffices] = useState<OfficeOption[]>([]);
 
@@ -146,12 +144,10 @@ export function AddPersonModal({
         // the caller's own organization (users.service.ts provision).
         officeId: values.officeId || undefined,
       });
-      setActivationLink(
-        `${window.location.origin}/auth/activate?token=${data.activationToken}`
-      );
+      setInvited(data);
       toast.success(
         values.name + " added successfully",
-        "Copy the activation link and send it to them — no invite email is sent yet."
+        `An activation email is on its way to ${values.email}.`
       );
       onInvited();
     } catch (error) {
@@ -163,20 +159,12 @@ export function AddPersonModal({
     }
   };
 
-  function handleCopy() {
-    if (!activationLink) return;
-    navigator.clipboard.writeText(activationLink);
-    toast.success("Activation link copied", "Paste it to " + "the new user directly.");
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
       <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6">
         <div className="flex items-start justify-between mb-1">
           <h2 className="text-lg font-semibold text-heading">
-            {activationLink ? "Invite sent" : "Add person"}
+            {invited ? "Invitation sent" : "Add person"}
           </h2>
           <button
             type="button"
@@ -188,25 +176,51 @@ export function AddPersonModal({
           </button>
         </div>
 
-        {activationLink ? (
+        {invited ? (
           <div>
-            <p className="text-sm text-neutral mb-3 mt-3">
-              No email service is set up yet — copy this activation link and
-              send it to them directly (Slack, WhatsApp, whatever works).
-            </p>
-            <div className="flex items-center gap-2 rounded-md border border-neutral/40 px-3 py-2 bg-neutral/5">
-              <span className="text-xs text-heading truncate flex-1">
-                {activationLink}
-              </span>
-              <button
-                type="button"
-                onClick={handleCopy}
-                aria-label="Copy link"
-                className="shrink-0 text-primary hover:text-primary/80"
-              >
-                {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              </button>
+            {/* The API sends the activation email itself and stores only a
+                hash of the token, so there is no link to show here. The
+                employee ID is surfaced instead: it is generated server-side,
+                the admin has not seen it before, and it is what the person
+                signs in with. */}
+            <div className="mt-3 flex items-start gap-3 rounded-md border border-success/30 bg-success/10 px-3 py-3">
+              <MailCheck
+                className="h-5 w-5 shrink-0 text-success"
+                strokeWidth={1.75}
+              />
+              <p className="text-sm text-heading">
+                An activation email has been sent to{" "}
+                <span className="font-medium wrap-break-word">{invited.email}</span>.
+                They set their own password from the link inside it.
+              </p>
             </div>
+
+            <dl className="mt-4 space-y-2 rounded-md border border-neutral/30 px-3 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-xs text-neutral">Employee ID</dt>
+                <dd className="text-sm font-medium text-heading">
+                  {invited.employeeId}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-xs text-neutral">Role</dt>
+                <dd className="text-sm font-medium text-heading">
+                  {ROLE_LABEL[invited.role]}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-xs text-neutral">Status</dt>
+                <dd className="text-sm font-medium text-heading">
+                  {invited.status}
+                </dd>
+              </div>
+            </dl>
+
+            <p className="mt-3 text-xs text-neutral">
+              Nothing arrived? Check the spam folder, then re-send the
+              invitation from their profile.
+            </p>
+
             <button
               type="button"
               onClick={onClose}

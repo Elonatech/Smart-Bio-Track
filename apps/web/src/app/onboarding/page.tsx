@@ -38,12 +38,6 @@ interface SavedProgress {
   payload: Partial<OnboardingPayload>;
 }
 
-interface InviteLink {
-  name: string;
-  email: string;
-  link: string;
-}
-
 export default function OnboardingPage() {
   const toast = useToast();
   const router = useRouter();
@@ -69,8 +63,6 @@ export default function OnboardingPage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [inviteLinks, setInviteLinks] = useState<InviteLink[]>([]);
-  const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
 
   // Setup is done at this point, so drop the saved progress — a later
   // visit should start clean, not replay a finished wizard.
@@ -84,13 +76,6 @@ export default function OnboardingPage() {
     }
     const orgName = payload.orgProfile?.organizationName ?? "";
     router.push(`/onboarding/welcome?org=${encodeURIComponent(orgName)}`);
-  }
-
-  function handleCopyLink(invite: InviteLink) {
-    navigator.clipboard.writeText(invite.link);
-    toast.success("Activation link copied", "Send it to " + invite.name + ".");
-    setCopiedEmail(invite.email);
-    setTimeout(() => setCopiedEmail(null), 2000);
   }
 
   // Restore once the auth store has settled, so we know whose progress
@@ -238,45 +223,29 @@ export default function OnboardingPage() {
       }
 
       // Same endpoint the Add person modal uses. Each creates a PENDING
-      // user plus an activation token. NOTE: the backend does not email
-      // that token yet (users.service.ts still returns it in the
-      // response instead), so invitees won't receive anything until
-      // MailService is wired into provision().
-      // The activation token comes back ONCE, in this response, and is
-      // never retrievable again: no resend endpoint exists, and
-      // forgot-password refuses non-ACTIVE users (auth.service.ts checks
-      // status !== 'ACTIVE' and returns a tokenless generic response).
-      // Discarding it stranded invitees with no way to activate, so the
-      // links are captured and shown before leaving this page.
-      const links: InviteLink[] = [];
+      // user, and provision() now emails them the activation link itself
+      // (users.service.ts calls sendActivationEmail). Nothing comes back
+      // to display: the token is stored only as a hash, so this page no
+      // longer has to hold the admin here to hand links out.
+      let invitedCount = 0;
       for (const invite of payload.inviteTeam?.invites ?? []) {
         if (userEmails.has(invite.email.trim().toLowerCase())) continue;
-        const { data } = await appClient.post<{ activationToken: string }>(
-          "/users",
-          {
-            name: invite.name,
-            email: invite.email,
-            role: invite.role,
-          }
-        );
-        links.push({
+        await appClient.post("/users", {
           name: invite.name,
           email: invite.email,
-          link: `${window.location.origin}/auth/activate?token=${data.activationToken}`,
+          role: invite.role,
         });
+        invitedCount += 1;
       }
 
-      // Hold on this page while there are links to hand out — navigating
-      // straight to the welcome screen would lose them permanently.
       toast.success(
         "Workspace set up successfully",
-        "Your office, departments and invites have been saved."
+        invitedCount > 0
+          ? `Your office and departments are saved, and ${invitedCount} activation ${
+              invitedCount === 1 ? "email has" : "emails have"
+            } been sent.`
+          : "Your office and departments have been saved."
       );
-
-      if (links.length > 0) {
-        setInviteLinks(links);
-        return;
-      }
 
       goToWelcome();
     } catch (error) {
@@ -378,7 +347,7 @@ export default function OnboardingPage() {
             beats the old behaviour, where the only way out was closing
             the tab, which then made the wizard unreachable forever.
             Hidden on step 6, which is the confirmation, not a form. */}
-        {currentStep < 6 && inviteLinks.length === 0 && (
+        {currentStep < 6 && (
           <div className="flex flex-wrap items-center justify-between gap-3 mt-6 pt-4 border-t border-neutral/20">
             <button
               type="button"
@@ -397,62 +366,7 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* Shown after Finish setup when invites were created. These
-            links exist ONLY here — the token is returned once by
-            POST /users and can never be fetched again, so this screen
-            replaces the confirmation rather than sitting alongside it. */}
-        {inviteLinks.length > 0 && (
-          <div className="py-2">
-            <h2 className="text-lg font-semibold text-heading mb-1">
-              Send these activation links
-            </h2>
-            <p className="text-sm text-neutral mb-4">
-              No invitation emails are sent yet, and these links can&apos;t be
-              retrieved again — copy them now and pass them on directly.
-            </p>
-
-            <div className="space-y-3">
-              {inviteLinks.map((invite) => (
-                <div
-                  key={invite.email}
-                  className="rounded-md border border-neutral/30 p-3"
-                >
-                  <p className="text-sm font-medium text-heading">
-                    {invite.name}
-                  </p>
-                  <p className="text-[12px] text-neutral mb-2">
-                    {invite.email}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      readOnly
-                      value={invite.link}
-                      className="flex-1 min-w-0 rounded-md border border-neutral/40 px-3 py-2 text-xs text-heading bg-background"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleCopyLink(invite)}
-                      className="shrink-0 rounded-md border border-neutral/30 px-3 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
-                    >
-                      {copiedEmail === invite.email ? "Copied" : "Copy"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={goToWelcome}
-              className="mt-6 w-full rounded-md bg-primary text-white py-2 text-sm font-medium hover:bg-primary/90"
-            >
-              I&apos;ve saved these links — continue
-            </button>
-          </div>
-        )}
-
-        {currentStep === 6 && inviteLinks.length === 0 && (
+        {currentStep === 6 && (
           <div className="flex flex-col items-center text-center py-4">
             <div className="h-16 w-16 rounded-full bg-success/10 flex items-center justify-center mb-4">
               <PartyPopper className="h-7 w-7 text-success" strokeWidth={1.75} />

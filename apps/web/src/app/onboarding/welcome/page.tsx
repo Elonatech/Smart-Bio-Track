@@ -121,7 +121,7 @@ function OnboardingWelcomeContent() {
 
 // useSearchParams requires a Suspense boundary in the App Router —
 // without this wrapper, the production build fails (confirmed: caught
-// this exact error via `next build`, same fix as auth/activate/page.tsx).
+// this exact error via `next build`, same fix as complete-registration/page.tsx).
 export default function OnboardingWelcomePage() {
   return (
     <Suspense fallback={null}>
