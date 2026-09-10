@@ -235,3 +235,11 @@ pnpm --filter api test:e2e
 pnpm --filter api check-types && pnpm --filter api test && pnpm --filter api lint
 
 npx tsc --noEmit -p apps/api/tsconfig.json
+
+<!-- pushing backend changes -->
+git add apps/api packages/constants packages/types
+git status
+git commit -m "feat(api): </what changed>
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+git push
