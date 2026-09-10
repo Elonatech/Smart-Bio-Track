@@ -23,6 +23,25 @@ export const PASSWORD_RESET_TOKEN_TTL_MINUTES = 30;
 /** Refresh-token lifetime, matching JWT_REFRESH_EXPIRY's 7-day default. */
 export const REFRESH_TOKEN_TTL_DAYS = 7;
 
+/**
+ * How long a just-rotated refresh token keeps working.
+ *
+ * Rotation revokes a token the instant it is spent, which is what makes a
+ * stolen one detectable. Taken literally it also breaks an ordinary browser:
+ * two tabs opening together both send the same cookie, the first rotates it,
+ * and the second arrives holding a token that was valid when it left. Treating
+ * that as theft signs the user out for using their own browser normally.
+ *
+ * So a token that was rotated within this window is still accepted, and the
+ * caller gets a fresh token of their own. Presenting one AFTER the window is
+ * treated as compromise and ends the whole session.
+ *
+ * 30 seconds is the trade: long enough for concurrent tabs, a slow network or
+ * a device waking from sleep; short enough that an attacker replaying a stolen
+ * token almost certainly misses it. Widening this widens exactly that gap.
+ */
+export const REFRESH_ROTATION_GRACE_SECONDS = 30;
+
 /** 32 random bytes, hex-encoded. Returned to the caller once, never stored. */
 export function generateToken(): string {
   return randomBytes(32).toString('hex');

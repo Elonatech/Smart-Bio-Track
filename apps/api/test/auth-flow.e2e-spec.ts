@@ -3,6 +3,7 @@ import {
   createTestApp,
   httpServer,
   registerOrganization,
+  requireRefreshCookie,
   TestContext,
 } from './helpers/test-app';
 
@@ -243,16 +244,61 @@ describe('Auth flow and RBAC (integration)', () => {
   });
 
   describe('refresh rotation', () => {
-    it('rejects a refresh token that has already been rotated', async () => {
+    it('accepts an immediate replay, so two browser tabs both survive', async () => {
+      // Strict rotation would 401 here, and that is not a hypothetical
+      // annoyance: every tab refreshes on load, so two tabs opening together
+      // send the same cookie milliseconds apart and the second one loses.
+      // Inside the grace window it gets a token of its own instead.
       await request(httpServer(ctx))
         .post('/api/auth/refresh')
         .send({ refreshToken: adminRefresh })
         .expect(200);
 
-      // Replay of the now-revoked token.
-      await request(httpServer(ctx))
+      const replay = await request(httpServer(ctx))
         .post('/api/auth/refresh')
         .send({ refreshToken: adminRefresh })
+        .expect(200);
+
+      expect(requireRefreshCookie(replay)).not.toBe(adminRefresh);
+    });
+
+    it('treats a replay after the grace window as theft and kills the session', async () => {
+      const login = await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'ada@acme.test', password: 'Passw0rd!' })
+        .expect(200);
+
+      const stolen = requireRefreshCookie(login);
+
+      const rotated = await request(httpServer(ctx))
+        .post('/api/auth/refresh')
+        .send({ refreshToken: stolen })
+        .expect(200);
+
+      const successor = requireRefreshCookie(rotated);
+
+      // Backdating rotatedAt is how the window is aged without a 30-second
+      // sleep in the suite. Everything else is the real code path.
+      const spent = await ctx.prisma.refreshToken.findFirst({
+        where: { rotatedAt: { not: null } },
+        orderBy: { createdAt: 'desc' },
+      });
+      await ctx.prisma.refreshToken.update({
+        where: { id: spent!.id },
+        data: { rotatedAt: new Date(Date.now() - 10 * 60 * 1000) },
+      });
+
+      await request(httpServer(ctx))
+        .post('/api/auth/refresh')
+        .send({ refreshToken: stolen })
+        .expect(401);
+
+      // The point of the feature. Refusing the replay alone would leave the
+      // thief's successor token working — they rotated a moment ago, which is
+      // exactly why the original came back spent. The whole family goes.
+      await request(httpServer(ctx))
+        .post('/api/auth/refresh')
+        .send({ refreshToken: successor })
         .expect(401);
     });
 
@@ -273,11 +319,7 @@ describe('Auth flow and RBAC (integration)', () => {
         login(),
       ]);
 
-      const tokens = [
-        first.body.data.refreshToken,
-        second.body.data.refreshToken,
-        third.body.data.refreshToken,
-      ];
+      const tokens = [first, second, third].map(requireRefreshCookie);
       expect(new Set(tokens).size).toBe(3);
     });
 
@@ -410,7 +452,7 @@ describe('Auth flow and RBAC (integration)', () => {
 
       await request(httpServer(ctx))
         .post('/api/auth/refresh')
-        .send({ refreshToken: login.body.data.refreshToken })
+        .send({ refreshToken: requireRefreshCookie(login) })
         .expect(401);
     });
   });
@@ -498,10 +540,47 @@ describe('Auth flow and RBAC (integration)', () => {
         success: true,
         message: 'Signed in successfully.',
         data: {
+          // Access token only. The refresh token is deliberately NOT here —
+          // returning it in the body is what let the client write it to
+          // localStorage, where any injected script could read it.
           accessToken: expect.any(String),
-          refreshToken: expect.any(String),
         },
       });
+    });
+
+    it('puts the refresh token in an httpOnly cookie, not the body', async () => {
+      const res = await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'ada@acme.test', password: 'Passw0rd!' })
+        .expect(200);
+
+      const cookie = (res.headers['set-cookie'] as unknown as string[]).find(
+        (c) => c.startsWith('sbt_refresh='),
+      );
+
+      expect(cookie).toBeDefined();
+      // HttpOnly is the whole mechanism: without it a script can read the
+      // token and the move out of localStorage bought nothing.
+      expect(cookie).toMatch(/HttpOnly/i);
+      expect(cookie).toMatch(/SameSite=Lax/i);
+      // Scoped to the auth routes, so it never rides along on a data request.
+      expect(cookie).toMatch(/Path=\/api\/auth/i);
+    });
+
+    it('sets the security headers helmet is here for', async () => {
+      const res = await request(httpServer(ctx)).get('/api').expect(200);
+
+      // HSTS is the one that mattered: it stops a browser ever talking to this
+      // API over plain HTTP again.
+      expect(res.headers['strict-transport-security']).toMatch(/max-age=\d+/);
+      // What actually prevents a JSON response being sniffed as HTML.
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
+      // Deliberately absent — it only breaks the Swagger UI here. See
+      // app.setup.ts for the reasoning.
+      expect(res.headers['content-security-policy']).toBeUndefined();
+      // Express's giveaway banner.
+      expect(res.headers['x-powered-by']).toBeUndefined();
     });
 
     it('wraps validation failures with a flat message and a details array', async () => {
