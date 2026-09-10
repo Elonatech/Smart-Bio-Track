@@ -133,6 +133,46 @@ export async function createTestApp(
 export const httpServer = (ctx: TestContext): App =>
   ctx.app.getHttpServer() as App;
 
+/**
+ * Pulls the refresh token out of a response's Set-Cookie header.
+ *
+ * The refresh token stopped being returned in the response body when it moved
+ * into an httpOnly cookie — a browser holds it and JavaScript cannot read it,
+ * which is the point. Tests are not a browser, so they read the header the
+ * browser would have consumed.
+ *
+ * Returns undefined when no refresh cookie was set, so a test can assert its
+ * ABSENCE (on a failed login, say) as easily as its presence.
+ */
+export function refreshCookieFrom(
+  res: request.Response,
+): string | undefined {
+  const raw = res.headers['set-cookie'];
+  const cookies = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+  const match = cookies.find((c) => c.startsWith('sbt_refresh='));
+  if (!match) {
+    return undefined;
+  }
+
+  // "sbt_refresh=<value>; Path=/api/auth; HttpOnly; ..." — take the value only.
+  const value = match.slice('sbt_refresh='.length).split(';')[0];
+  return value.length > 0 ? value : undefined;
+}
+
+/** Same, but fails loudly when the cookie a test depends on is missing. */
+export function requireRefreshCookie(res: request.Response): string {
+  const token = refreshCookieFrom(res);
+
+  if (!token) {
+    throw new Error(
+      `Expected a ${'sbt_refresh'} cookie on ${res.request.method} ${res.request.url}, got none`,
+    );
+  }
+
+  return token;
+}
+
 export interface RegisterOrganizationOptions {
   organizationName: string;
   email: string;
@@ -187,10 +227,13 @@ export async function registerOrganization(
     throw new Error(`No admin user was created for ${email}`);
   }
 
-  const tokens = verified.body.data as {
-    accessToken: string;
-    refreshToken: string;
-  };
+  const { accessToken } = verified.body.data as { accessToken: string };
 
-  return { ...tokens, employeeId: admin.employeeId };
+  // The refresh token is only ever in the Set-Cookie header now — the body
+  // carries the access token alone.
+  return {
+    accessToken,
+    refreshToken: requireRefreshCookie(verified),
+    employeeId: admin.employeeId,
+  };
 }

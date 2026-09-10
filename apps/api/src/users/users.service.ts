@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-users.dto';
@@ -40,6 +40,8 @@ interface Caller {
   id: string;
   role: UserRole;
   organizationId: string;
+  /** Nullable by schema: a user need not belong to a department. */
+  departmentId: string | null;
 }
 
 @Injectable()
@@ -259,9 +261,54 @@ export class UsersService {
     };
   }
 
-  findAll(organizationId: string) {
+  /**
+   * The set of users `caller` is allowed to see, as a Prisma filter.
+   *
+   * Returns null to mean "nobody" — deliberately not an empty filter, and
+   * deliberately not something the caller can mistake for one.
+   *
+   * SUPER_ADMIN and HR_ADMIN see their whole organization. A TEAM_LEAD sees
+   * only their own department: they are an ordinary employee with reporting
+   * duties, not an administrator, and the staff directory of the entire
+   * company — every colleague's email, employee ID and role — is not theirs
+   * to read.
+   *
+   * The null branch is the whole reason this is a named method rather than an
+   * inline `where`. `departmentId` is nullable, so the obvious spelling
+   *
+   *     { organizationId, departmentId: caller.departmentId }
+   *
+   * compiles to `WHERE departmentId IS NULL` for an unassigned lead, which
+   * matches every user in the organization who has no department — a *wider*
+   * leak than the bug this method exists to close. A filter that silently
+   * turns into a different filter is worse than no filter, because it looks
+   * finished. Handle the null explicitly, or don't handle it at all.
+   */
+  private visibleUsersWhere(caller: Caller): Prisma.UserWhereInput | null {
+    const organizationScope = { organizationId: caller.organizationId };
+
+    if (caller.role !== UserRole.TEAM_LEAD) {
+      return organizationScope;
+    }
+
+    if (!caller.departmentId) {
+      return null;
+    }
+
+    return { ...organizationScope, departmentId: caller.departmentId };
+  }
+
+  async findAll(caller: Caller) {
+    const where = this.visibleUsersWhere(caller);
+
+    // No department, nobody to supervise. Answered without a query rather
+    // than with one that cannot match — same result, one less round trip.
+    if (!where) {
+      return [];
+    }
+
     return this.prisma.user.findMany({
-      where: { organizationId },
+      where,
       select: {
         id: true,
         employeeId: true,
