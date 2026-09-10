@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { downloadCsv } from "@/lib/csv";
 import { DataTable } from "@/app/components/dashboard/DataTable";
-import { TEAM_DEPARTMENT } from "@/lib/teamLeadScope";
+import { useAuthStore } from "@/lib/store/auth-store";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { useToast } from "@/app/components/Toast";
 
@@ -98,7 +98,11 @@ export default function TeamLeadReportsPage() {
   const weekLabel =
     WEEKS.find((option) => option.value === week)?.label ?? WEEKS[0].label;
 
-  usePageHeader("Department reports", `${TEAM_DEPARTMENT} · ${weekLabel}`);
+  // Real department off /auth/me, not a hardcoded name. See team-lead/page.tsx.
+  const teamName =
+    useAuthStore((state) => state.user?.departmentName) ?? "Your team";
+
+  usePageHeader("Department reports", `${teamName} · ${weekLabel}`);
 
   const chartScale = useMemo(
     () => getChartScale(TEAM_WEEK.map((member) => member.hours)),
@@ -124,7 +128,11 @@ export default function TeamLeadReportsPage() {
   );
 
   function handleExport() {
-    downloadCsv(`${TEAM_DEPARTMENT.toLowerCase()}-week-${week}.csv`, [
+    // Spaces would make an awkward filename on download ("client services"),
+    // so collapse whitespace to hyphens the way the org name isn't.
+    const fileSlug = teamName.toLowerCase().replace(/\s+/g, "-");
+
+    downloadCsv(`${fileSlug}-week-${week}.csv`, [
       [
         "Name",
         "Job title",

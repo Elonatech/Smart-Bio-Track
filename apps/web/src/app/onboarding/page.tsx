@@ -42,7 +42,7 @@ export default function OnboardingPage() {
   const toast = useToast();
   const router = useRouter();
   const userId = useAuthStore((state) => state.user?.id);
-  const isHydrated = useAuthStore((state) => state.isHydrated);
+  const hasRestored = useAuthStore((state) => state.hasRestored);
 
   // Gates both restoring and saving. Without it the save effect fires on
   // first render with the empty initial state and wipes the very
@@ -81,7 +81,7 @@ export default function OnboardingPage() {
   // Restore once the auth store has settled, so we know whose progress
   // to look for.
   useEffect(() => {
-    if (!isHydrated) return;
+    if (!hasRestored) return;
 
     if (userId) {
       try {
@@ -99,7 +99,7 @@ export default function OnboardingPage() {
     }
 
     setIsRestored(true);
-  }, [isHydrated, userId]);
+  }, [hasRestored, userId]);
 
   // Save on every change, so progress survives a closed tab, not just an
   // in-app navigation.

@@ -12,7 +12,11 @@ import {
 } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
-import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
+import {
+  useAuthStore,
+  toAuthUser,
+  type MeResponse,
+} from "@/lib/store/auth-store";
 import { getDashboardPath } from "@/lib/roleRoutes";
 
 // Second half of the invite flow: an admin provisioned this person via
@@ -21,19 +25,12 @@ import { getDashboardPath } from "@/lib/roleRoutes";
 // activation token. This page is where they redeem that token and set
 // their own password — POST /auth/complete-registration flips them to
 // ACTIVE and logs them in immediately, same response shape as login.
+// Access token only — the refresh token arrives as an httpOnly cookie.
 interface CompleteRegistrationResponse {
   accessToken: string;
-  refreshToken: string;
 }
 
-interface MeResponse {
-  id: string;
-  name?: string;
-  email: string;
-  role: AuthUser["role"];
-  organizationId: string | null;
-  organizationName?: string;
-}
+// MeResponse and toAuthUser are shared — see auth-store.ts.
 
 function ActivateAccountForm() {
   const toast = useToast();
@@ -65,26 +62,19 @@ function ActivateAccountForm() {
         "/auth/complete-registration",
         { token, ...values }
       );
-      const { accessToken, refreshToken } = data;
+      const { accessToken } = data;
 
       const me = await appClient.get<MeResponse>("/auth/me", {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
-      const user: AuthUser = {
-        id: me.data.id,
-        name: me.data.name,
-        email: me.data.email,
-        role: me.data.role,
-        organizationId: me.data.organizationId,
-        organizationName: me.data.organizationName,
-      };
+      const user = toAuthUser(me.data);
 
       toast.success(
         "Account activated successfully",
         "Your password is set and you are signed in."
       );
-      login(user, accessToken, refreshToken);
+      login(user, accessToken);
       router.push(getDashboardPath(user.role));
     } catch (error) {
       const message = extractErrorMessage(error);

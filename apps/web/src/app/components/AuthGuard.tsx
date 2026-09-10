@@ -4,17 +4,21 @@ import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 
-// Wrap any protected page's content with this. While the auth store
-// hasn't finished hydrating from localStorage yet (see auth-store.ts's
-// `hydrate`), we render nothing rather than flashing the sign-in
-// screen for a split second on every page load. Once hydrated, either
-// the real page renders (session found) or this sign-in prompt does.
+// Wrap any protected page's content with this. Until the one-time session
+// restore has finished (see lib/session.ts), we render nothing rather than
+// flashing the sign-in screen at someone who is signed in. Once it has, either
+// the real page renders or this prompt does.
+//
+// That window is longer than it used to be, and worth understanding: restoring
+// a session is now a round trip to the server rather than a synchronous
+// localStorage read. Rendering the sign-in prompt during it would show "Sign
+// in to continue" for a few hundred milliseconds on every single page load.
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const isHydrated = useAuthStore((state) => state.isHydrated);
+  const hasRestored = useAuthStore((state) => state.hasRestored);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
-  if (!isHydrated) {
+  if (!hasRestored) {
     return null;
   }
 

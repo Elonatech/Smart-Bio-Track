@@ -13,13 +13,16 @@ import { getDashboardPath } from "@/lib/roleRoutes";
 // missing session and show the sign-in prompt instead.
 export default function DashboardIndexPage() {
   const router = useRouter();
-  const isHydrated = useAuthStore((state) => state.isHydrated);
+  // Waits for the session restore to finish before routing. Redirecting while
+  // it is still in flight would send every signed-in user to the Super Admin
+  // fallback, because `role` is not known yet.
+  const hasRestored = useAuthStore((state) => state.hasRestored);
   const role = useAuthStore((state) => state.user?.role);
 
   useEffect(() => {
-    if (!isHydrated) return;
+    if (!hasRestored) return;
     router.replace(role ? getDashboardPath(role) : "/dashboard/super-admin");
-  }, [isHydrated, role, router]);
+  }, [hasRestored, role, router]);
 
   return null;
 }
