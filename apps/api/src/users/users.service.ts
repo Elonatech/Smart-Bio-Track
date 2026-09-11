@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { Prisma, UserRole, UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-users.dto';
@@ -72,7 +72,15 @@ export class UsersService {
     });
 
     if (existingByEmail) {
-      throw new BadRequestException('A user with this email already exists');
+      // A deleted user still holds their email — deliberately, so re-hiring
+      // finds the person's history instead of colliding with a ghost record.
+      // Saying so turns a dead end into an instruction; the generic message
+      // left an admin retyping an address that would never be accepted.
+      throw new BadRequestException(
+        existingByEmail.status === UserStatus.DELETED
+          ? 'An account with this email was deleted. Its records are kept for compliance, so the address cannot be reused.'
+          : 'A user with this email already exists',
+      );
     }
 
     // Only worth checking when the caller supplied one. A generated ID is
@@ -194,8 +202,15 @@ export class UsersService {
       throw new BadRequestException(`You cannot ${action} your own account.`);
     }
 
+    // A deleted user reads as "not found" for the same reason another tenant's
+    // does: they are gone as far as this API is concerned, and deleting or
+    // suspending someone twice is not a thing that should half-work.
     const user = await this.prisma.user.findFirst({
-      where: { id: userId, organizationId: caller.organizationId },
+      where: {
+        id: userId,
+        organizationId: caller.organizationId,
+        status: { not: 'DELETED' },
+      },
     });
 
     if (!user) {
@@ -211,12 +226,50 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * Removes a user without destroying the record.
+   *
+   * This used to be `prisma.user.delete()` — a real row delete. In Phase 3 that
+   * becomes a serious problem: attendance rows hang off userId, so deleting an
+   * employee takes their entire attendance history with them. Those records are
+   * the evidence behind what someone was paid for which hours, and the law in
+   * most places requires keeping them for years after the person leaves. The
+   * one moment you need them is a dispute with somebody who has left.
+   *
+   * So the row stays and the status changes. JwtStrategy already refuses any
+   * user who is not ACTIVE, which locks them out of every authenticated route
+   * the instant this commits.
+   */
   async delete(userId: string, caller: Caller) {
     const user = await this.findManageable(userId, caller, 'delete');
 
-    // Their tokens go with them: onDelete: Cascade on activationToken,
-    // refreshToken and passwordResetToken.
-    await this.prisma.user.delete({ where: { id: user.id } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: { status: 'DELETED', deletedAt: new Date() },
+      });
+
+      // Access tokens die with the status change, but refresh tokens live in
+      // their own table and would otherwise keep minting new sessions for a
+      // user who no longer exists as far as anyone is concerned.
+      await tx.refreshToken.updateMany({
+        where: { userId: user.id, revoked: false },
+        data: { revoked: true },
+      });
+
+      // An unredeemed invitation is a live way back into the account. Burn it,
+      // or an employee removed before they ever signed in can still activate.
+      await tx.activationToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+
+      // Same reasoning for a reset link already sitting in their inbox.
+      await tx.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+    });
 
     return { message: `${user.name}'s account has been deleted.` };
   }
@@ -238,6 +291,11 @@ export class UsersService {
       );
     }
 
+    // Reads as "ACTIVE becomes SUSPENDED, anything else becomes ACTIVE", so it
+    // would happily hand a DELETED user a working account back — old password
+    // and all. It is safe only because findManageable above refuses to return
+    // a DELETED user at all. Keep that filter, or restore this check: a
+    // two-way toggle must never be the thing that reinstates someone.
     const nextStatus = user.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -295,7 +353,13 @@ export class UsersService {
    * finished. Handle the null explicitly, or don't handle it at all.
    */
   private visibleUsersWhere(caller: Caller): Prisma.UserWhereInput | null {
-    const organizationScope = { organizationId: caller.organizationId };
+    // Deleted users are kept for the record, not for the staff list. Applied
+    // here rather than in each branch below so a future role added to this
+    // method inherits it instead of having to remember it.
+    const organizationScope = {
+      organizationId: caller.organizationId,
+      status: { not: UserStatus.DELETED },
+    };
 
     if (caller.role !== UserRole.TEAM_LEAD) {
       return organizationScope;

@@ -350,8 +350,24 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if (user.status === 'SUSPENDED') {
-      throw new UnauthorizedException('Account is suspended');
+    // Whitelist, not a blacklist, and the difference is the whole point.
+    //
+    // This used to read `if (status === 'SUSPENDED') throw`, which asks "is
+    // this one bad state?" — so the moment DELETED was added to the enum, a
+    // deleted employee could still sign in. A rule written the other way round
+    // ("is this the one good state?") rejects every status added after it,
+    // including ones nobody has thought of yet. Enum values get added; guards
+    // rarely get revisited.
+    if (user.status !== 'ACTIVE') {
+      // Naming the reason leaks nothing: the correct password is already
+      // proven by this point, so the caller knows the account exists. Telling
+      // them which wall they hit is the difference between a support ticket
+      // and a password reset loop.
+      throw new UnauthorizedException(
+        user.status === 'SUSPENDED'
+          ? 'Account is suspended'
+          : 'This account is no longer active',
+      );
     }
 
     return this.issueTokens(user.id, user.email, user.role);
@@ -613,14 +629,43 @@ export class AuthService {
     return { message: 'Password has been reset. Please sign in again.' };
   }
 
+  /**
+   * Closes the caller's own account.
+   *
+   * Soft, for the same reason UsersService.delete is: the attendance and pay
+   * records hanging off this user are evidence that has to outlive them. Nobody
+   * can delete their way out of a payroll dispute.
+   */
   async deleteAccount(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
 
-    if (!user) {
+    if (!user || user.status === 'DELETED') {
       throw new UnprocessableEntityException('User not found');
     }
 
-    await this.prisma.user.delete({ where: { id: userId } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { status: 'DELETED', deletedAt: new Date() },
+      });
+
+      // Every live way back in goes with the account: sessions, an unused
+      // invitation, and any reset link already sitting in their inbox.
+      await tx.refreshToken.updateMany({
+        where: { userId, revoked: false },
+        data: { revoked: true },
+      });
+
+      await tx.activationToken.updateMany({
+        where: { userId, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+
+      await tx.passwordResetToken.updateMany({
+        where: { userId, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+    });
 
     return { message: 'Account deleted successfully.' };
   }
