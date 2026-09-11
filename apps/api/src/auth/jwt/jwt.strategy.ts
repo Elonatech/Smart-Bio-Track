@@ -21,9 +21,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload) {
+    // `department` is included, not just `departmentId`, because this is what
+    // scopes a TEAM_LEAD's visibility (UsersService.visibleUsersWhere) *and*
+    // what the dashboard labels their pages with. Both come from one LEFT JOIN
+    // on a primary key here rather than a second round trip from the client.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
+<<<<<<< HEAD
       include: { organization: true },
+=======
+      include: { organization: true, department: true },
+>>>>>>> 5d2cf1bb1253fd0726b1b6ea9f0d74747093cebb
     });
 
     if (!user || user.status !== 'ACTIVE') {
@@ -37,6 +45,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role: user.role,
       organizationId: user.organizationId,
       organizationName: user.organization.name ?? null,
+<<<<<<< HEAD
+=======
+      // Nullable by schema — a TEAM_LEAD may not be assigned to a department
+      // yet. Anything consuming this MUST treat null as "no scope", never as
+      // a filter value. See visibleUsersWhere for why.
+      departmentId: user.departmentId,
+      departmentName: user.department?.name ?? null,
+>>>>>>> 5d2cf1bb1253fd0726b1b6ea9f0d74747093cebb
     };
   }
 }

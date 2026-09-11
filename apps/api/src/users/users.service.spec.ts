@@ -198,24 +198,12 @@ describe('UsersService', () => {
     });
   });
 
-  describe('findAll', () => {
-    it('only returns users in the caller organization', async () => {
-      mockPrisma.user.findMany.mockResolvedValue([]);
-
-      await service.findAll(orgId);
-
-      const arg = mockPrisma.user.findMany.mock.calls[0][0] as {
-        where: Record<string, unknown>;
-      };
-      expect(arg.where).toEqual({ organizationId: orgId });
-    });
-  });
-
   describe('toggleStatus / delete', () => {
     const admin = {
       id: 'admin-1',
       role: 'SUPER_ADMIN' as const,
       organizationId: orgId,
+      departmentId: null,
     };
 
     const target = {
@@ -338,6 +326,66 @@ describe('UsersService', () => {
         where: { id: target.id },
       });
       expect(result.message).toContain(target.name);
+    });
+  });
+
+  describe('findAll visibility', () => {
+    const caller = (
+      role: 'SUPER_ADMIN' | 'HR_ADMIN' | 'TEAM_LEAD',
+      departmentId: string | null = null,
+    ) => ({ id: 'caller-1', role, organizationId: orgId, departmentId });
+
+    /** The `where` the service actually sent to Prisma. */
+    const whereSentToPrisma = () =>
+      (mockPrisma.user.findMany.mock.calls[0][0] as { where: unknown }).where;
+
+    beforeEach(() => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+    });
+
+    it.each(['SUPER_ADMIN', 'HR_ADMIN'] as const)(
+      'gives a %s their whole organization',
+      async (role) => {
+        await service.findAll(caller(role));
+
+        expect(whereSentToPrisma()).toEqual({ organizationId: orgId });
+      },
+    );
+
+    it('narrows a TEAM_LEAD to their own department', async () => {
+      await service.findAll(caller('TEAM_LEAD', 'dept-eng'));
+
+      expect(whereSentToPrisma()).toEqual({
+        organizationId: orgId,
+        departmentId: 'dept-eng',
+      });
+    });
+
+    it('never lets a TEAM_LEAD see the organization-wide list', async () => {
+      // The regression that matters: if the department filter is ever dropped,
+      // this is what catches it. Asserting on the shape above would still pass
+      // if someone "fixed" a bug by widening the scope back out.
+      await service.findAll(caller('TEAM_LEAD', 'dept-eng'));
+
+      expect(whereSentToPrisma()).not.toEqual({ organizationId: orgId });
+    });
+
+    it('returns nothing for a TEAM_LEAD with no department', async () => {
+      // `departmentId` is nullable, so this is a reachable state, not a
+      // hypothetical. Passing the null straight into the filter would query
+      // `WHERE departmentId IS NULL` and hand back every unassigned user in
+      // the organization — a wider leak than the one the scope closes.
+      const result = await service.findAll(caller('TEAM_LEAD', null));
+
+      expect(result).toEqual([]);
+      expect(mockPrisma.user.findMany).not.toHaveBeenCalled();
+    });
+
+    it('does not scope a SUPER_ADMIN by department even when they have one', async () => {
+      // An admin who happens to sit in a department is still an admin.
+      await service.findAll(caller('SUPER_ADMIN', 'dept-eng'));
+
+      expect(whereSentToPrisma()).toEqual({ organizationId: orgId });
     });
   });
 });

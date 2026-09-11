@@ -20,7 +20,13 @@ import { Roles } from '../auth/roles.decorator';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
 
 interface AuthenticatedRequest {
-  user: { id: string; email: string; role: UserRole; organizationId: string };
+  user: {
+    id: string;
+    email: string;
+    role: UserRole;
+    organizationId: string;
+    departmentId: string | null;
+  };
 }
 
 @ApiBearerAuth()
@@ -39,10 +45,14 @@ export class UsersController {
     );
   }
 
+  // The role list here decides who may call this at all; it does not decide
+  // what they get back. A TEAM_LEAD is admitted but sees only their own
+  // department — that narrowing lives in the service, next to the data, so a
+  // future endpoint cannot pick up the role check and miss the scope.
   @Get()
   @Roles(UserRole.SUPER_ADMIN, UserRole.HR_ADMIN, UserRole.TEAM_LEAD)
   findAll(@Req() req: AuthenticatedRequest) {
-    return this.usersService.findAll(req.user.organizationId);
+    return this.usersService.findAll(req.user);
   }
 
   // Suspends an active user, or restores a suspended one. The role ceiling and

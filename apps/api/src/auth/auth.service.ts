@@ -30,6 +30,7 @@ import {
   PASSWORD_RESET_TOKEN_TTL_MINUTES,
   REFRESH_TOKEN_TTL_DAYS,
   PENDING_ORG_SIGNUP_TOKEN_TTL_DAYS,
+  REFRESH_ROTATION_GRACE_SECONDS,
   expiryInDays,
   expiryInMinutes,
   generateToken,
@@ -356,14 +357,76 @@ export class AuthService {
     return this.issueTokens(user.id, user.email, user.role);
   }
 
-  // Refresh token method
+  /**
+   * Ends every live token descended from one sign-in.
+   *
+   * Called when a spent token is replayed. At that moment two parties have held
+   * the same token and there is no way to tell which one is asking, so the only
+   * safe move is to end the session for both and make them sign in again.
+   */
+  private async revokeFamily(familyId: string) {
+    const { count } = await this.prisma.refreshToken.updateMany({
+      where: { familyId, revoked: false },
+      data: { revoked: true },
+    });
+
+    return count;
+  }
+
+  /**
+   * Exchanges a refresh token for a new pair, and treats replay as theft.
+   *
+   * Rotation alone tells you nothing: it invalidates the old token, but if an
+   * attacker copied it and used it first, the *victim* gets the 401 and the
+   * attacker walks away with a working session. Nothing anywhere notices. What
+   * turns rotation into detection is reacting to the second use — a spent token
+   * coming back means it was copied, and the response is to end the session
+   * rather than to refuse one request.
+   *
+   * The grace window (see REFRESH_ROTATION_GRACE_SECONDS) is what stops that
+   * being hair-trigger: a browser with two tabs legitimately sends the same
+   * cookie twice within milliseconds.
+   */
   async refresh(refreshToken: string) {
     const stored = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: hashToken(refreshToken) },
     });
 
-    if (!stored || stored.revoked || stored.expiresAt < new Date()) {
+    if (!stored || stored.expiresAt < new Date()) {
       throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (stored.revoked) {
+      // Revoked without being rotated means the session was ended on purpose —
+      // a sign-out, a suspension, a password reset. Presenting it again is
+      // ordinary (a stale tab), not evidence of anything, so it is refused
+      // without touching the rest of the session.
+      if (!stored.rotatedAt) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      const graceExpiresAt = new Date(
+        stored.rotatedAt.getTime() + REFRESH_ROTATION_GRACE_SECONDS * 1000,
+      );
+
+      if (new Date() > graceExpiresAt) {
+        const revoked = await this.revokeFamily(stored.familyId);
+
+        // Worth a real log line: this is the one signal that distinguishes a
+        // stolen session from an expired one. No token or hash goes in it —
+        // logs get shipped, and this is enough to find the account.
+        this.logger.warn(
+          `Refresh token reuse detected for user ${stored.userId} ` +
+            `(session ${stored.familyId}); revoked ${revoked} live token(s).`,
+        );
+
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      // Inside the window. The caller is almost certainly the owner's second
+      // tab, so it falls through and is issued a token of its own in the same
+      // family. Two tabs then hold two tokens, which is no different from the
+      // same person on two devices.
     }
 
     const user = await this.prisma.user.findUnique({
@@ -387,12 +450,24 @@ export class AuthService {
       throw new UnauthorizedException('Account is not active');
     }
 
-    await this.prisma.refreshToken.update({
-      where: { id: stored.id },
-      data: { revoked: true },
-    });
+    // Skipped when this token was already rotated — it is a grace-window
+    // replay, and re-stamping rotatedAt would slide the window forward on every
+    // replay, keeping a stolen token alive indefinitely.
+    if (!stored.revoked) {
+      await this.prisma.refreshToken.update({
+        where: { id: stored.id },
+        data: { revoked: true, rotatedAt: new Date() },
+      });
+    }
 
-    return this.issueTokens(user.id, user.email, user.role);
+    // Same family: this is a continuation of the session that started at
+    // sign-in, not a new one, and theft detection needs the chain intact.
+    return this.issueTokens(
+      user.id,
+      user.email,
+      user.role,
+      stored.familyId,
+    );
   }
 
   /**
@@ -550,7 +625,18 @@ export class AuthService {
     return { message: 'Account deleted successfully.' };
   }
 
-  private async issueTokens(userId: string, email: string, role: string) {
+  /**
+   * `familyId` defaults to a fresh id, so every caller that starts a NEW
+   * session — login, org verification, invite activation — gets its own family
+   * without having to think about it. Only `refresh` passes one in, carrying
+   * the existing session's chain forward.
+   */
+  private async issueTokens(
+    userId: string,
+    email: string,
+    role: string,
+    familyId: string = randomUUID(),
+  ) {
     const payload = { sub: userId, email, role };
 
     const accessToken = this.jwtService.sign(
@@ -581,6 +667,7 @@ export class AuthService {
       data: {
         tokenHash: hashToken(refreshToken),
         userId,
+        familyId,
         expiresAt: expiryInDays(REFRESH_TOKEN_TTL_DAYS),
       },
     });

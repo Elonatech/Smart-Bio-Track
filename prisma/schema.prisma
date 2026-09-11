@@ -96,6 +96,25 @@ model User {
   refreshToken       RefreshToken[]
   activationToken    ActivationToken?
   passwordResetToken PasswordResetToken[]
+
+  /// Postgres indexes a primary key and a UNIQUE column automatically. It does
+  /// NOT index a foreign key. All three below were sequential scans of the
+  /// whole users table — invisible at 50 rows, and the first thing to fall over
+  /// at 100,000.
+  ///
+  /// organizationId: every admin's user list (UsersService.findAll).
+  ///
+  /// departmentId: a TEAM_LEAD's user list. No composite with organizationId is
+  /// needed — a department belongs to exactly one organization, so filtering on
+  /// it is already at least as selective as filtering on both.
+  ///
+  /// officeId: not read by any query today. It is here for deletes: removing an
+  /// Office makes Postgres check every User row for references, and without an
+  /// index that check is a full scan holding a lock. The same applies to
+  /// departmentId, which the index above also covers.
+  @@index([organizationId])
+  @@index([departmentId])
+  @@index([officeId])
 }
 
 /// Issued when an admin provisions a user. The raw token is handed to the
@@ -118,9 +137,38 @@ model RefreshToken {
   tokenHash String   @unique
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Every token descended from one sign-in shares this id. Rotation carries it
+  /// forward, so a chain of tokens stays identifiable as one session.
+  ///
+  /// It exists for theft detection: when a token that was already rotated is
+  /// presented again, the safe response is to end that whole session, not just
+  /// refuse the one request — the holder has a token the rightful owner also
+  /// had, and there is no way to tell which of the two is asking. Revoking the
+  /// family logs both out and forces a real sign-in.
+  familyId  String
+
   expiresAt DateTime
   revoked   Boolean  @default(false)
+
+  /// Set only when `revoked` was caused by ROTATION — this token was spent
+  /// normally and replaced by its successor.
+  ///
+  /// The distinction is the whole mechanism. A token revoked with rotatedAt
+  /// still null was ended deliberately (sign-out, suspension, password reset)
+  /// and presenting it again is unremarkable. A token revoked WITH rotatedAt
+  /// was spent, so a second presentation is either the owner's other tab
+  /// racing within the grace window, or someone replaying a stolen copy. The
+  /// timestamp is what separates those two.
+  rotatedAt DateTime?
+
   createdAt DateTime @default(now())
+
+  /// Unindexed, these two columns were sequential scans over a table that grows
+  /// with every rotation — `userId` for sign-out-everywhere and suspension,
+  /// `familyId` for the theft response above.
+  @@index([userId])
+  @@index([familyId])
 }
 
 /// Issued by POST /auth/forgot-password. Same hashed-at-rest, single-use,
@@ -133,4 +181,8 @@ model PasswordResetToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+
+  /// Read by forgotPassword, which retires any unused token for the user before
+  /// issuing a new one, and walked again by the cascade when a user is deleted.
+  @@index([userId])
 }

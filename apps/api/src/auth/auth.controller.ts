@@ -7,9 +7,17 @@ import {
   HttpStatus,
   Post,
   Req,
+  Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import {
+  clearRefreshCookie,
+  readRefreshCookie,
+  setRefreshCookie,
+} from './refresh-cookie';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { ApiBearerAuth } from '@nestjs/swagger';
@@ -38,6 +46,49 @@ import {
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  /**
+   * Puts the refresh token in an httpOnly cookie and keeps it out of the
+   * response body.
+   *
+   * Every route that starts a session goes through here, so there is one place
+   * that decides how the refresh token travels. Returning it in the body as
+   * well would defeat the point entirely — the client would write it back to
+   * localStorage and the cookie would be decoration.
+   *
+   * The access token stays in the body deliberately. It is short-lived and the
+   * client needs to read it to set the Authorization header; a cookie it cannot
+   * read would be useless for that, and putting it in a cookie is what would
+   * expose the data routes to CSRF. See refresh-cookie.ts.
+   */
+  private issueSession(
+    res: Response,
+    tokens: { accessToken: string; refreshToken: string },
+  ): { accessToken: string } {
+    setRefreshCookie(res, tokens.refreshToken);
+    return { accessToken: tokens.accessToken };
+  }
+
+  /**
+   * The refresh token for this request: the cookie a browser sends, or the body
+   * field a non-browser client supplies.
+   *
+   * The cookie wins when both are present. The body path exists for the
+   * deferred React Native client (docs/ENGINEERING_REFERENCE.md) — native apps
+   * have no browser cookie jar, and their secure storage (Keychain/Keystore)
+   * is not readable by injected script the way localStorage is. It does not
+   * weaken the browser case: script that cannot read an httpOnly cookie has no
+   * token to put in a body.
+   */
+  private refreshTokenFrom(req: Request, fromBody?: string): string {
+    const token = readRefreshCookie(req) ?? fromBody;
+
+    if (!token) {
+      throw new UnauthorizedException('No refresh token supplied');
+    }
+
+    return token;
+  }
+
   // First half of self-service org signup — email + password only. Sends a
   // verification link; nothing is created yet.
   @Post('register-organization')
@@ -63,8 +114,11 @@ export class AuthController {
   @Throttle(THROTTLE_TOKEN_REDEMPTION)
   @HttpCode(HttpStatus.OK)
   @ResponseMessage('Organization verified and registered successfully.')
-  verifyOrganization(@Body() dto: VerifyOrganizationDto) {
-    return this.authService.verifyOrganization(dto);
+  async verifyOrganization(
+    @Body() dto: VerifyOrganizationDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.issueSession(res, await this.authService.verifyOrganization(dto));
   }
 
   // Second half of the *employee-invite* provisioning flow — the invitee
@@ -75,24 +129,50 @@ export class AuthController {
   @Throttle(THROTTLE_TOKEN_REDEMPTION)
   @HttpCode(HttpStatus.OK)
   @ResponseMessage('Account activated successfully.')
-  completeRegistration(@Body() dto: CompleteRegistrationDto) {
-    return this.authService.completeRegistration(dto);
+  async completeRegistration(
+    @Body() dto: CompleteRegistrationDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.issueSession(
+      res,
+      await this.authService.completeRegistration(dto),
+    );
   }
 
   @Post('login')
   @Throttle(THROTTLE_LOGIN)
   @HttpCode(HttpStatus.OK)
   @ResponseMessage('Signed in successfully.')
-  login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.issueSession(res, await this.authService.login(dto));
   }
 
+  // Rotates the session. The old refresh token is revoked by the service and
+  // the replacement is written straight back into the cookie, so a browser
+  // client never handles it.
   @Post('refresh')
   @Throttle(THROTTLE_REFRESH)
   @HttpCode(HttpStatus.OK)
   @ResponseMessage('Session refreshed.')
-  refresh(@Body('refreshToken') refreshToken: string) {
-    return this.authService.refresh(refreshToken);
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body('refreshToken') refreshTokenFromBody?: string,
+  ) {
+    const supplied = this.refreshTokenFrom(req, refreshTokenFromBody);
+
+    try {
+      return this.issueSession(res, await this.authService.refresh(supplied));
+    } catch (error) {
+      // The cookie is spent or invalid. Leaving it in place means the browser
+      // replays it on every reload and the client keeps retrying a refresh
+      // that cannot succeed.
+      clearRefreshCookie(res);
+      throw error;
+    }
   }
 
   // Public. Always responds identically whether or not the email is registered,
@@ -118,8 +198,28 @@ export class AuthController {
   @ResponseMessage('Logged out successfully.')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
-  logout(@Body() dto: LogoutDto, @Req() req: { user: { id: string } }) {
-    return this.authService.logout(req.user.id, dto);
+  async logout(
+    @Body() dto: LogoutDto,
+    @Req() req: Request & { user: { id: string } },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // `all: true` revokes every session and needs no particular token; a
+    // single-session sign-out revokes the one this browser is holding.
+    const refreshToken = dto.all
+      ? dto.refreshToken
+      : this.refreshTokenFrom(req, dto.refreshToken);
+
+    try {
+      return await this.authService.logout(req.user.id, {
+        ...dto,
+        refreshToken,
+      });
+    } finally {
+      // Cleared even if the revoke threw. The token in this browser is being
+      // abandoned either way, and leaving a dead cookie behind means the next
+      // page load tries to restore a session that no longer exists.
+      clearRefreshCookie(res);
+    }
   }
 
   // Returns the authenticated caller's own profile — available to every role

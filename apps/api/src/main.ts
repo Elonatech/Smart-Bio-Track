@@ -14,6 +14,11 @@ async function bootstrap() {
   const env = validateEnv();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // Express advertises itself with `X-Powered-By: Express` on every response.
+  // It changes nothing about how the API behaves and tells anyone scanning us
+  // which stack to look up known vulnerabilities for. Free to remove.
+  app.disable('x-powered-by');
+
   // Rate limiting keys off the client IP. Behind a reverse proxy (Render,
   // Nginx) Express sees the proxy's address unless told to read
   // X-Forwarded-For — which would put every user in one shared bucket and
@@ -42,26 +47,43 @@ async function bootstrap() {
   // integration tests so both exercise the same pipeline.
   configureApp(app);
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('SmartBioTrack API')
-    .setDescription(
-      'Biometric and geo-fenced attendance management. All responses use the ' +
-        'PRTS §A8 envelope: { success, message, data } on success and ' +
-        '{ success, message, error: { code, details } } on failure.',
-    )
-    .setVersion('2.0')
-    .addBearerAuth()
-    .build();
+  // Swagger publishes the entire API surface: every route, every DTO field,
+  // every validation rule. That is exactly what you want while building and
+  // exactly what you do not want facing the internet — it is free
+  // reconnaissance, handing an attacker the shape of every endpoint including
+  // the auth ones, with no login required.
+  //
+  // Default: on everywhere except production. ENABLE_API_DOCS overrides in
+  // either direction, so a staging box can publish them deliberately.
+  const docsEnabled =
+    env.ENABLE_API_DOCS ?? process.env.NODE_ENV !== 'production';
 
-  SwaggerModule.setup(
-    'api/docs',
-    app,
-    SwaggerModule.createDocument(app, swaggerConfig),
-  );
+  if (docsEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('SmartBioTrack API')
+      .setDescription(
+        'Biometric and geo-fenced attendance management. All responses use the ' +
+          'PRTS §A8 envelope: { success, message, data } on success and ' +
+          '{ success, message, error: { code, details } } on failure.',
+      )
+      .setVersion('2.0')
+      .addBearerAuth()
+      .build();
+
+    SwaggerModule.setup(
+      'api/docs',
+      app,
+      SwaggerModule.createDocument(app, swaggerConfig),
+    );
+  }
 
   const port = env.PORT || 4000;
   await app.listen(port);
   console.log(`Server is running on http://localhost:${port}`);
-  console.log(`API docs available at http://localhost:${port}/api/docs`);
+  console.log(
+    docsEnabled
+      ? `API docs available at http://localhost:${port}/api/docs`
+      : 'API docs disabled (set ENABLE_API_DOCS=true to publish them)',
+  );
 }
 void bootstrap();
