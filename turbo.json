@@ -5,11 +5,7 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      // .next/** is the web app; dist/** is the NestJS API. Without the
-      // dist entry turbo warns "no output files found for task
-      // api#build" and can never serve that build from cache, so the API
-      // rebuilds from scratch every time.
-      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**"]
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**", "!.next/dev/**"]
     },
     "lint": {
       "dependsOn": ["^lint"]
