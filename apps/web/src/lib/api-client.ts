@@ -3,6 +3,14 @@ import { useAuthStore } from "./store/auth-store";
 
 export const appClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api",
+  // The refresh token is an httpOnly cookie (sbt_refresh) rather than a value
+  // in the response body, so JavaScript can neither read nor send it
+  // explicitly — the browser attaches it, but only on a cross-origin request
+  // that asks for credentials. Without this the cookie is silently dropped
+  // and every session dies the moment the 15-minute access token expires.
+  //
+  // The server already answers with Access-Control-Allow-Credentials: true.
+  withCredentials: true,
 });
 
 appClient.interceptors.request.use((config) => {
@@ -46,6 +54,13 @@ const NO_REFRESH_RETRY_PATHS = [
   // refreshing an access token can fix.
   "/auth/verify-organization",
   "/auth/register",
+  // Same reasoning as verify-organization: these redeem an emailed token, so
+  // a 401 is about that token, not an expired session. Retrying them through
+  // the refresh flow would also replay a possibly-spent refresh cookie, and
+  // the backend's reuse detector revokes the entire session family when that
+  // happens.
+  "/auth/complete-registration",
+  "/auth/reset-password",
 ];
 
 // Queues concurrent 401s that arrive while a single refresh is already
@@ -55,28 +70,30 @@ const NO_REFRESH_RETRY_PATHS = [
 let refreshPromise: Promise<string> | null = null;
 
 async function refreshAccessToken(): Promise<string> {
-  const refreshToken = localStorage.getItem("refreshToken");
-  if (!refreshToken) {
-    throw new Error("No refresh token available");
-  }
-
-  // Deliberately NOT using `appClient` here — that would re-enter this
-  // same response interceptor and could recurse. A plain axios POST,
-  // straight to the backend, sidesteps that entirely.
+  // No body and nothing read from storage: the refresh token travels as the
+  // httpOnly cookie, which the browser attaches on its own. There is no way
+  // to check up front whether one exists — a missing or spent cookie simply
+  // comes back 401, which the caller already treats as "log in again".
+  //
+  // Deliberately NOT using `appClient` — that would re-enter this same
+  // response interceptor and could recurse. A plain axios POST sidesteps it,
+  // but must opt into credentials itself since it isn't the configured
+  // instance.
   const res = await axios.post(
     `${appClient.defaults.baseURL}/auth/refresh`,
-    { refreshToken }
+    {},
+    { withCredentials: true }
   );
-  const body = res.data as { data?: { accessToken: string; refreshToken: string } };
-  const tokens = body.data ?? (res.data as { accessToken: string; refreshToken: string });
+  const body = res.data as { data?: { accessToken: string } };
+  const tokens = body.data ?? (res.data as { accessToken: string });
 
-  // Refresh rotates BOTH tokens server-side (the old refresh token is
-  // revoked) — save both, and update the in-memory auth store too, not
-  // just localStorage, so the rest of the app (e.g. DashboardNavbar
-  // reading the current user) doesn't go stale.
+  // Refresh rotates the cookie server-side as well; the Set-Cookie on this
+  // response replaces it without us touching anything. Only the access token
+  // needs storing, and the in-memory store is updated too — not just
+  // localStorage — so the rest of the app doesn't go stale.
   const currentUser = useAuthStore.getState().user;
   if (currentUser) {
-    useAuthStore.getState().login(currentUser, tokens.accessToken, tokens.refreshToken);
+    useAuthStore.getState().login(currentUser, tokens.accessToken);
   }
 
   return tokens.accessToken;

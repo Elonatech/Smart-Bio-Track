@@ -26,8 +26,9 @@ import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 // completeRegistration does for the invite flow.
 
 interface VerifyOrganizationResponse {
+  // No refreshToken field: it arrives as the httpOnly sbt_refresh cookie,
+  // which the browser stores and replays on its own.
   accessToken: string;
-  refreshToken: string;
 }
 
 interface MeResponse {
@@ -90,7 +91,7 @@ function VerifyOrganizationForm() {
         "/auth/verify-organization",
         { token, ...values }
       );
-      const { accessToken, refreshToken } = data;
+      const { accessToken } = data;
 
       // Explicit Authorization header: the token isn't in localStorage
       // yet, and the request interceptor would otherwise attach a stale
@@ -112,7 +113,7 @@ function VerifyOrganizationForm() {
         values.organizationName + " created successfully",
         "You are signed in as its Org Super Admin."
       );
-      registerUser(user, accessToken, refreshToken);
+      registerUser(user, accessToken);
 
       // A brand-new org lands in onboarding, not a dashboard that
       // assumes offices and work rules already exist.

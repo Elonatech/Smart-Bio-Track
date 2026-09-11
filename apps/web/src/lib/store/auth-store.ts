@@ -38,13 +38,15 @@ interface AuthState {
   // ---- STATE ----
   user: AuthUser | null;       // null until someone logs in
   accessToken: string | null;  // short-lived JWT sent on every API request
-  refreshToken: string | null; // longer-lived token used to obtain a new accessToken once it expires
   isAuthenticated: boolean;    // convenience flag so components don't have to check `user !== null` everywhere
   isHydrated: boolean;         // true once we've checked localStorage on app load (see `hydrate` below)
 
   // ---- ACTIONS ----
-  login: (user: AuthUser, accessToken: string, refreshToken: string) => void;
-  register: (user: AuthUser, accessToken: string, refreshToken: string) => void;
+  // There is no refreshToken parameter: it lives in an httpOnly cookie the
+  // browser manages, which JavaScript cannot read by design. Storing one here
+  // would mean storing `undefined`.
+  login: (user: AuthUser, accessToken: string) => void;
+  register: (user: AuthUser, accessToken: string) => void;
   logout: () => void;
   hydrate: () => void;
 }
@@ -60,7 +62,6 @@ export const useAuthStore = create<AuthState>((set) => ({
   // Initial state when the app first loads, before hydrate() runs.
   user: null,
   accessToken: null,
-  refreshToken: null,
   isAuthenticated: false,
   isHydrated: false,
 
@@ -68,30 +69,34 @@ export const useAuthStore = create<AuthState>((set) => ({
   // localStorage (survives page refresh) AND updates in-memory state
   // (so the UI re-renders immediately, e.g. redirecting off the login
   // page).
-  login: (user, accessToken, refreshToken) => {
+  login: (user, accessToken) => {
     localStorage.setItem("accessToken", accessToken);
-    localStorage.setItem("refreshToken", refreshToken);
     localStorage.setItem("user", JSON.stringify(user));
-    set({ user, accessToken, refreshToken, isAuthenticated: true });
+    set({ user, accessToken, isAuthenticated: true });
   },
 
   // Same shape as login — a successful Sign Up effectively logs the
   // new Org Super Admin in immediately, no separate "session" concept.
-  register: (user, accessToken, refreshToken) => {
+  register: (user, accessToken) => {
     localStorage.setItem("accessToken", accessToken);
-    localStorage.setItem("refreshToken", refreshToken);
     localStorage.setItem("user", JSON.stringify(user));
-    set({ user, accessToken, refreshToken, isAuthenticated: true });
+    set({ user, accessToken, isAuthenticated: true });
   },
 
   // Clears both localStorage and in-memory state. Call this on
   // "Sign out" and also anywhere you detect an expired/invalid token
   // (e.g. a 401 response interceptor in api-client.ts).
+  // Clears local state only. The refresh cookie is httpOnly, so only the
+  // server can remove it — Sidebar calls POST /auth/logout first, which
+  // revokes the token and clears the cookie, then calls this.
   logout: () => {
     localStorage.removeItem("accessToken");
+    // Left over from when the refresh token was stored here. Removed on every
+    // logout so a browser carrying one from before the cookie change doesn't
+    // keep a dead value in storage forever.
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("user");
-    set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+    set({ user: null, accessToken: null, isAuthenticated: false });
   },
 
   // Zustand's in-memory state always resets to the initial values above
@@ -107,14 +112,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   // rather than part of the initial state.
   hydrate: () => {
     const accessToken = localStorage.getItem("accessToken");
-    const refreshToken = localStorage.getItem("refreshToken");
     const rawUser = localStorage.getItem("user");
 
-    if (accessToken && refreshToken && rawUser) {
+    // No longer requires a stored refresh token to restore a session. It
+    // previously did, which would now lock out every returning user: the
+    // value has moved into a cookie this code cannot see, so the check would
+    // never pass. An access token that turns out to be expired is handled
+    // where it always was — the 401 interceptor refreshes it.
+    if (accessToken && rawUser) {
       set({
         user: JSON.parse(rawUser) as AuthUser, // turn the saved JSON string back into an object
         accessToken,
-        refreshToken,
         isAuthenticated: true,
         isHydrated: true,
       });

@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    // CommonJS on purpose. This package is consumed by the NestJS API,
+    // which tsc compiles to CJS and loads with `require()` — an ESM
+    // build here would fail at runtime with ERR_REQUIRE_ESM.
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2023",
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["index.ts"],
+  "exclude": ["node_modules", "dist"]
+}

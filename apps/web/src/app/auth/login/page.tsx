@@ -21,8 +21,9 @@ import { useToast } from "@/app/components/Toast";
 import Link from "next/link";
 
 interface LoginResponse {
+  // No refreshToken field: it arrives as the httpOnly sbt_refresh cookie,
+  // which the browser stores and replays on its own.
   accessToken: string;
-  refreshToken: string;
 }
 
 // GET /api/auth/me's shape. `name` and `organizationName` are optional
@@ -84,7 +85,7 @@ export default function LoginPage() {
         "/auth/login",
         values
       );
-      const { accessToken, refreshToken } = data;
+      const { accessToken } = data;
       
       const me = await appClient.get<MeResponse>("/auth/me", {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -102,7 +103,7 @@ export default function LoginPage() {
       // Save the session (localStorage + in-memory store) — see
       // auth-store.ts for exactly what this does.
       toast.success(user.name ? `Welcome back, ${user.name.split(" ")[0]}` : "Signed in");
-      login(user, accessToken, refreshToken);
+      login(user, accessToken);
 
       router.push(getDashboardPath(user.role));
     } catch (error) {

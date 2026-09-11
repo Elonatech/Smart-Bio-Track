@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ShieldCheck, LogOut, PanelLeftClose, PanelLeftOpen, X, ChevronsRight, ChevronsLeft } from "lucide-react";
+import { appClient } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { useToast } from "@/app/components/Toast";
 import type { SidebarItem } from "./sidebarConfig";
@@ -41,7 +42,22 @@ export function Sidebar({
   const logout = useAuthStore((state) => state.logout);
   const toast = useToast();
 
-  function handleSignOut() {
+  async function handleSignOut() {
+    // Signing out used to be purely local. That was enough while the refresh
+    // token lived in localStorage, but it is now an httpOnly cookie that only
+    // the server can clear — skipping this call would leave the browser
+    // holding a working refresh token for a week after "signing out".
+    //
+    // No body: the endpoint reads the cookie itself. Failures are swallowed
+    // because the local session is being discarded either way, and stranding
+    // someone on a dashboard they have asked to leave is worse than a token
+    // that outlives its session.
+    try {
+      await appClient.post("/auth/logout", {});
+    } catch {
+      // Intentionally ignored — see above.
+    }
+
     logout();
     toast.success("Signed out successfully");
     router.push("/auth/login");

@@ -22,8 +22,9 @@ import { getDashboardPath } from "@/lib/roleRoutes";
 // their own password — POST /auth/complete-registration flips them to
 // ACTIVE and logs them in immediately, same response shape as login.
 interface CompleteRegistrationResponse {
+  // No refreshToken field: it arrives as the httpOnly sbt_refresh cookie,
+  // which the browser stores and replays on its own.
   accessToken: string;
-  refreshToken: string;
 }
 
 interface MeResponse {
@@ -65,7 +66,7 @@ function ActivateAccountForm() {
         "/auth/complete-registration",
         { token, ...values }
       );
-      const { accessToken, refreshToken } = data;
+      const { accessToken } = data;
 
       const me = await appClient.get<MeResponse>("/auth/me", {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -84,7 +85,7 @@ function ActivateAccountForm() {
         "Account activated successfully",
         "Your password is set and you are signed in."
       );
-      login(user, accessToken, refreshToken);
+      login(user, accessToken);
       router.push(getDashboardPath(user.role));
     } catch (error) {
       const message = extractErrorMessage(error);

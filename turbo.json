@@ -9,7 +9,7 @@
       // dist entry turbo warns "no output files found for task
       // api#build" and can never serve that build from cache, so the API
       // rebuilds from scratch every time.
-      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**"]
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**", "!.next/dev/**"]
     },
     "lint": {
       "dependsOn": ["^lint"]
@@ -22,6 +22,12 @@
       "outputs": ["coverage/**"]
     },
     "dev": {
+      // Build workspace dependencies first. @smartbiotrack/constants resolves
+      // to dist/index.js, so without this the API crashes on boot with
+      // MODULE_NOT_FOUND on a fresh clone — nothing in the dev path compiles
+      // it. Only dependencies are built (^build), not the apps themselves,
+      // which still start from source with hot reload.
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     }

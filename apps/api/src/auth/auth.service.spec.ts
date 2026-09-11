@@ -172,10 +172,15 @@ describe('AuthService', () => {
       );
     });
 
-    it('throws on revoked token', async () => {
+    it('throws on a token revoked without rotation, and spares the family', async () => {
+      // rotatedAt null = ended on purpose (sign-out, suspension, reset). A
+      // stale tab replaying it is unremarkable, so the rest of the session
+      // must not be torn down over it.
       mockPrisma.refreshToken.findUnique.mockResolvedValue({
         id: 'rt-1',
         revoked: true,
+        rotatedAt: null,
+        familyId: 'fam-1',
         expiresAt: new Date(Date.now() + 10000),
         userId: 'user-1',
       });
@@ -183,6 +188,7 @@ describe('AuthService', () => {
       await expect(service.refresh('revoked')).rejects.toThrow(
         UnauthorizedException,
       );
+      expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalled();
     });
 
     it('throws on expired token', async () => {
@@ -224,6 +230,8 @@ describe('AuthService', () => {
       mockPrisma.refreshToken.findUnique.mockResolvedValue({
         id: 'rt-1',
         revoked: false,
+        rotatedAt: null,
+        familyId: 'fam-1',
         expiresAt: new Date(Date.now() + 10000),
         userId: 'user-1',
       });
@@ -243,19 +251,167 @@ describe('AuthService', () => {
       expect(lookup.where.tokenHash).toHaveLength(64);
 
       const stored = mockPrisma.refreshToken.create.mock.calls[0][0] as {
-        data: { tokenHash: string };
+        data: { tokenHash: string; familyId: string };
       };
       expect(stored.data.tokenHash).not.toBe('signed-token');
       expect(stored.data.tokenHash).toHaveLength(64);
+      // Carried forward, not regenerated: theft detection needs the chain from
+      // sign-in onwards to stay identifiable as one session.
+      expect(stored.data.familyId).toBe('fam-1');
 
-      expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith({
-        where: { id: 'rt-1' },
-        data: { revoked: true },
-      });
+      const update = mockPrisma.refreshToken.update.mock.calls[0][0] as {
+        where: { id: string };
+        data: { revoked: boolean; rotatedAt: Date };
+      };
+      expect(update.where).toEqual({ id: 'rt-1' });
+      expect(update.data.revoked).toBe(true);
+      // Stamped, not just revoked. Without this the replay below is
+      // indistinguishable from a deliberate sign-out and theft goes unnoticed.
+      expect(update.data.rotatedAt).toBeInstanceOf(Date);
+
       expect(result).toEqual({
         accessToken: 'signed-token',
         refreshToken: 'signed-token',
       });
+    });
+  });
+
+  describe('refresh token reuse', () => {
+    const activeUser = {
+      id: 'user-1',
+      email: 'jane@example.com',
+      role: 'EMPLOYEE',
+      status: 'ACTIVE',
+    };
+
+    /** A token spent (rotated) `secondsAgo` seconds ago. */
+    const rotatedToken = (secondsAgo: number) => ({
+      id: 'rt-1',
+      revoked: true,
+      rotatedAt: new Date(Date.now() - secondsAgo * 1000),
+      familyId: 'fam-1',
+      expiresAt: new Date(Date.now() + 10_000),
+      userId: 'user-1',
+    });
+
+    beforeEach(() => {
+      mockPrisma.user.findUnique.mockResolvedValue(activeUser);
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 2 });
+      // Default: spent five seconds ago, comfortably inside the window. The
+      // theft cases below override this with a token spent long ago.
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(rotatedToken(5));
+    });
+
+    it('accepts a replay inside the grace window', async () => {
+      // Two tabs opening together send the same cookie microseconds apart. The
+      // second must not be punished for the first having rotated it.
+      const result = await service.refresh('raced-token');
+
+      expect(result).toEqual({
+        accessToken: 'signed-token',
+        refreshToken: 'signed-token',
+      });
+      expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('gives the raced caller a token in the same family', async () => {
+      await service.refresh('raced-token');
+
+      const created = mockPrisma.refreshToken.create.mock.calls[0][0] as {
+        data: { familyId: string };
+      };
+      expect(created.data.familyId).toBe('fam-1');
+    });
+
+    it('does not re-stamp rotatedAt on a replay', async () => {
+      // Re-stamping would slide the window forward on every replay, so an
+      // attacker polling once every 20 seconds could keep a stolen token alive
+      // forever and never trip detection.
+      await service.refresh('raced-token');
+
+      expect(mockPrisma.refreshToken.update).not.toHaveBeenCalled();
+    });
+
+    it('treats a replay after the grace window as theft', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(rotatedToken(120));
+
+      await expect(service.refresh('stolen-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('revokes the whole family when reuse is detected', async () => {
+      // The point of the feature. Refusing just this request would leave the
+      // thief's freshly minted token working — they rotated successfully a
+      // moment ago, which is exactly why this one came back spent.
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(rotatedToken(120));
+
+      await expect(service.refresh('stolen-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { familyId: 'fam-1', revoked: false },
+        data: { revoked: true },
+      });
+    });
+
+    it('issues nothing to the replayer', async () => {
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(rotatedToken(120));
+
+      await expect(service.refresh('stolen-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('scopes the revocation to one session, not every device', async () => {
+      // Signing someone out of their phone because a laptop session was
+      // replayed is a worse experience than the threat warrants — the other
+      // families were never exposed.
+      mockPrisma.refreshToken.findUnique.mockResolvedValue(rotatedToken(120));
+
+      await expect(service.refresh('stolen-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+
+      const where = (
+        mockPrisma.refreshToken.updateMany.mock.calls[0][0] as {
+          where: Record<string, unknown>;
+        }
+      ).where;
+      expect(where).toHaveProperty('familyId');
+      expect(where).not.toHaveProperty('userId');
+    });
+  });
+
+  describe('session families', () => {
+    it('starts a distinct family per sign-in', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'jane@example.com',
+        role: 'EMPLOYEE',
+        status: 'ACTIVE',
+        passwordHash: 'hashed-pw',
+      });
+      (argon2.verify as jest.Mock).mockResolvedValue(true);
+
+      const credentials = {
+        identifier: 'jane@example.com',
+        password: 'correct-horse',
+      };
+
+      await service.login(credentials);
+      await service.login(credentials);
+
+      const [first, second] = mockPrisma.refreshToken.create.mock.calls.map(
+        (call) => (call[0] as { data: { familyId: string } }).data.familyId,
+      );
+
+      // Sharing a family across sign-ins would mean one replayed token ends
+      // every session the user has, on every device.
+      expect(first).not.toBe(second);
     });
   });
 
