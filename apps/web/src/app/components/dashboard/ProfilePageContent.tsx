@@ -21,12 +21,11 @@ import { Toggle } from "@/app/components/dashboard/Toggle";
 // EmployeesPageContent.
 //
 // WHAT IS AND ISN'T REAL, checked against the backend directly:
-//   REAL   — name, email, role, organization (GET /auth/me), and the
-//            password reset link (POST /auth/forgot-password).
-//   ABSENT — employeeId / department / office exist as columns but
-//            aren't in the /auth/me payload, and GET /users is
-//            restricted to admin roles, so an employee can't look
-//            themselves up either.
+//   REAL   — name, email, role, organization, department (GET /auth/me),
+//            and the password reset link (POST /auth/forgot-password).
+//   ABSENT — employeeId / office exist as columns but aren't in the
+//            /auth/me payload, and GET /users is restricted to admin
+//            roles, so an employee can't look themselves up either.
 //   ABSENT — phone and job title have no column on the User model.
 //   ABSENT — there is no PATCH /users, so nothing on this page can be
 //            saved; no change-password route; no Device model; no

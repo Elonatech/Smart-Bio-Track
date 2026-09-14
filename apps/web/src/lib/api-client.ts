@@ -3,29 +3,26 @@ import { useAuthStore } from "./store/auth-store";
 
 export const appClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api",
-  // The refresh token is an httpOnly cookie (sbt_refresh) rather than a value
-  // in the response body, so JavaScript can neither read nor send it
-  // explicitly — the browser attaches it, but only on a cross-origin request
-  // that asks for credentials. Without this the cookie is silently dropped
-  // and every session dies the moment the 15-minute access token expires.
-  //
-  // The server already answers with Access-Control-Allow-Credentials: true.
+  // Sends the httpOnly refresh cookie on cross-origin requests. Without this
+  // the browser withholds it and every refresh fails with "No refresh token
+  // supplied" — the API is on a different port in development, which makes
+  // every call cross-origin. The server side of the same handshake is
+  // `credentials: true` in main.ts's enableCors.
   withCredentials: true,
 });
 
 appClient.interceptors.request.use((config) => {
-  // Only fill in Authorization from localStorage if the caller hasn't
-  // already set one explicitly. Login/register deliberately pass the
-  // token they JUST received (before it's written to localStorage,
-  // via login()/registerUser()) — without this check, a stale token
-  // still sitting in localStorage from an earlier session silently
-  // overwrites that fresh one, causing the very next request
-  // (/auth/me) to fail even though registration/login itself
-  // succeeded with a perfectly valid token.
-  if (!config.headers['Authorization']) {
-    const token = localStorage.getItem('accessToken');
+  // The access token comes from the in-memory store, not localStorage — see
+  // auth-store.ts for why nothing is persisted any more.
+  //
+  // Only filled in when the caller hasn't set one explicitly. The sign-in
+  // pages pass the token they JUST received to /auth/me before the store is
+  // updated; without this check an older token from the store would overwrite
+  // that fresh one and the call would fail despite a successful sign-in.
+  if (!config.headers["Authorization"]) {
+    const token = useAuthStore.getState().accessToken;
     if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`;
+      config.headers["Authorization"] = `Bearer ${token}`;
     }
   }
   return config;
@@ -54,13 +51,6 @@ const NO_REFRESH_RETRY_PATHS = [
   // refreshing an access token can fix.
   "/auth/verify-organization",
   "/auth/register",
-  // Same reasoning as verify-organization: these redeem an emailed token, so
-  // a 401 is about that token, not an expired session. Retrying them through
-  // the refresh flow would also replay a possibly-spent refresh cookie, and
-  // the backend's reuse detector revokes the entire session family when that
-  // happens.
-  "/auth/complete-registration",
-  "/auth/reset-password",
 ];
 
 // Queues concurrent 401s that arrive while a single refresh is already
@@ -69,34 +59,34 @@ const NO_REFRESH_RETRY_PATHS = [
 // call, not three racing each other.
 let refreshPromise: Promise<string> | null = null;
 
-async function refreshAccessToken(): Promise<string> {
-  // No body and nothing read from storage: the refresh token travels as the
-  // httpOnly cookie, which the browser attaches on its own. There is no way
-  // to check up front whether one exists — a missing or spent cookie simply
-  // comes back 401, which the caller already treats as "log in again".
-  //
-  // Deliberately NOT using `appClient` — that would re-enter this same
-  // response interceptor and could recurse. A plain axios POST sidesteps it,
-  // but must opt into credentials itself since it isn't the configured
-  // instance.
+/**
+ * Trades the refresh cookie for a new access token.
+ *
+ * Nothing is passed in and nothing about the refresh token is handled here —
+ * the browser attaches the httpOnly cookie, the server rotates it and writes
+ * the replacement straight back as another cookie. This code never sees it,
+ * which is the entire point of the change: a script that cannot read the
+ * token cannot exfiltrate it.
+ *
+ * Deliberately NOT using `appClient` — that would re-enter the response
+ * interceptor below and could recurse. `withCredentials` has to be set
+ * explicitly here for the same reason.
+ */
+export async function refreshAccessToken(): Promise<string> {
   const res = await axios.post(
     `${appClient.defaults.baseURL}/auth/refresh`,
     {},
     { withCredentials: true }
   );
+
   const body = res.data as { data?: { accessToken: string } };
-  const tokens = body.data ?? (res.data as { accessToken: string });
+  const { accessToken } = body.data ?? (res.data as { accessToken: string });
 
-  // Refresh rotates the cookie server-side as well; the Set-Cookie on this
-  // response replaces it without us touching anything. Only the access token
-  // needs storing, and the in-memory store is updated too — not just
-  // localStorage — so the rest of the app doesn't go stale.
-  const currentUser = useAuthStore.getState().user;
-  if (currentUser) {
-    useAuthStore.getState().login(currentUser, tokens.accessToken);
-  }
+  // Only the access token changes on this side; the user in the store is
+  // still current, so replacing the whole session would be churn.
+  useAuthStore.getState().setAccessToken(accessToken);
 
-  return tokens.accessToken;
+  return accessToken;
 }
 
 appClient.interceptors.response.use(
@@ -142,10 +132,11 @@ appClient.interceptors.response.use(
       return appClient(originalRequest);
     } catch {
       refreshPromise = null;
-      // Refresh token is itself invalid/expired — there's no way back
-      // in without a real login. Clear the stale session and send the
-      // user to sign in, same as a manual logout.
-      useAuthStore.getState().logout();
+      // The refresh cookie is itself expired, revoked or absent — there is no
+      // way back in without a real sign-in. The server has already cleared the
+      // dead cookie (see AuthController.refresh), so this only has to drop the
+      // local half.
+      useAuthStore.getState().clearSession();
       if (typeof window !== "undefined") {
         window.location.href = "/auth/login";
       }

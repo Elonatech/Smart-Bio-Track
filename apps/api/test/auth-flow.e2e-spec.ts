@@ -367,7 +367,7 @@ describe('Auth flow and RBAC (integration)', () => {
       await request(httpServer(ctx)).delete('/api/auth/account').expect(401);
     });
 
-    it('deletes the authenticated user and revokes all sessions', async () => {
+    it('keeps the record, ends the access, and kills every way back in', async () => {
       const empToken = await onboard('EMPLOYEE', 'emp5');
       const empUser = await ctx.prisma.user.findUnique({
         where: { email: 'emp5@acme.test' },
@@ -378,17 +378,57 @@ describe('Auth flow and RBAC (integration)', () => {
         .set('Authorization', `Bearer ${empToken}`)
         .expect(200);
 
-      // User is gone
+      // The row survives on purpose. Phase 3 hangs attendance off userId, and
+      // those records have to outlive the person — they are the evidence in a
+      // pay dispute with someone who has already left.
       const deleted = await ctx.prisma.user.findUnique({
         where: { email: 'emp5@acme.test' },
       });
-      expect(deleted).toBeNull();
+      expect(deleted).not.toBeNull();
+      expect(deleted?.status).toBe('DELETED');
+      expect(deleted?.deletedAt).toBeInstanceOf(Date);
 
-      // All tokens are gone (cascade delete)
-      const tokenCount = await ctx.prisma.activationToken.count({
-        where: { userId: empUser?.id },
+      // Keeping the row must not mean keeping the access. The status alone
+      // stops new requests, because JwtStrategy refuses anyone not ACTIVE.
+      await request(httpServer(ctx))
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${empToken}`)
+        .expect(401);
+
+      // An unredeemed invitation is a live route back into a closed account,
+      // so it is spent rather than left dangling.
+      const liveInvites = await ctx.prisma.activationToken.count({
+        where: { userId: empUser?.id, usedAt: null },
       });
-      expect(tokenCount).toBe(0);
+      expect(liveInvites).toBe(0);
+
+      // Same for sessions: a refresh token would otherwise keep minting
+      // access for a user nobody can see any more.
+      const liveSessions = await ctx.prisma.refreshToken.count({
+        where: { userId: empUser?.id, revoked: false },
+      });
+      expect(liveSessions).toBe(0);
+    });
+
+    it('refuses to sign a deleted user back in with the right password', async () => {
+      await onboard('EMPLOYEE', 'emp6');
+
+      const login = await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'emp6@acme.test', password: 'Passw0rd!' })
+        .expect(200);
+
+      await request(httpServer(ctx))
+        .delete('/api/auth/account')
+        .set('Authorization', `Bearer ${login.body.data.accessToken}`)
+        .expect(200);
+
+      // The guard in login used to ask "is this SUSPENDED?", which answers no
+      // for any status added later — so DELETED would have signed straight in.
+      await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'emp6@acme.test', password: 'Passw0rd!' })
+        .expect(401);
     });
   });
 

@@ -19,6 +19,20 @@ enum UserStatus {
   PENDING
   ACTIVE
   SUSPENDED
+
+  /// Removed by an admin, but the row stays.
+  ///
+  /// This is an attendance and payroll product: a user's rows are the evidence
+  /// behind who was paid for which hours. Most jurisdictions require those
+  /// records kept for years after someone leaves, so a real DELETE — which
+  /// cascades their attendance away with them — destroys the one thing that
+  /// settles a dispute.
+  ///
+  /// Carried on UserStatus rather than a separate `deletedAt IS NULL` filter
+  /// because JwtStrategy already refuses anyone whose status is not ACTIVE.
+  /// That means a deleted user is locked out of every authenticated route the
+  /// moment this commits, with no new filter for a future endpoint to forget.
+  DELETED
 }
 
 model PendingOrganizationSignup {
@@ -92,6 +106,13 @@ model User {
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  /// When the account was removed. Null for everyone else.
+  ///
+  /// `status` drives the behaviour; this records the date, which is what a
+  /// retention policy is actually written against ("destroy seven years after
+  /// leaving"). updatedAt cannot serve — any later edit overwrites it.
+  deletedAt    DateTime?
 
   refreshToken       RefreshToken[]
   activationToken    ActivationToken?

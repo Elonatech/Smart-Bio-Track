@@ -15,29 +15,27 @@ import {
 import { PasswordInput } from "@/app/components/PasswordInput";
 import { loginSchema, type LoginFormValues } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
-import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
+import {
+  useAuthStore,
+  toAuthUser,
+  type MeResponse,
+} from "@/lib/store/auth-store";
 import { getDashboardPath } from "@/lib/roleRoutes";
 import { useToast } from "@/app/components/Toast";
 import Link from "next/link";
 
+// Only the access token comes back in the body. The refresh token is set as
+// an httpOnly cookie the browser stores and this code cannot read — see
+// apps/api/src/auth/refresh-cookie.ts.
 interface LoginResponse {
   // No refreshToken field: it arrives as the httpOnly sbt_refresh cookie,
   // which the browser stores and replays on its own.
   accessToken: string;
 }
 
-// GET /api/auth/me's shape. `name` and `organizationName` are optional
-// here because older backend deployments (before jwt.strategy.ts was
-// updated to include them) won't send them — falls back to `undefined`
-// rather than breaking, same reasoning as AuthUser's own optional fields.
-interface MeResponse {
-  id: string;
-  name?: string;
-  email: string;
-  role: AuthUser["role"];
-  organizationId: string | null;
-  organizationName?: string;
-}
+// MeResponse and toAuthUser live in auth-store.ts — one definition shared by
+// every page that signs someone in, so a new field on GET /auth/me reaches
+// all of them at once.
 
 export default function LoginPage() {
   const toast = useToast();
@@ -91,14 +89,7 @@ export default function LoginPage() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
-      const user: AuthUser = {
-        id: me.data.id,
-        name: me.data.name,
-        email: me.data.email,
-        role: me.data.role,
-        organizationId: me.data.organizationId,
-        organizationName: me.data.organizationName,
-      };
+      const user = toAuthUser(me.data);
 
       // Save the session (localStorage + in-memory store) — see
       // auth-store.ts for exactly what this does.

@@ -12,7 +12,11 @@ import {
 } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
-import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
+import {
+  useAuthStore,
+  toAuthUser,
+  type MeResponse,
+} from "@/lib/store/auth-store";
 
 // STEP TWO of org signup. The link in the verification email points
 // here — NOT at /auth/verify-organization. See the URL built in
@@ -25,20 +29,14 @@ import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 // one, and returns the token pair — so it logs you straight in, same as
 // completeRegistration does for the invite flow.
 
+// Access token only — the refresh token arrives as an httpOnly cookie.
 interface VerifyOrganizationResponse {
   // No refreshToken field: it arrives as the httpOnly sbt_refresh cookie,
   // which the browser stores and replays on its own.
   accessToken: string;
 }
 
-interface MeResponse {
-  id: string;
-  name?: string;
-  email: string;
-  role: AuthUser["role"];
-  organizationId: string | null;
-  organizationName?: string;
-}
+// MeResponse and toAuthUser are shared — see auth-store.ts.
 
 // `industry` is a free-text column on Organization, but a fixed list
 // keeps the data groupable instead of collecting twelve spellings of
@@ -100,14 +98,12 @@ function VerifyOrganizationForm() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
-      const user: AuthUser = {
-        id: me.data.id,
-        name: me.data.name ?? values.adminName,
-        email: me.data.email,
-        role: me.data.role,
-        organizationId: me.data.organizationId,
-        organizationName: me.data.organizationName ?? values.organizationName,
-      };
+      // The form already knows both, so they survive an API response that
+      // hasn't caught up. The server still wins when it does send them.
+      const user = toAuthUser(me.data, {
+        name: values.adminName,
+        organizationName: values.organizationName,
+      });
 
       toast.success(
         values.organizationName + " created successfully",

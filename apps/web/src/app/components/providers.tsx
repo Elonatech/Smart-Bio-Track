@@ -7,7 +7,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { useAuthStore } from '@/lib/store/auth-store';
+import { restoreSession } from '@/lib/session';
 import { ToastViewport } from './Toast';
 
 // This component wraps your entire app (see layout.tsx, where it wraps
@@ -21,21 +21,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
   // it only ever runs once, on first render — not on every re-render.
   const [queryClient] = useState(() => new QueryClient());
 
-  // Pull just the `hydrate` function out of the auth store. Using a
-  // selector like `(state) => state.hydrate` instead of the whole
-  // store means this component only re-renders if `hydrate` itself
-  // changes (which it never does) — not every time ANY auth state
-  // changes elsewhere in the app.
-  const hydrate = useAuthStore((state) => state.hydrate);
-
-  // useEffect with an empty-ish dependency array ([hydrate], but
-  // hydrate never changes) means: "run this once, right after the
-  // component first mounts in the browser." This is exactly where we
-  // want to check localStorage for a saved login session — it only
-  // runs client-side, never during server rendering.
+  // Runs once, right after this mounts in the browser: ask the server whether
+  // the httpOnly refresh cookie still represents a session, and rebuild the
+  // store from the answer. See lib/session.ts.
+  //
+  // It has to be an effect rather than part of render because it is a network
+  // call and it must never run during server rendering — the cookie belongs to
+  // the browser's request, not to Next's render pass.
+  //
+  // `restoreSession` never rejects (it handles its own failure as "signed
+  // out"), so there is nothing to catch here.
   useEffect(() => {
-    hydrate();
-  }, [hydrate]);
+    void restoreSession();
+  }, []);
 
   // QueryClientProvider makes `queryClient` available to every
   // component below it in the tree via React Context, so any component

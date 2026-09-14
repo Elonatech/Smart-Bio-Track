@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ShieldCheck, LogOut, PanelLeftClose, PanelLeftOpen, X, ChevronsRight, ChevronsLeft } from "lucide-react";
-import { appClient } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { signOut } from "@/lib/session";
 import { useToast } from "@/app/components/Toast";
 import type { SidebarItem } from "./sidebarConfig";
 
@@ -39,26 +39,17 @@ export function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
-  const logout = useAuthStore((state) => state.logout);
   const toast = useToast();
 
+  // Awaited, unlike the old synchronous store reset: signing out is a request
+  // now. Only the server can revoke the refresh token and clear its httpOnly
+  // cookie — dropping local state alone would leave a live session cookie in
+  // the browser, and the next page load would quietly sign the user back in.
+  //
+  // signOut() swallows a failed request and clears the local session anyway,
+  // so there is no error path to handle here.
   async function handleSignOut() {
-    // Signing out used to be purely local. That was enough while the refresh
-    // token lived in localStorage, but it is now an httpOnly cookie that only
-    // the server can clear — skipping this call would leave the browser
-    // holding a working refresh token for a week after "signing out".
-    //
-    // No body: the endpoint reads the cookie itself. Failures are swallowed
-    // because the local session is being discarded either way, and stranding
-    // someone on a dashboard they have asked to leave is worse than a token
-    // that outlives its session.
-    try {
-      await appClient.post("/auth/logout", {});
-    } catch {
-      // Intentionally ignored — see above.
-    }
-
-    logout();
+    await signOut();
     toast.success("Signed out successfully");
     router.push("/auth/login");
   }
@@ -192,7 +183,7 @@ export function Sidebar({
 
         <button
           type="button"
-          onClick={handleSignOut}
+          onClick={() => void handleSignOut()}
           title={isCollapsed ? "Sign out" : undefined}
           className={`flex items-center gap-3 px-3 py-2 mx-3 mb-2 rounded-md text-sm font-medium text-white/70 hover:bg-white/5 hover:text-white ${
             isCollapsed ? "lg:justify-center" : ""

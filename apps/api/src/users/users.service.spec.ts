@@ -23,7 +23,8 @@ describe('UsersService', () => {
     },
     department: { findFirst: jest.fn() },
     office: { findFirst: jest.fn() },
-    activationToken: { create: jest.fn() },
+    activationToken: { create: jest.fn(), updateMany: jest.fn() },
+    passwordResetToken: { updateMany: jest.fn() },
     refreshToken: { updateMany: jest.fn() },
     organization: { findUnique: jest.fn() },
     $transaction: jest.fn(),
@@ -271,11 +272,15 @@ describe('UsersService', () => {
       expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
 
-    it('scopes the lookup to the caller organization', async () => {
+    it('scopes the lookup to the caller organization, excluding deleted users', async () => {
       await service.toggleStatus(target.id, admin);
 
       expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({
-        where: { id: target.id, organizationId: orgId },
+        where: {
+          id: target.id,
+          organizationId: orgId,
+          status: { not: 'DELETED' },
+        },
       });
     });
 
@@ -322,10 +327,44 @@ describe('UsersService', () => {
     it('deletes a user the caller has authority over', async () => {
       const result = await service.delete(target.id, admin);
 
-      expect(mockPrisma.user.delete).toHaveBeenCalledWith({
-        where: { id: target.id },
-      });
       expect(result.message).toContain(target.name);
+    });
+
+    it('marks the user deleted instead of removing the row', async () => {
+      // Phase 3 hangs attendance records off userId. A real row delete takes
+      // them with it, and those records are what settle a pay dispute with
+      // someone who has already left — exactly when you need them.
+      await service.delete(target.id, admin);
+
+      expect(mockPrisma.user.delete).not.toHaveBeenCalled();
+
+      const update = mockPrisma.user.update.mock.calls[0][0] as {
+        where: { id: string };
+        data: { status: string; deletedAt: Date };
+      };
+      expect(update.where).toEqual({ id: target.id });
+      expect(update.data.status).toBe('DELETED');
+      expect(update.data.deletedAt).toBeInstanceOf(Date);
+    });
+
+    it('revokes sessions and burns unused invite and reset links on delete', async () => {
+      // Status alone stops new requests, but a refresh token keeps minting
+      // sessions, and an unredeemed invitation is a live way back into an
+      // account that is supposed to be gone.
+      await service.delete(target.id, admin);
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: target.id, revoked: false },
+        data: { revoked: true },
+      });
+      expect(mockPrisma.activationToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: target.id, usedAt: null },
+        data: { usedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.passwordResetToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: target.id, usedAt: null },
+        data: { usedAt: expect.any(Date) },
+      });
     });
   });
 
@@ -343,12 +382,18 @@ describe('UsersService', () => {
       mockPrisma.user.findMany.mockResolvedValue([]);
     });
 
+    /** Applied to every role — deleted users are kept, not listed. */
+    const notDeleted = { status: { not: 'DELETED' } };
+
     it.each(['SUPER_ADMIN', 'HR_ADMIN'] as const)(
       'gives a %s their whole organization',
       async (role) => {
         await service.findAll(caller(role));
 
-        expect(whereSentToPrisma()).toEqual({ organizationId: orgId });
+        expect(whereSentToPrisma()).toEqual({
+          organizationId: orgId,
+          ...notDeleted,
+        });
       },
     );
 
@@ -357,9 +402,19 @@ describe('UsersService', () => {
 
       expect(whereSentToPrisma()).toEqual({
         organizationId: orgId,
+        ...notDeleted,
         departmentId: 'dept-eng',
       });
     });
+
+    it.each(['SUPER_ADMIN', 'HR_ADMIN', 'TEAM_LEAD'] as const)(
+      'hides deleted users from a %s',
+      async (role) => {
+        await service.findAll(caller(role, 'dept-eng'));
+
+        expect(whereSentToPrisma()).toMatchObject(notDeleted);
+      },
+    );
 
     it('never lets a TEAM_LEAD see the organization-wide list', async () => {
       // The regression that matters: if the department filter is ever dropped,
@@ -385,7 +440,10 @@ describe('UsersService', () => {
       // An admin who happens to sit in a department is still an admin.
       await service.findAll(caller('SUPER_ADMIN', 'dept-eng'));
 
-      expect(whereSentToPrisma()).toEqual({ organizationId: orgId });
+      expect(whereSentToPrisma()).toEqual({
+        organizationId: orgId,
+        ...notDeleted,
+      });
     });
   });
 });

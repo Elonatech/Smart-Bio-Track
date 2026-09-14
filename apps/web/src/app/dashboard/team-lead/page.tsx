@@ -10,7 +10,6 @@ import {
   Users,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
-import { TEAM_DEPARTMENT } from "@/lib/teamLeadScope";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 
@@ -107,6 +106,11 @@ function getInitials(name: string): string {
 
 export default function TeamLeadDashboardPage() {
   const orgName = useAuthStore((state) => state.user?.organizationName);
+  // The lead's real department, straight off /auth/me. Falls back rather than
+  // naming a department they don't run — this used to read a hardcoded
+  // "Engineering", which every Sales lead in the product also saw.
+  const teamName =
+    useAuthStore((state) => state.user?.departmentName) ?? "Your team";
   const today = new Date().toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",
@@ -115,7 +119,7 @@ export default function TeamLeadDashboardPage() {
   });
 
   usePageHeader(
-    `${TEAM_DEPARTMENT} — today`,
+    `${teamName} — today`,
     `${orgName ? `${orgName} · ` : ""}${today} · WAT`
   );
 

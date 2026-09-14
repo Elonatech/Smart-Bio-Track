@@ -34,6 +34,7 @@ describe('AuthService', () => {
     activationToken: {
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     passwordResetToken: {
       findUnique: jest.fn(),
@@ -148,6 +149,23 @@ describe('AuthService', () => {
       expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
         where: { employeeId: 'EMP001' },
       });
+    });
+
+    it('rejects a DELETED user even with the correct password', async () => {
+      // The guard here used to ask "is the status SUSPENDED?", which answers
+      // no for every status invented afterwards — so adding DELETED to the
+      // enum silently let removed employees sign back in. It now asks "is the
+      // status ACTIVE?", which refuses anything new by default.
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...user,
+        status: 'DELETED',
+      });
+      (argon2.verify as jest.Mock).mockResolvedValue(true);
+
+      await expect(
+        service.login({ identifier: user.email, password: 'Passw0rd!' }),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(mockPrisma.refreshToken.create).not.toHaveBeenCalled();
     });
 
     it('rejects a PENDING user who has never set a password', async () => {
@@ -580,10 +598,11 @@ describe('AuthService', () => {
   });
 
   describe('deleteAccount', () => {
-    it('deletes the user account', async () => {
+    it('marks the account deleted rather than removing the row', async () => {
       mockPrisma.user.findUnique.mockResolvedValue({
         id: 'user-1',
         email: 'user@example.com',
+        status: 'ACTIVE',
       });
 
       const result = await service.deleteAccount('user-1');
@@ -591,10 +610,51 @@ describe('AuthService', () => {
       expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
         where: { id: 'user-1' },
       });
-      expect(mockPrisma.user.delete).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-      });
+      // Attendance and pay records hang off this row. Nobody gets to delete
+      // their way out of a payroll dispute.
+      expect(mockPrisma.user.delete).not.toHaveBeenCalled();
+
+      const update = mockPrisma.user.update.mock.calls[0][0] as {
+        data: { status: string; deletedAt: Date };
+      };
+      expect(update.data.status).toBe('DELETED');
+      expect(update.data.deletedAt).toBeInstanceOf(Date);
       expect(result.message).toMatch(/Account deleted/);
+    });
+
+    it('revokes every live way back into the account', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'user@example.com',
+        status: 'ACTIVE',
+      });
+
+      await service.deleteAccount('user-1');
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revoked: false },
+        data: { revoked: true },
+      });
+      expect(mockPrisma.activationToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', usedAt: null },
+        data: { usedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.passwordResetToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', usedAt: null },
+        data: { usedAt: expect.any(Date) },
+      });
+    });
+
+    it('refuses to delete an account that is already deleted', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        status: 'DELETED',
+      });
+
+      await expect(service.deleteAccount('user-1')).rejects.toThrow(
+        UnprocessableEntityException,
+      );
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
 
     it('throws when user not found', async () => {
@@ -605,6 +665,7 @@ describe('AuthService', () => {
       );
 
       expect(mockPrisma.user.delete).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
   });
 

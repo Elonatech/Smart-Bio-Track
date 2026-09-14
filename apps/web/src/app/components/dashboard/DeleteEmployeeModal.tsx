@@ -28,7 +28,7 @@ export function DeleteEmployeeModal({
       await appClient.delete(`/users/${employee.id}`);
       toast.success(
         employee.name + " removed successfully",
-        "Their account and sign-in access have been permanently deleted."
+        "Their sign-in access has ended. Attendance records are kept."
       );
       onDeleted();
       onClose();
@@ -68,14 +68,26 @@ export function DeleteEmployeeModal({
               in. {employee.email} · {employee.employeeId}
             </p>
 
-            {/* DELETE /users/:id is a hard row delete (users.service.ts),
-                not a soft archive — the record and its tokens are gone and
-                cannot be restored. Saying so plainly matters: an earlier
-                draft of this copy claimed their history was retained, which
-                would have made this button look far safer than it is. */}
+            {/* DELETE /users/:id is now a soft delete (users.service.ts): the
+                row is kept and its status becomes DELETED, because attendance
+                and pay records have to outlive the person they belong to.
+                Sessions, invitations and reset links are all revoked, so
+                access really does end immediately.
+
+                This copy previously said the opposite — "permanently deletes",
+                "cannot be undone" — which was correct then and is wrong now.
+                Copy that describes behaviour has to be reread whenever the
+                behaviour changes, or it quietly becomes a lie to the person
+                pressing the button. */}
             <p className="text-sm text-alert mt-3">
-              This permanently deletes their account. It cannot be undone, and
-              re-adding them later creates a new employee ID.
+              This cannot be undone from here, and their email address cannot be
+              reused afterwards.
+            </p>
+
+            <p className="text-sm text-neutral mt-3">
+              Their attendance and payroll history is kept — records like these
+              have to be retained for compliance, so removing someone does not
+              erase what they were paid for.
             </p>
 
             <p className="text-xs text-neutral mt-3 border-t border-neutral/20 pt-3">
