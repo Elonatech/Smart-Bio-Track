@@ -115,7 +115,7 @@ model User {
   deletedAt    DateTime?
 
   refreshToken       RefreshToken[]
-  activationToken    ActivationToken?
+  activationTokens   ActivationToken[]
   passwordResetToken PasswordResetToken[]
 
   /// Postgres indexes a primary key and a UNIQUE column automatically. It does
@@ -143,12 +143,34 @@ model User {
 /// does not yield usable tokens.
 model ActivationToken {
   id        String    @id @default(uuid())
+
+  /// Still unique — this is what completeRegistration looks a redeemed link up
+  /// by, and two users must never share one.
   tokenHash String    @unique
-  userId    String    @unique
+
+  /// Deliberately NOT unique.
+  ///
+  /// It was, which capped every user at one activation token for their entire
+  /// existence and made "re-send invitation" impossible to build — while
+  /// provision's own failure message already told admins to do exactly that.
+  /// An invitation that is lost, expires after 7 days, or lands in spam left
+  /// the account permanently stranded in PENDING with no way forward except
+  /// deleting and recreating the person.
+  ///
+  /// One row per invitation sent, so the history of who was invited and when
+  /// survives. Superseded tokens are retired by stamping usedAt rather than
+  /// deleted, which is the same single-use check completeRegistration already
+  /// applies.
+  userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+
+  /// Was implicit in the dropped @unique. Still needed: every lookup and the
+  /// delete cascade go through userId.
+  @@index([userId])
 }
 
 /// Stores only the SHA-256 hash of each refresh token, never the token itself,

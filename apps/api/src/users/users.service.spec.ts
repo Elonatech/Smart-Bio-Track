@@ -23,7 +23,11 @@ describe('UsersService', () => {
     },
     department: { findFirst: jest.fn() },
     office: { findFirst: jest.fn() },
-    activationToken: { create: jest.fn(), updateMany: jest.fn() },
+    activationToken: {
+      create: jest.fn(),
+      updateMany: jest.fn(),
+      findFirst: jest.fn(),
+    },
     passwordResetToken: { updateMany: jest.fn() },
     refreshToken: { updateMany: jest.fn() },
     organization: { findUnique: jest.fn() },
@@ -196,6 +200,129 @@ describe('UsersService', () => {
       expect(mockPrisma.department.findFirst).toHaveBeenCalledWith({
         where: { id: 'dept-from-other-org', organizationId: orgId },
       });
+    });
+  });
+
+  describe('resendInvitation', () => {
+    const admin = {
+      id: 'admin-1',
+      role: 'SUPER_ADMIN' as const,
+      organizationId: orgId,
+      departmentId: null,
+    };
+
+    const invitee = {
+      id: 'user-9',
+      name: 'Bob Employee',
+      email: 'bob@example.com',
+      role: 'EMPLOYEE' as const,
+      status: 'PENDING' as const,
+    };
+
+    beforeEach(() => {
+      mockPrisma.user.findFirst.mockResolvedValue(invitee);
+      // No previous invitation, so no cooldown in the way.
+      mockPrisma.activationToken.findFirst.mockResolvedValue(null);
+    });
+
+    it('issues a new invitation to a PENDING user', async () => {
+      const result = await service.resendInvitation(invitee.id, admin);
+
+      expect(mockPrisma.activationToken.create).toHaveBeenCalled();
+      expect(mockMail.sendActivationEmail).toHaveBeenCalled();
+      expect(result.message).toContain(invitee.email);
+    });
+
+    it('retires the previous invitation before issuing the new one', async () => {
+      // Otherwise a link from an earlier email stays redeemable, and every
+      // resend widens the window rather than replacing it.
+      await service.resendInvitation(invitee.id, admin);
+
+      expect(mockPrisma.activationToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: invitee.id, usedAt: null },
+        data: { usedAt: expect.any(Date) },
+      });
+    });
+
+    it('emails a token that is never stored in the clear', async () => {
+      await service.resendInvitation(invitee.id, admin);
+
+      const emailed = mockMail.sendActivationEmail.mock.calls[0][1] as string;
+      const stored = (
+        mockPrisma.activationToken.create.mock.calls[0][0] as {
+          data: { tokenHash: string };
+        }
+      ).data.tokenHash;
+
+      expect(stored).not.toBe(emailed);
+      expect(stored).toHaveLength(64);
+    });
+
+    it.each(['ACTIVE', 'SUSPENDED'] as const)(
+      'refuses to send an activation link to a %s user',
+      async (status) => {
+        // They already set a password. An activation link would be a working
+        // way into the account for anyone reading that inbox — that is what
+        // password reset is for, and it expires in 30 minutes rather than 7
+        // days.
+        mockPrisma.user.findFirst.mockResolvedValue({ ...invitee, status });
+
+        await expect(
+          service.resendInvitation(invitee.id, admin),
+        ).rejects.toThrow(BadRequestException);
+        expect(mockMail.sendActivationEmail).not.toHaveBeenCalled();
+      },
+    );
+
+    it('refuses a second send inside the cooldown', async () => {
+      // Keyed on the recipient, not the caller's IP — the thing worth
+      // preventing is one inbox being flooded. Also absorbs a double-clicked
+      // button.
+      mockPrisma.activationToken.findFirst.mockResolvedValue({
+        id: 'at-1',
+        createdAt: new Date(Date.now() - 5_000),
+      });
+
+      await expect(
+        service.resendInvitation(invitee.id, admin),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.activationToken.create).not.toHaveBeenCalled();
+      expect(mockMail.sendActivationEmail).not.toHaveBeenCalled();
+    });
+
+    it('allows a send once the cooldown has passed', async () => {
+      mockPrisma.activationToken.findFirst.mockResolvedValue({
+        id: 'at-1',
+        createdAt: new Date(Date.now() - 10 * 60 * 1000),
+      });
+
+      await expect(
+        service.resendInvitation(invitee.id, admin),
+      ).resolves.toMatchObject({ message: expect.any(String) });
+    });
+
+    it('applies the role ceiling', async () => {
+      // An HR_ADMIN may not provision a SUPER_ADMIN, so they must not be able
+      // to re-invite one either — a fresh activation link is a way into that
+      // account.
+      const hr = { ...admin, id: 'hr-1', role: 'HR_ADMIN' as const };
+      mockPrisma.user.findFirst.mockResolvedValue({
+        ...invitee,
+        role: 'SUPER_ADMIN',
+      });
+
+      await expect(service.resendInvitation(invitee.id, hr)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(mockMail.sendActivationEmail).not.toHaveBeenCalled();
+    });
+
+    it('treats a user in another organization as not found', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.resendInvitation(invitee.id, admin),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

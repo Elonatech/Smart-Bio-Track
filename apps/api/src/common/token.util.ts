@@ -12,6 +12,21 @@ import { createHash, randomBytes } from 'crypto';
 export const ACTIVATION_TOKEN_TTL_DAYS = 7;
 
 /**
+ * Minimum gap between two invitations to the same person.
+ *
+ * Rate limiting elsewhere is per IP, which is the wrong unit here: the thing
+ * worth preventing is one *inbox* being flooded, and an admin legitimately
+ * chasing several new starters would trip an IP limit tight enough to matter.
+ * Keyed on the recipient instead, so it constrains exactly the abuse without
+ * getting in an honest admin's way.
+ *
+ * It also absorbs a double-clicked button, which is not hypothetical on this
+ * project — a double-clicked sign-in produced two byte-identical refresh
+ * tokens and a 500 before `jti` was added to the payload.
+ */
+export const ACTIVATION_RESEND_COOLDOWN_SECONDS = 60;
+
+/**
  * Org-signup verification link validity. 7 days for MVP while volume is low;
  * drop to 2 once there's real signup traffic to abuse it with.
  */

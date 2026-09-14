@@ -18,7 +18,7 @@ import { createTestPrismaClient, truncateAll } from './database';
  * the HTTP response there was no way for a test to complete a signup at all.
  * Capturing the send is that missing seam.
  */
-type SentKind = 'verification' | 'activation' | 'reset';
+type SentKind = 'verification' | 'activation' | 'reset' | 'already-exists';
 
 export class FakeMailService {
   readonly sent: Array<{ kind: SentKind; email: string; token: string }> = [];
@@ -43,6 +43,23 @@ export class FakeMailService {
   sendPasswordResetEmail(email: string, token: string): Promise<void> {
     this.sent.push({ kind: 'reset', email, token });
     return Promise.resolve();
+  }
+
+  /**
+   * Carries no token — it exists so POST /auth/register-organization can answer
+   * identically whether or not the address is taken, and let the inbox owner be
+   * the only one who learns the difference.
+   */
+  sendAccountAlreadyExistsEmail(email: string): Promise<void> {
+    this.sent.push({ kind: 'already-exists', email, token: '' });
+    return Promise.resolve();
+  }
+
+  /** Every send recorded for `email`, in order. */
+  kindsSentTo(email: string): SentKind[] {
+    return this.sent
+      .filter((s) => s.email === email.toLowerCase())
+      .map((s) => s.kind);
   }
 
   clear(): void {
