@@ -195,6 +195,41 @@ export class MailService {
     await this.sendEmail([{ email }], 'Activate your account', html);
   }
 
+  /**
+   * Sent when someone tries to register an organization with an address that
+   * already has an account.
+   *
+   * This exists so the HTTP response does not have to say so. POST
+   * /auth/register-organization is public and unauthenticated, so an endpoint
+   * that answers "that email already exists" differently from "that email is
+   * free" lets anyone enumerate which addresses have accounts — for an
+   * attendance product, that is a list of who works for your customers.
+   *
+   * The response is now identical either way, and the truth travels here
+   * instead: only the person who controls the inbox learns anything. Same
+   * reasoning as forgotPassword's generic response, which was already written
+   * this way.
+   */
+  async sendAccountAlreadyExistsEmail(email: string): Promise<void> {
+    const html = layout(
+      'You already have an account',
+      `
+        <p>Someone tried to register a new organization with this email address, but it already has a ${escapeHtml(BREVO_SENDER_NAME)} account.</p>
+        ${button(`${APP_WEB_URL}/auth/login`, 'Sign in instead')}
+        <p style="font-size: 13px; color: #666;">
+          Forgotten your password? Use <a href="${APP_WEB_URL}/auth/forgot-password">reset your password</a>.
+          If this was not you, no action is needed — nothing has changed on your account.
+        </p>
+      `,
+    );
+
+    await this.sendEmail(
+      [{ email }],
+      'You already have an account',
+      html,
+    );
+  }
+
   async sendPasswordResetEmail(email: string, token: string): Promise<void> {
     const link = `${APP_WEB_URL}/reset-password?token=${encodeURIComponent(token)}`;
 

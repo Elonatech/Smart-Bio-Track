@@ -46,6 +46,34 @@ export function EmployeeDetailModal({
   // Withdrawing an unaccepted invite is a delete, not a suspend.
   const isPending = employee.status === "PENDING";
 
+  const [isResendingInvite, setIsResendingInvite] = useState(false);
+
+  // POST /users/:id/resend-invitation retires the previous activation link and
+  // emails a new one. Only offered for PENDING users, because that is the only
+  // status the backend accepts — anyone else set a password long ago, and an
+  // activation link would be a 7-day route into their account for whoever
+  // reads that inbox.
+  //
+  // The endpoint enforces a 60-second cooldown per recipient and returns a 400
+  // with a readable message, so a rapid second press surfaces through
+  // extractErrorMessage without anything special here.
+  async function handleResendInvitation() {
+    setIsResendingInvite(true);
+    try {
+      await appClient.post(`/users/${employee.id}/resend-invitation`, {});
+      toast.success(
+        "Invitation sent successfully",
+        `A new activation link is on its way to ${employee.email}. The previous link no longer works.`
+      );
+      onClose();
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      toast.error("Could not send the invitation", message);
+    } finally {
+      setIsResendingInvite(false);
+    }
+  }
+
   async function handleToggleStatus() {
     setIsTogglingStatus(true);
     try {
@@ -165,9 +193,14 @@ export function EmployeeDetailModal({
                   been sent. The link expires shortly.
                 </p>
               </div>
+              {/* This used to point at a feature that did not exist. Someone
+                  who never activated now gets "Resend invitation" in place of
+                  this button entirely, so the advice names where to find it
+                  rather than leaving the admin looking. */}
               <p className="mt-3 text-xs text-neutral">
-                Accounts that were never activated get no reset email — send
-                them a fresh invitation instead.
+                Accounts that were never activated get no reset email. Open that
+                person from the list instead — their details show a Resend
+                invitation button.
               </p>
               <button
                 type="button"
@@ -212,13 +245,33 @@ export function EmployeeDetailModal({
           )
         ) : (
           <div className="flex items-center gap-3 pt-2 border-t border-neutral/20">
-            <button
-              type="button"
-              onClick={() => setIsConfirmingReset(true)}
-              className="flex-1 rounded-md border border-neutral/30 px-4 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
-            >
-              Reset password
-            </button>
+            {/* Swapped rather than shown alongside, because "Reset password" is
+                actively misleading for someone who never set one: the backend's
+                forgot-password only acts on ACTIVE users, so it returns its
+                generic success response and sends nothing. The admin reads
+                "reset email on its way" and the employee gets silence.
+
+                A PENDING user's only useful action is a fresh invitation, so
+                that is the only one offered. Suspend stays disabled beside it,
+                as it already was. */}
+            {isPending ? (
+              <button
+                type="button"
+                onClick={handleResendInvitation}
+                disabled={isResendingInvite}
+                className="flex-1 rounded-md border border-primary/40 bg-primary/10 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/20 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isResendingInvite ? "Sending..." : "Resend invitation"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsConfirmingReset(true)}
+                className="flex-1 rounded-md border border-neutral/30 px-4 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
+              >
+                Reset password
+              </button>
+            )}
             <button
               type="button"
               onClick={handleToggleStatus}

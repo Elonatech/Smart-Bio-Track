@@ -9,7 +9,9 @@ import { Prisma, UserRole, UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-users.dto';
+import { ListUsersDto } from './dto/list-users.dto';
 import {
+  ACTIVATION_RESEND_COOLDOWN_SECONDS,
   ACTIVATION_TOKEN_TTL_DAYS,
   expiryInDays,
   generateToken,
@@ -72,6 +74,24 @@ export class UsersService {
     });
 
     if (existingByEmail) {
+      // How much this says depends on WHOSE user it is.
+      //
+      // Email is unique platform-wide, so an address already taken by another
+      // organization cannot be used here either — but saying why would let an
+      // admin at one customer test whether a given person has an account at
+      // another. For an attendance product that is a staff directory probe, one
+      // address at a time. Outside the caller's own organization the answer is
+      // deliberately uninformative: no name, no role, no status, no hint that
+      // another tenant exists.
+      //
+      // Inside their own organization there is nothing to protect and plenty to
+      // explain, so those messages stay specific and useful.
+      if (existingByEmail.organizationId !== organizationId) {
+        throw new BadRequestException(
+          'This email address is not available. Use a different one.',
+        );
+      }
+
       // A deleted user still holds their email — deliberately, so re-hiring
       // finds the person's history instead of colliding with a ghost record.
       // Saying so turns a dead end into an instruction; the generic message
@@ -92,8 +112,13 @@ export class UsersService {
       });
 
       if (existingByEmployeeId) {
+        // Same split as the email check above: an employee ID taken inside this
+        // organization is the admin's own data and worth naming, while one taken
+        // elsewhere is another tenant's and gets the uninformative answer.
         throw new BadRequestException(
-          'A user with this employee ID already exists',
+          existingByEmployeeId.organizationId === organizationId
+            ? 'A user with this employee ID already exists'
+            : 'This employee ID is not available. Use a different one.',
         );
       }
     }
@@ -193,7 +218,7 @@ export class UsersService {
   private async findManageable(
     userId: string,
     caller: Caller,
-    action: 'suspend' | 'delete',
+    action: 'suspend' | 'delete' | 'resend the invitation for',
   ) {
     // Suspending yourself locks you out on the next request, since JwtStrategy
     // rejects any user who is not ACTIVE — and nobody is left who can undo it
@@ -224,6 +249,94 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  /**
+   * Issues a fresh invitation to someone still waiting to activate.
+   *
+   * The feature `provision` already tells admins to use: when the activation
+   * email fails to send it says "Re-send the invitation from the user's
+   * profile", which until now pointed at nothing. Before this, a lost or
+   * expired invitation stranded the account in PENDING permanently — the only
+   * way out was deleting and recreating the person, which is now impossible
+   * anyway, since a soft-deleted user keeps their email address.
+   */
+  async resendInvitation(userId: string, caller: Caller) {
+    const user = await this.findManageable(
+      userId,
+      caller,
+      'resend the invitation for',
+    );
+
+    // Only PENDING has an invitation to resend. An ACTIVE or SUSPENDED user set
+    // a password long ago; sending them an activation link would be a working
+    // route into the account for anyone who reads their inbox, which is what
+    // password reset is for and is deliberately shorter-lived.
+    if (user.status !== UserStatus.PENDING) {
+      throw new BadRequestException(
+        `${user.name} has already activated their account. Send a password reset instead.`,
+      );
+    }
+
+    const mostRecent = await this.prisma.activationToken.findFirst({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const cooldownEndsAt = mostRecent
+      ? new Date(
+          mostRecent.createdAt.getTime() +
+            ACTIVATION_RESEND_COOLDOWN_SECONDS * 1000,
+        )
+      : null;
+
+    if (cooldownEndsAt && cooldownEndsAt > new Date()) {
+      throw new BadRequestException(
+        `An invitation was just sent to ${user.name}. Wait a moment before sending another.`,
+      );
+    }
+
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: caller.organizationId },
+    });
+
+    const rawToken = generateToken();
+
+    await this.prisma.$transaction(async (tx) => {
+      // Retire every outstanding invitation before issuing the replacement, so
+      // a link from an earlier email cannot still be redeemed. Stamping usedAt
+      // reuses the single-use check completeRegistration already applies,
+      // rather than inventing a second way for a token to be dead.
+      await tx.activationToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+
+      await tx.activationToken.create({
+        data: {
+          tokenHash: hashToken(rawToken),
+          userId: user.id,
+          expiresAt: expiryInDays(ACTIVATION_TOKEN_TTL_DAYS),
+        },
+      });
+    });
+
+    try {
+      await this.mailService.sendActivationEmail(
+        user.email,
+        rawToken,
+        organization?.name ?? 'Your organization',
+      );
+    } catch {
+      // Unlike provision, there is no half-created user to explain here — the
+      // account already existed and still does. The old invitation is spent
+      // though, so say so plainly rather than implying nothing happened.
+      throw new InternalServerErrorException(
+        `The invitation for ${user.name} could not be sent. The previous link is no longer valid, so please try again.`,
+      );
+    }
+
+    return { message: `A new invitation has been sent to ${user.email}.` };
   }
 
   /**
@@ -372,28 +485,79 @@ export class UsersService {
     return { ...organizationScope, departmentId: caller.departmentId };
   }
 
-  async findAll(caller: Caller) {
+  /**
+   * One page of the users this caller may see.
+   *
+   * Used to return every row. One five-thousand-employee customer was a
+   * multi-megabyte response serialised in a single tick — the event loop
+   * blocked, so requests with nothing to do with this endpoint stalled behind
+   * it.
+   */
+  async findAll(caller: Caller, query: ListUsersDto) {
     const where = this.visibleUsersWhere(caller);
+    const { page, limit } = query;
 
     // No department, nobody to supervise. Answered without a query rather
     // than with one that cannot match — same result, one less round trip.
     if (!where) {
-      return [];
+      return this.emptyPage(page, limit);
     }
 
-    return this.prisma.user.findMany({
-      where,
-      select: {
-        id: true,
-        employeeId: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        departmentId: true,
-        officeId: true,
-        createdAt: true,
-      },
-    });
+    const search = query.q?.trim();
+
+    const filter: Prisma.UserWhereInput = search
+      ? {
+          ...where,
+          // Whichever of the three the admin happens to have to hand. Prisma
+          // parameterises these, so the input is not concatenated into SQL.
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { employeeId: { contains: search, mode: 'insensitive' } },
+          ],
+        }
+      : where;
+
+    // One transaction so the count and the rows describe the same instant.
+    // Read separately, a user created in between makes `total` disagree with
+    // what was returned, and the last page flickers.
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where: filter,
+        // Ordering is not cosmetic here. Without it Postgres may return rows in
+        // any order it likes, so page 2 can repeat rows from page 1 and skip
+        // others entirely — pagination would be broken by construction. `id` is
+        // the tiebreaker, because names are not unique and two people called
+        // Jane Doe would otherwise shuffle between pages.
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          employeeId: true,
+          name: true,
+          email: true,
+          role: true,
+          status: true,
+          departmentId: true,
+          officeId: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.user.count({ where: filter }),
+    ]);
+
+    return {
+      items,
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
+  /** Shape-compatible empty page, so callers never special-case "no results". */
+  private emptyPage(page: number, limit: number) {
+    return { items: [], page, limit, total: 0, totalPages: 1 };
   }
 }

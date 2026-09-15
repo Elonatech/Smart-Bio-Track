@@ -42,6 +42,12 @@ describe('AuthService', () => {
       update: jest.fn(),
       updateMany: jest.fn(),
     },
+    pendingOrganizationSignup: {
+      findUnique: jest.fn(),
+      upsert: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
     $transaction: jest.fn(),
   };
 
@@ -52,6 +58,7 @@ describe('AuthService', () => {
   const mockMail = {
     sendOrganizationVerificationEmail: jest.fn().mockResolvedValue(undefined),
     sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+    sendAccountAlreadyExistsEmail: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -178,6 +185,94 @@ describe('AuthService', () => {
       await expect(
         service.login({ identifier: user.email, password: 'x' }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('createPendingOrganization', () => {
+    // This endpoint is public, unauthenticated, and had no unit tests at all
+    // until #13a — while answering "already exists" differently from "free",
+    // which is the whole enumeration oracle.
+    const dto = { email: 'New@Acme.test', password: 'Passw0rd!' };
+
+    const noOneHasThisEmail = () => {
+      mockPrisma.organization.findUnique.mockResolvedValue(null);
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.pendingOrganizationSignup.upsert.mockResolvedValue({
+        id: 'pending-1',
+      });
+    };
+
+    beforeEach(() => {
+      noOneHasThisEmail();
+    });
+
+    it('sends a verification link when the address is free', async () => {
+      const result = await service.createPendingOrganization(dto);
+
+      expect(mockMail.sendOrganizationVerificationEmail).toHaveBeenCalled();
+      expect(mockMail.sendAccountAlreadyExistsEmail).not.toHaveBeenCalled();
+      expect(result.message).toMatch(/check your email/i);
+    });
+
+    it.each([
+      ['an organization', 'organization'],
+      ['a user', 'user'],
+    ])('answers identically when %s already holds the address', async (_label, owner) => {
+      const free = await service.createPendingOrganization(dto);
+
+      jest.clearAllMocks();
+      noOneHasThisEmail();
+      mockPrisma[owner as 'organization' | 'user'].findUnique.mockResolvedValue({
+        id: 'existing-1',
+      });
+
+      const taken = await service.createPendingOrganization(dto);
+
+      // Identical response objects — any difference at all is enough to
+      // enumerate which addresses have accounts here.
+      expect(taken).toEqual(free);
+    });
+
+    it('writes nothing and sends no verification link when the address is taken', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'existing-1' });
+
+      await service.createPendingOrganization(dto);
+
+      // A second signup must not be able to start over an address somebody
+      // already owns — no pending row, and no link that would let them.
+      expect(mockPrisma.pendingOrganizationSignup.upsert).not.toHaveBeenCalled();
+      expect(mockMail.sendOrganizationVerificationEmail).not.toHaveBeenCalled();
+      expect(mockMail.sendAccountAlreadyExistsEmail).toHaveBeenCalledWith(
+        'new@acme.test',
+      );
+    });
+
+    it('still answers normally when the notice email fails to send', async () => {
+      // A 500 here would be the oracle in reverse: taken returns 200, so an
+      // error would mean "that address was free".
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'existing-1' });
+      mockMail.sendAccountAlreadyExistsEmail.mockRejectedValueOnce(
+        new Error('brevo down'),
+      );
+
+      await expect(
+        service.createPendingOrganization(dto),
+      ).resolves.toMatchObject({ message: expect.any(String) });
+    });
+
+    it('still answers normally when the verification email fails to send', async () => {
+      mockMail.sendOrganizationVerificationEmail.mockRejectedValueOnce(
+        new Error('brevo down'),
+      );
+
+      await expect(
+        service.createPendingOrganization(dto),
+      ).resolves.toMatchObject({ message: expect.any(String) });
+
+      // The pending row stays. It used to be deleted so a retry would not trip
+      // a "verification already sent" check that no longer exists — the upsert
+      // simply reissues now.
+      expect(mockPrisma.pendingOrganizationSignup.delete).not.toHaveBeenCalled();
     });
   });
 

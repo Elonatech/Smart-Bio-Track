@@ -3,16 +3,20 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-users.dto';
+import { ListUsersDto } from './dto/list-users.dto';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -49,10 +53,13 @@ export class UsersController {
   // what they get back. A TEAM_LEAD is admitted but sees only their own
   // department — that narrowing lives in the service, next to the data, so a
   // future endpoint cannot pick up the role check and miss the scope.
+  // Paginated. `data` is { items, page, limit, total, totalPages } rather than a
+  // bare array — a breaking change made deliberately, because the alternative
+  // was an endpoint that returns however many users a customer happens to have.
   @Get()
   @Roles(UserRole.SUPER_ADMIN, UserRole.HR_ADMIN, UserRole.TEAM_LEAD)
-  findAll(@Req() req: AuthenticatedRequest) {
-    return this.usersService.findAll(req.user);
+  findAll(@Query() query: ListUsersDto, @Req() req: AuthenticatedRequest) {
+    return this.usersService.findAll(req.user, query);
   }
 
   // Suspends an active user, or restores a suspended one. The role ceiling and
@@ -66,6 +73,22 @@ export class UsersController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.usersService.toggleStatus(id, req.user);
+  }
+
+  // Issues a fresh activation link to a user still stuck in PENDING. Same role
+  // list as provisioning: whoever may create an account may re-invite to it.
+  //
+  // Not throttled at the controller. @Throttle keys on client IP, which would
+  // cap an admin chasing several new starters from one office; the limit that
+  // matters is per recipient, and it lives in the service.
+  @Post(':id/resend-invitation')
+  @HttpCode(HttpStatus.OK)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.HR_ADMIN)
+  resendInvitation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.usersService.resendInvitation(id, req.user);
   }
 
   @Delete(':id')

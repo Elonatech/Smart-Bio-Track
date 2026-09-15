@@ -142,9 +142,12 @@ describe('Tenant isolation (integration)', () => {
         .set('Authorization', `Bearer ${globexToken}`)
         .expect(200);
 
-      // Globex sees only its own admin.
-      expect(res.body.data).toHaveLength(1);
-      expect(res.body.data[0].email).toBe('adminglobex@test.local');
+      // Globex sees only its own admin. `data` is a page now, not a bare
+      // array — and `total` matters as much as `items`: a tenant leak that
+      // returned the right page of the wrong set would still be a leak.
+      expect(res.body.data.items).toHaveLength(1);
+      expect(res.body.data.items[0].email).toBe('adminglobex@test.local');
+      expect(res.body.data.total).toBe(1);
     });
 
     it("cannot provision a user into another organization's department", async () => {

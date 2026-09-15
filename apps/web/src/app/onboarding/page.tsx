@@ -187,8 +187,17 @@ export default function OnboardingPage() {
           appClient
             .get<{ name: string }[]>("/departments")
             .catch(() => ({ data: [] as { name: string }[] })),
+          // GET /users is paginated now, so this reads `items` rather than a
+          // bare array. An explicit limit because this check has to see every
+          // existing user to be idempotent — an organization still in
+          // onboarding has a handful at most, so one page of 100 covers it
+          // comfortably. If that ever stops being true, this wants a
+          // "does this email exist" endpoint rather than a bigger page.
           appClient
-            .get<{ email: string }[]>("/users")
+            .get<{ items: { email: string }[] }>("/users", {
+              params: { limit: 100 },
+            })
+            .then((res) => ({ data: res.data.items }))
             .catch(() => ({ data: [] as { email: string }[] })),
         ]);
 

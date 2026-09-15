@@ -243,6 +243,199 @@ describe('Auth flow and RBAC (integration)', () => {
     });
   });
 
+  describe('user list paging', () => {
+    it('caps limit rather than trusting it', async () => {
+      // Without a ceiling the cap is decoration: ?limit=999999 reinstates the
+      // unbounded response paging exists to prevent, and anyone can ask.
+      await request(httpServer(ctx))
+        .get('/api/users?limit=999999')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
+    });
+
+    it('rejects a page before the first', async () => {
+      await request(httpServer(ctx))
+        .get('/api/users?page=0')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
+    });
+
+    it('returns a page envelope with totals', async () => {
+      const res = await request(httpServer(ctx))
+        .get('/api/users?page=1&limit=2')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(Array.isArray(res.body.data.items)).toBe(true);
+      expect(res.body.data.items.length).toBeLessThanOrEqual(2);
+      expect(res.body.data).toMatchObject({ page: 1, limit: 2 });
+      expect(typeof res.body.data.total).toBe('number');
+      expect(res.body.data.totalPages).toBeGreaterThanOrEqual(1);
+    });
+
+    it('does not repeat a row between consecutive pages', async () => {
+      // The bug paging introduces if ordering is left to Postgres: without a
+      // deterministic ORDER BY, page 2 can repeat rows from page 1 and skip
+      // others entirely.
+      await onboard('EMPLOYEE', 'pg1');
+      await onboard('EMPLOYEE', 'pg2');
+      await onboard('EMPLOYEE', 'pg3');
+
+      const first = await request(httpServer(ctx))
+        .get('/api/users?page=1&limit=2')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+      const second = await request(httpServer(ctx))
+        .get('/api/users?page=2&limit=2')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const ids = [
+        ...first.body.data.items.map((u: { id: string }) => u.id),
+        ...second.body.data.items.map((u: { id: string }) => u.id),
+      ];
+      expect(new Set(ids).size).toBe(ids.length);
+    });
+
+    it('searches across name, email and employee ID', async () => {
+      await onboard('EMPLOYEE', 'findme');
+
+      for (const term of ['findme@acme.test', 'EMP-findme', 'User findme']) {
+        const res = await request(httpServer(ctx))
+          .get(`/api/users?q=${encodeURIComponent(term)}`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .expect(200);
+
+        expect(res.body.data.items.length).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it('keeps the tenant scope while searching', async () => {
+      // A search must narrow the caller's own rows, never reach past them.
+      const res = await request(httpServer(ctx))
+        .get('/api/users?q=admin')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      for (const user of res.body.data.items as { email: string }[]) {
+        expect(user.email).toContain('acme.test');
+      }
+    });
+  });
+
+  describe('resend invitation', () => {
+    /** Provisions a user and stops, leaving them PENDING. */
+    const invite = async (suffix: string) => {
+      await request(httpServer(ctx))
+        .post('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          employeeId: `EMP-${suffix}`,
+          name: `User ${suffix}`,
+          email: `${suffix}@acme.test`,
+          role: 'EMPLOYEE',
+        })
+        .expect(201);
+
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: `${suffix}@acme.test` },
+      });
+      return user!;
+    };
+
+    it('invalidates the first link and lets the second one activate', async () => {
+      const user = await invite('resend1');
+      const firstToken = ctx.mail.tokenFor('resend1@acme.test', 'activation');
+
+      // The cooldown is keyed on the previous token's createdAt, so age it
+      // rather than sleeping through it.
+      await ctx.prisma.activationToken.updateMany({
+        where: { userId: user.id },
+        data: { createdAt: new Date(Date.now() - 10 * 60 * 1000) },
+      });
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/resend-invitation`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const secondToken = ctx.mail.tokenFor('resend1@acme.test', 'activation');
+      expect(secondToken).not.toBe(firstToken);
+
+      // The superseded link must be dead, or every resend widens the window
+      // instead of replacing it.
+      await request(httpServer(ctx))
+        .post('/api/auth/complete-registration')
+        .send({
+          token: firstToken,
+          password: 'Passw0rd!',
+          confirmPassword: 'Passw0rd!',
+        })
+        .expect(400);
+
+      await request(httpServer(ctx))
+        .post('/api/auth/complete-registration')
+        .send({
+          token: secondToken,
+          password: 'Passw0rd!',
+          confirmPassword: 'Passw0rd!',
+        })
+        .expect(200);
+    });
+
+    it('stores more than one activation token for the same user', async () => {
+      // The constraint this whole item was about: userId was @unique, so a
+      // second invitation could not physically exist.
+      const user = await invite('resend2');
+
+      await ctx.prisma.activationToken.updateMany({
+        where: { userId: user.id },
+        data: { createdAt: new Date(Date.now() - 10 * 60 * 1000) },
+      });
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/resend-invitation`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const count = await ctx.prisma.activationToken.count({
+        where: { userId: user.id },
+      });
+      expect(count).toBe(2);
+    });
+
+    it('refuses a second send inside the cooldown', async () => {
+      const user = await invite('resend3');
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/resend-invitation`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
+    });
+
+    it('refuses to re-invite a user who has already activated', async () => {
+      await onboard('EMPLOYEE', 'resend4');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'resend4@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user!.id}/resend-invitation`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
+    });
+
+    it('is closed to an EMPLOYEE', async () => {
+      const empToken = await onboard('EMPLOYEE', 'resend5');
+      const user = await invite('resend6');
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/resend-invitation`)
+        .set('Authorization', `Bearer ${empToken}`)
+        .expect(403);
+    });
+  });
+
   describe('refresh rotation', () => {
     it('accepts an immediate replay, so two browser tabs both survive', async () => {
       // Strict rotation would 401 here, and that is not a hypothetical
