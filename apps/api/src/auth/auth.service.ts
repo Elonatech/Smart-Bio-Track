@@ -59,44 +59,61 @@ export class AuthService {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    const existingOrgByEmail = await this.prisma.organization.findUnique({
-      where: { email: normalizedEmail },
-    });
+    // One response for every outcome, decided before any lookup runs.
+    //
+    // This endpoint is public and unauthenticated. It used to answer
+    // "An organization with this email already exists" or "A user with this
+    // email already exists" or "A verification email was already sent" — three
+    // distinguishable replies that together let anyone test whether any address
+    // has an account here. For an attendance product that is a list of who
+    // works for our customers, and it is exactly the enumeration oracle that
+    // forgotPassword and resendOrganizationVerification were already written to
+    // avoid. This path was the hole in that.
+    //
+    // Whatever the truth is, it now travels by email, where only the person who
+    // controls the inbox can read it.
+    const genericResponse = {
+      message:
+        'Check your email to verify and complete your organization registration.',
+    };
 
-    if (existingOrgByEmail) {
-      throw new BadRequestException(
-        'An organization with this email already exists',
-      );
+    const [existingOrgByEmail, existingUserByEmail] = await Promise.all([
+      this.prisma.organization.findUnique({ where: { email: normalizedEmail } }),
+      this.prisma.user.findUnique({ where: { email: normalizedEmail } }),
+    ]);
+
+    if (existingOrgByEmail || existingUserByEmail) {
+      try {
+        await this.mailService.sendAccountAlreadyExistsEmail(normalizedEmail);
+      } catch (error) {
+        // Swallowed, like forgotPassword's: letting a send failure surface as a
+        // 500 here would turn this back into the oracle the generic response
+        // exists to prevent — free address returns 200, taken address whose
+        // email failed returns 500.
+        this.logger.error(
+          `"Account already exists" notice failed to send: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+
+      return genericResponse;
     }
 
-    const existingUserByEmail = await this.prisma.user.findUnique({
-      where: { email: normalizedEmail },
-    });
-
-    if (existingUserByEmail) {
-      throw new BadRequestException('A user with this email already exists');
-    }
-
-    const existingPending =
-      await this.prisma.pendingOrganizationSignup.findUnique({
-        where: { email: normalizedEmail },
-      });
-
-    // A live pending signup already claims this email — reject rather than
-    // silently issuing a second token. An expired one is fair game to
-    // overwrite below.
-    if (existingPending && existingPending.expiresAt > new Date()) {
-      throw new BadRequestException(
-        'A verification email was already sent to this address. Check your inbox, or request a new one.',
-      );
-    }
+    // A pending signup for this address is no longer looked up at all. It used
+    // to produce its own distinguishable message; now the upsert below simply
+    // reissues, which is both non-distinguishing and the more useful behaviour
+    // — the usual reason somebody retries here is that the first email never
+    // arrived. Rotating the token hash invalidates the older link, so this
+    // cannot leave two live tokens pointing at one address.
 
     const passwordHash = await argon2.hash(password);
     const rawToken = generateToken();
 
-    // Upsert rather than create: an expired pending row for this email is
-    // replaced in place instead of colliding on the unique `email` column.
-    const pending = await this.prisma.pendingOrganizationSignup.upsert({
+    // Upsert rather than create: an existing pending row for this email — live
+    // or expired — is replaced in place instead of colliding on the unique
+    // `email` column, and the new token hash retires the older link.
+    await this.prisma.pendingOrganizationSignup.upsert({
       where: { email: normalizedEmail },
       create: {
         email: normalizedEmail,
@@ -116,22 +133,22 @@ export class AuthService {
         normalizedEmail,
         rawToken,
       );
-    } catch {
-      // The row has to go if the email did not. Leaving it would trip the
-      // "verification already sent" check above on every retry, locking the
-      // user out of their own signup until the token expired.
-      await this.prisma.pendingOrganizationSignup.delete({
-        where: { id: pending.id },
-      });
-      throw new InternalServerErrorException(
-        'Could not send the verification email. Please try again.',
+    } catch (error) {
+      // Swallowed rather than surfaced as a 500, and the row is left in place.
+      //
+      // Both of those changed with the generic response above. A 500 here would
+      // be its own oracle in reverse: a taken address returns 200, so an error
+      // would mean "this address was free". And the old rollback existed only
+      // to stop a leftover row tripping the "verification already sent" check,
+      // which no longer exists — the upsert now simply reissues on retry.
+      this.logger.error(
+        `Organization verification email failed to send: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       );
     }
 
-    return {
-      message:
-        'Check your email to verify and complete your organization registration.',
-    };
+    return genericResponse;
   }
   /**
    * Issues a fresh verification token for a signup still waiting on its email.

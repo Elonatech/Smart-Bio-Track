@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -66,6 +68,22 @@ export class UsersController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.usersService.toggleStatus(id, req.user);
+  }
+
+  // Issues a fresh activation link to a user still stuck in PENDING. Same role
+  // list as provisioning: whoever may create an account may re-invite to it.
+  //
+  // Not throttled at the controller. @Throttle keys on client IP, which would
+  // cap an admin chasing several new starters from one office; the limit that
+  // matters is per recipient, and it lives in the service.
+  @Post(':id/resend-invitation')
+  @HttpCode(HttpStatus.OK)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.HR_ADMIN)
+  resendInvitation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.usersService.resendInvitation(id, req.user);
   }
 
   @Delete(':id')

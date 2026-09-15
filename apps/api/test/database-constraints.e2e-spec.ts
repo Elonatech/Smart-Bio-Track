@@ -100,18 +100,52 @@ describe('Database constraints (integration)', () => {
   });
 
   describe('global uniqueness on User', () => {
-    it('rejects a second organization registering with a taken email', async () => {
+    it('will not let a taken email be registered again, and will not say so', async () => {
       await org('a');
+      ctx.mail.clear();
+
+      const taken = 'admina@test.local'; // already held by org('a')
 
       const res = await request(httpServer(ctx))
         .post('/api/auth/register-organization')
-        .send({
-          email: 'admina@test.local', // already taken by org('a')
-          password: 'Passw0rd!',
-        })
-        .expect(400);
+        .send({ email: taken, password: 'Passw0rd!' })
+        .expect(201);
 
-      expect(res.body.success).toBe(false);
+      // Indistinguishable from a fresh signup on purpose. This endpoint is
+      // public and unauthenticated, so a 400 here let anyone test which
+      // addresses have accounts — for an attendance product, that is a list of
+      // who works for our customers.
+      expect(res.body.success).toBe(true);
+
+      // The truth goes to the inbox instead, where only its owner reads it.
+      // Critically it is NOT a verification link: a second signup must not be
+      // able to start over an address somebody already owns.
+      expect(ctx.mail.kindsSentTo(taken)).toEqual(['already-exists']);
+
+      // And nothing was written — no pending signup now claims that address.
+      const pending = await ctx.prisma.pendingOrganizationSignup.findUnique({
+        where: { email: taken },
+      });
+      expect(pending).toBeNull();
+    });
+
+    it('answers a free address and a taken one identically', async () => {
+      await org('a');
+      ctx.mail.clear();
+
+      const takenRes = await request(httpServer(ctx))
+        .post('/api/auth/register-organization')
+        .send({ email: 'admina@test.local', password: 'Passw0rd!' })
+        .expect(201);
+
+      const freeRes = await request(httpServer(ctx))
+        .post('/api/auth/register-organization')
+        .send({ email: 'nobody@test.local', password: 'Passw0rd!' })
+        .expect(201);
+
+      // Byte-identical bodies. A difference in wording, field order or status
+      // is all an enumeration attack needs.
+      expect(takenRes.body).toEqual(freeRes.body);
     });
 
     it('rejects a duplicate employeeId across organizations', async () => {
