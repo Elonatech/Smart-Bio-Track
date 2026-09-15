@@ -31,6 +31,22 @@ interface EmployeeListItem {
   officeId: string | null;
 }
 
+/**
+ * GET /users returns one page, not the whole directory — it used to return
+ * every row, which for a five-thousand-employee customer was a multi-megabyte
+ * response serialised in a single tick.
+ */
+interface UserPage {
+  items: EmployeeListItem[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+/** Matches DataTable's own page size, so the rhythm of the list is unchanged. */
+const PAGE_SIZE = 10;
+
 interface Department {
   id: string;
   name: string;
@@ -65,32 +81,73 @@ export function EmployeesPageContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [viewingEmployee, setViewingEmployee] = useState<EmployeeListItem | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<EmployeeListItem | null>(null);
   const [deletingEmployee, setDeletingEmployee] = useState<EmployeeListItem | null>(null);
 
-  const fetchAll = useCallback(() => {
-    setIsLoading(true);
+  // Debounced so typing does not fire a request per keystroke. Searching is
+  // the server's job now: with only one page in memory, filtering client-side
+  // would search the ten rows on screen and quietly miss everyone else.
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  // A new search starts at the beginning. Without this, searching while on
+  // page 7 asks for page 7 of a much shorter result and shows an empty table.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
+  // Departments and offices are small, unpaginated lookups used only to turn
+  // ids into names. Fetched once rather than alongside every page of users,
+  // which is what the previous single fetchAll did.
+  useEffect(() => {
     Promise.all([
-      appClient.get<EmployeeListItem[]>("/users"),
-      appClient.get<Department[]>("/departments").catch(() => ({ data: [] as Department[] })),
+      appClient
+        .get<Department[]>("/departments")
+        .catch(() => ({ data: [] as Department[] })),
       appClient.get<Office[]>("/offices").catch(() => ({ data: [] as Office[] })),
-    ])
-      .then(([usersRes, deptRes, officeRes]) => {
-        setEmployees(usersRes.data);
-        setDepartments(deptRes.data);
-        setOffices(officeRes.data);
+    ]).then(([deptRes, officeRes]) => {
+      setDepartments(deptRes.data);
+      setOffices(officeRes.data);
+    });
+  }, []);
+
+  const fetchUsers = useCallback(() => {
+    setIsLoading(true);
+    setError(null);
+
+    appClient
+      .get<UserPage>("/users", {
+        params: {
+          page,
+          limit: PAGE_SIZE,
+          ...(debouncedSearch ? { q: debouncedSearch } : {}),
+        },
+      })
+      .then((res) => {
+        setEmployees(res.data.items);
+        setTotal(res.data.total);
+        setTotalPages(res.data.totalPages);
       })
       .catch(() => setError("Couldn't load employees. Please try again."))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [page, debouncedSearch]);
 
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    fetchUsers();
+  }, [fetchUsers]);
 
-  usePageHeader("Employees", `${employees.length} record${employees.length === 1 ? "" : "s"}`);
+  /** Refetches after an add, edit, suspend or delete. */
+  const fetchAll = fetchUsers;
+
+  usePageHeader("Employees", `${total} record${total === 1 ? "" : "s"}`);
 
   const departmentName = useMemo(
     () => Object.fromEntries(departments.map((d) => [d.id, d.name])),
@@ -101,16 +158,12 @@ export function EmployeesPageContent() {
     [offices]
   );
 
-  const filteredEmployees = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return employees;
-    return employees.filter((employee) =>
-      [employee.name, employee.employeeId, employee.email]
-        .join(" ")
-        .toLowerCase()
-        .includes(query)
-    );
-  }, [employees, search]);
+  // The client-side filter that used to live here is gone. It could only ever
+  // see the rows already fetched, so with one page in memory it would have
+  // searched ten people and reported "no employees match" for the rest.
+
+  const firstShown = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastShown = Math.min(page * PAGE_SIZE, total);
 
   return (
     <div >
@@ -146,16 +199,22 @@ export function EmployeesPageContent() {
         </div>
       )}
 
-      {!isLoading && filteredEmployees.length === 0 && (
-        <p className="text-sm text-neutral">No employees match your search.</p>
+      {!isLoading && employees.length === 0 && (
+        <p className="text-sm text-neutral">
+          {debouncedSearch
+            ? "No employees match your search."
+            : "No employees yet."}
+        </p>
       )}
 
-      {!isLoading && filteredEmployees.length > 0 && (
+      {!isLoading && employees.length > 0 && (
         <DataTable
-          rows={filteredEmployees}
+          rows={employees}
           getRowKey={(employee) => employee.id}
           emptyMessage="No employees match your search."
-          pageSize={10}
+          // No pageSize: DataTable renders exactly the rows it is given.
+          // Paging is the server's, so letting the table slice them again
+          // would paginate a page — "1 / 1" under a list that is one of many.
           itemLabel="employees"
           // On mobile the person's identity leads the card; the matching
           // columns below set hideOnMobile so they aren't repeated.
@@ -268,6 +327,44 @@ export function EmployeesPageContent() {
             },
           ]}
         />
+      )}
+
+      {/* Server-driven, so the counts describe the whole directory rather than
+          what happens to be loaded. DataTable's own footer is not in play —
+          it only appears when the table is doing its own paging. */}
+      {!isLoading && total > 0 && (
+        <div className="flex items-center justify-between gap-3 mt-4 text-sm">
+          <p className="text-neutral">
+            Showing {firstShown}&ndash;{lastShown} of {total} employee
+            {total === 1 ? "" : "s"}
+          </p>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={page <= 1}
+                className="rounded-md border border-neutral/30 px-3 py-1.5 font-medium text-heading hover:bg-neutral/10 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <span className="text-neutral tabular-nums">
+                {page} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setPage((current) => Math.min(totalPages, current + 1))
+                }
+                disabled={page >= totalPages}
+                className="rounded-md border border-neutral/30 px-3 py-1.5 font-medium text-heading hover:bg-neutral/10 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {isAddPersonOpen && (
