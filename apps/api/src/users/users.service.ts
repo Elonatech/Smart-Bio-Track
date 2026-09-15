@@ -9,6 +9,7 @@ import { Prisma, UserRole, UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-users.dto';
+import { ListUsersDto } from './dto/list-users.dto';
 import {
   ACTIVATION_RESEND_COOLDOWN_SECONDS,
   ACTIVATION_TOKEN_TTL_DAYS,
@@ -484,28 +485,79 @@ export class UsersService {
     return { ...organizationScope, departmentId: caller.departmentId };
   }
 
-  async findAll(caller: Caller) {
+  /**
+   * One page of the users this caller may see.
+   *
+   * Used to return every row. One five-thousand-employee customer was a
+   * multi-megabyte response serialised in a single tick — the event loop
+   * blocked, so requests with nothing to do with this endpoint stalled behind
+   * it.
+   */
+  async findAll(caller: Caller, query: ListUsersDto) {
     const where = this.visibleUsersWhere(caller);
+    const { page, limit } = query;
 
     // No department, nobody to supervise. Answered without a query rather
     // than with one that cannot match — same result, one less round trip.
     if (!where) {
-      return [];
+      return this.emptyPage(page, limit);
     }
 
-    return this.prisma.user.findMany({
-      where,
-      select: {
-        id: true,
-        employeeId: true,
-        name: true,
-        email: true,
-        role: true,
-        status: true,
-        departmentId: true,
-        officeId: true,
-        createdAt: true,
-      },
-    });
+    const search = query.q?.trim();
+
+    const filter: Prisma.UserWhereInput = search
+      ? {
+          ...where,
+          // Whichever of the three the admin happens to have to hand. Prisma
+          // parameterises these, so the input is not concatenated into SQL.
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { employeeId: { contains: search, mode: 'insensitive' } },
+          ],
+        }
+      : where;
+
+    // One transaction so the count and the rows describe the same instant.
+    // Read separately, a user created in between makes `total` disagree with
+    // what was returned, and the last page flickers.
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where: filter,
+        // Ordering is not cosmetic here. Without it Postgres may return rows in
+        // any order it likes, so page 2 can repeat rows from page 1 and skip
+        // others entirely — pagination would be broken by construction. `id` is
+        // the tiebreaker, because names are not unique and two people called
+        // Jane Doe would otherwise shuffle between pages.
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          employeeId: true,
+          name: true,
+          email: true,
+          role: true,
+          status: true,
+          departmentId: true,
+          officeId: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.user.count({ where: filter }),
+    ]);
+
+    return {
+      items,
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    };
+  }
+
+  /** Shape-compatible empty page, so callers never special-case "no results". */
+  private emptyPage(page: number, limit: number) {
+    return { items: [], page, limit, total: 0, totalPages: 1 };
   }
 }

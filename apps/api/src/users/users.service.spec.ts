@@ -7,6 +7,7 @@ import {
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import type { ListUsersDto } from './dto/list-users.dto';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -20,6 +21,7 @@ describe('UsersService', () => {
       update: jest.fn(),
       delete: jest.fn(),
       findMany: jest.fn(),
+      count: jest.fn(),
     },
     department: { findFirst: jest.fn() },
     office: { findFirst: jest.fn() },
@@ -57,8 +59,13 @@ describe('UsersService', () => {
       name: 'Acme Corp',
     });
     // Run the transaction callback against the same mock client.
+    // Prisma's $transaction takes either a callback (interactive) or an array
+    // of queries (batched). The service uses both — writes go through the
+    // callback form, findAll batches its page and its count — so the mock has
+    // to answer to each.
     mockPrisma.$transaction.mockImplementation(
-      (cb: (tx: typeof mockPrisma) => unknown) => cb(mockPrisma),
+      (arg: unknown[] | ((tx: typeof mockPrisma) => unknown)) =>
+        Array.isArray(arg) ? Promise.all(arg) : arg(mockPrisma),
     );
 
     const module: TestingModule = await Test.createTestingModule({
@@ -505,8 +512,21 @@ describe('UsersService', () => {
     const whereSentToPrisma = () =>
       (mockPrisma.user.findMany.mock.calls[0][0] as { where: unknown }).where;
 
+    /** The findMany args, for assertions about paging and ordering. */
+    const findManyArgs = () =>
+      mockPrisma.user.findMany.mock.calls[0][0] as {
+        orderBy: unknown;
+        skip: number;
+        take: number;
+      };
+
+    /** Default paging, as the ValidationPipe would supply it. */
+    const paging = (over: Partial<ListUsersDto> = {}) =>
+      ({ page: 1, limit: 25, ...over }) as ListUsersDto;
+
     beforeEach(() => {
       mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
     });
 
     /** Applied to every role — deleted users are kept, not listed. */
@@ -515,7 +535,7 @@ describe('UsersService', () => {
     it.each(['SUPER_ADMIN', 'HR_ADMIN'] as const)(
       'gives a %s their whole organization',
       async (role) => {
-        await service.findAll(caller(role));
+        await service.findAll(caller(role), paging());
 
         expect(whereSentToPrisma()).toEqual({
           organizationId: orgId,
@@ -525,7 +545,7 @@ describe('UsersService', () => {
     );
 
     it('narrows a TEAM_LEAD to their own department', async () => {
-      await service.findAll(caller('TEAM_LEAD', 'dept-eng'));
+      await service.findAll(caller('TEAM_LEAD', 'dept-eng'), paging());
 
       expect(whereSentToPrisma()).toEqual({
         organizationId: orgId,
@@ -537,7 +557,7 @@ describe('UsersService', () => {
     it.each(['SUPER_ADMIN', 'HR_ADMIN', 'TEAM_LEAD'] as const)(
       'hides deleted users from a %s',
       async (role) => {
-        await service.findAll(caller(role, 'dept-eng'));
+        await service.findAll(caller(role, 'dept-eng'), paging());
 
         expect(whereSentToPrisma()).toMatchObject(notDeleted);
       },
@@ -547,7 +567,7 @@ describe('UsersService', () => {
       // The regression that matters: if the department filter is ever dropped,
       // this is what catches it. Asserting on the shape above would still pass
       // if someone "fixed" a bug by widening the scope back out.
-      await service.findAll(caller('TEAM_LEAD', 'dept-eng'));
+      await service.findAll(caller('TEAM_LEAD', 'dept-eng'), paging());
 
       expect(whereSentToPrisma()).not.toEqual({ organizationId: orgId });
     });
@@ -557,20 +577,123 @@ describe('UsersService', () => {
       // hypothetical. Passing the null straight into the filter would query
       // `WHERE departmentId IS NULL` and hand back every unassigned user in
       // the organization — a wider leak than the one the scope closes.
-      const result = await service.findAll(caller('TEAM_LEAD', null));
+      const result = await service.findAll(caller('TEAM_LEAD', null), paging());
 
-      expect(result).toEqual([]);
+      expect(result.items).toEqual([]);
+      expect(result.total).toBe(0);
       expect(mockPrisma.user.findMany).not.toHaveBeenCalled();
     });
 
     it('does not scope a SUPER_ADMIN by department even when they have one', async () => {
       // An admin who happens to sit in a department is still an admin.
-      await service.findAll(caller('SUPER_ADMIN', 'dept-eng'));
+      await service.findAll(caller('SUPER_ADMIN', 'dept-eng'), paging());
 
       expect(whereSentToPrisma()).toEqual({
         organizationId: orgId,
         ...notDeleted,
       });
+    });
+  });
+
+  describe('findAll paging', () => {
+    const admin = {
+      id: 'admin-1',
+      role: 'SUPER_ADMIN' as const,
+      organizationId: orgId,
+      departmentId: null,
+    };
+
+    const paging = (over: Partial<ListUsersDto> = {}) =>
+      ({ page: 1, limit: 25, ...over }) as ListUsersDto;
+
+    const findManyArgs = () =>
+      mockPrisma.user.findMany.mock.calls[0][0] as {
+        where: Record<string, unknown>;
+        orderBy: unknown;
+        skip: number;
+        take: number;
+      };
+
+    beforeEach(() => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+    });
+
+    it('orders deterministically, with id as a tiebreaker', async () => {
+      // Without an ORDER BY, Postgres may return rows in any order it likes —
+      // so page 2 could repeat rows from page 1 and skip others. Pagination
+      // would be broken by construction. `id` breaks ties because names are
+      // not unique and two people called Jane Doe would otherwise shuffle
+      // between pages on every request.
+      await service.findAll(admin, paging());
+
+      expect(findManyArgs().orderBy).toEqual([
+        { name: 'asc' },
+        { id: 'asc' },
+      ]);
+    });
+
+    it('translates page and limit into skip and take', async () => {
+      await service.findAll(admin, paging({ page: 3, limit: 20 }));
+
+      expect(findManyArgs().skip).toBe(40);
+      expect(findManyArgs().take).toBe(20);
+    });
+
+    it('never skips on the first page', async () => {
+      await service.findAll(admin, paging({ page: 1, limit: 10 }));
+
+      expect(findManyArgs().skip).toBe(0);
+    });
+
+    it('reports totals from a count over the same filter', async () => {
+      mockPrisma.user.count.mockResolvedValue(97);
+
+      const result = await service.findAll(admin, paging({ limit: 25 }));
+
+      expect(result.total).toBe(97);
+      expect(result.totalPages).toBe(4);
+      // Counting a different set than was listed makes the last page flicker.
+      expect(
+        (mockPrisma.user.count.mock.calls[0][0] as { where: unknown }).where,
+      ).toEqual(findManyArgs().where);
+    });
+
+    it('reports one page when there are no results, not zero', async () => {
+      // A totalPages of 0 makes "Page 1 of 0" in the UI and breaks any
+      // control that clamps the current page against it.
+      const result = await service.findAll(admin, paging());
+
+      expect(result.totalPages).toBe(1);
+    });
+
+    it('searches name, email and employee ID together', async () => {
+      // Pagination without search would leave an admin clicking through two
+      // hundred pages to find one person — worse than the slow response it
+      // replaced. Which field they happen to have to hand should not matter.
+      await service.findAll(admin, paging({ q: 'jane' }));
+
+      expect(findManyArgs().where.OR).toEqual([
+        { name: { contains: 'jane', mode: 'insensitive' } },
+        { email: { contains: 'jane', mode: 'insensitive' } },
+        { employeeId: { contains: 'jane', mode: 'insensitive' } },
+      ]);
+    });
+
+    it('keeps the tenant scope while searching', async () => {
+      // The search must narrow the caller's own rows, never widen past them.
+      await service.findAll(admin, paging({ q: 'jane' }));
+
+      expect(findManyArgs().where).toMatchObject({
+        organizationId: orgId,
+        status: { not: 'DELETED' },
+      });
+    });
+
+    it('ignores a blank search rather than filtering on empty', async () => {
+      await service.findAll(admin, paging({ q: '   ' }));
+
+      expect(findManyArgs().where).not.toHaveProperty('OR');
     });
   });
 });

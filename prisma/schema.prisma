@@ -46,8 +46,21 @@ model PendingOrganizationSignup {
 
 model Organization {
   id        String   @id @default(uuid())
+
+  /// The address the organization signed up with. Still unique — it is what
+  /// stops one inbox owning two organizations by accident.
   email     String   @unique
-  name      String   @unique
+
+  /// Deliberately NOT unique.
+  ///
+  /// It was, which meant the first customer to register "Sterling Ltd" took
+  /// that name away from every other company of the same name, worldwide, with
+  /// no recourse for the second one but to invent a name they do not trade
+  /// under. Duplicate company names are ordinary — Companies House alone lists
+  /// many — and nothing here needs the name to be a key: organizations are
+  /// addressed by `id` everywhere, tenants never see each other, and sign-in is
+  /// by email or employee ID, never by organization name.
+  name      String
   industry  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -212,6 +225,14 @@ model RefreshToken {
   /// `familyId` for the theft response above.
   @@index([userId])
   @@index([familyId])
+
+  /// For the cleanup sweep (TokenCleanupService), which selects expired rows
+  /// every six hours. This is much the largest of the token tables — one row
+  /// per refresh, so ~96 per active user per day — and without this the sweep
+  /// is a full scan of exactly the table it exists to keep small. The other
+  /// token tables are low-volume enough that a scan is cheaper than carrying
+  /// an index on every write.
+  @@index([expiresAt])
 }
 
 /// Issued by POST /auth/forgot-password. Same hashed-at-rest, single-use,
