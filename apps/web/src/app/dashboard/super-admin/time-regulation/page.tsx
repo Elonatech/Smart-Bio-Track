@@ -45,7 +45,7 @@ const INITIAL_RULES: WorkRule[] = [
   },
 ];
 
-export default function SuperAdminWorkRulesPage() {
+export default function SuperAdminTimeRegulationPage() {
   const toast = useToast();
   const orgName =
     useAuthStore((state) => state.user?.organizationName) ??
@@ -58,12 +58,12 @@ export default function SuperAdminWorkRulesPage() {
     setRules((prev) => prev.filter((existing) => existing.id !== rule.id));
     toast.success(
       `${rule.name} deleted successfully`,
-      "Removed from this screen only — work rules are not saved to the server yet."
+      "Removed from this screen only — time regulations are not saved to the server yet."
     );
   }
 
   usePageHeader(
-    "Work rules",
+    "Time Regulation",
     `${orgName} · applied per employee or department`
   );
 
@@ -71,7 +71,7 @@ export default function SuperAdminWorkRulesPage() {
     const isEdit = Boolean(modalMode && modalMode !== "create");
     toast.success(
       values.name + (isEdit ? " updated successfully" : " created successfully"),
-      "Applied on this screen only — work rules are not saved to the server yet."
+      "Applied on this screen only — time regulations are not saved to the server yet."
     );
 
     if (modalMode && modalMode !== "create") {
@@ -95,14 +95,14 @@ export default function SuperAdminWorkRulesPage() {
           className="inline-flex items-center gap-2 bg-primary text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" strokeWidth={2} />
-          New work rule
+          New time regulation
         </button>
       </div>
 
       <DataTable
         rows={rules}
         getRowKey={(rule) => rule.id}
-        emptyMessage="No work rules yet."
+        emptyMessage="No time regulations yet."
         renderCardHeader={(rule) => (
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -199,7 +199,7 @@ export default function SuperAdminWorkRulesPage() {
         <ConfirmDialog
           title={`Delete ${deletingRule.name}?`}
           description="Employees assigned to this rule will have no shift window, grace period or overtime threshold until they are moved to another one."
-          note="Removed from this screen only — work rules are not saved to the server yet."
+          note="Removed from this screen only — time regulations are not saved to the server yet."
           confirmLabel="Delete rule"
           onConfirm={() => handleDelete(deletingRule)}
           onClose={() => setDeletingRule(null)}

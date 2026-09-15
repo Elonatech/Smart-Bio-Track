@@ -63,9 +63,18 @@ const SIGNAL_META: Record<
 interface PunchReviewModalProps {
   punch: FlaggedPunch;
   onClose: () => void;
+  // A Team Lead can only flag their call for HR to act on — final
+  // approve/reject stays with HR, who sees every department and is the
+  // one the audit trail holds accountable for the decision. Defaults to
+  // true so HR's Review Queue (the common case) needs no extra prop.
+  canApprove?: boolean;
 }
 
-export function PunchReviewModal({ punch, onClose }: PunchReviewModalProps) {
+export function PunchReviewModal({
+  punch,
+  onClose,
+  canApprove = true,
+}: PunchReviewModalProps) {
   const [notes, setNotes] = useState("");
   const [showPassed, setShowPassed] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -265,7 +274,7 @@ export function PunchReviewModal({ punch, onClose }: PunchReviewModalProps) {
             }
             className="rounded-md bg-alert text-white px-4 py-2.5 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Reject
+            {canApprove ? "Reject" : "Recommend rejection"}
           </button>
 
           <button
@@ -274,8 +283,14 @@ export function PunchReviewModal({ punch, onClose }: PunchReviewModalProps) {
             title={DECISIONS_ENABLED ? undefined : NO_ENDPOINT_HINT}
             className="rounded-md bg-primary text-white px-4 py-2.5 text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
           >
-            Approve
+            {canApprove ? "Approve" : "Recommend for approval"}
           </button>
+
+          {!canApprove && (
+            <p className="basis-full text-[12px] text-neutral text-right mt-1">
+              Your recommendation is sent to HR, who makes the final call.
+            </p>
+          )}
         </div>
       </div>
     </div>

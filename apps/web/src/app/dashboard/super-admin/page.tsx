@@ -53,7 +53,7 @@ export default function SuperAdminDashboardPage() {
           </div>
         </div>
 
-        {/* Work rules */}
+        {/* Time regulation */}
 
         <div className="flex gap-3 items-start bg-surface border border-neutral/20 p-5 rounded-xl">
           <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-primary/10 mb-3">
@@ -61,7 +61,7 @@ export default function SuperAdminDashboardPage() {
           </div>
           <div className="flex flex-col  items-start">
             <p className="text-xs font-semibold tracking-wide uppercase text-neutral">
-              Work rules
+              Time Regulation
             </p>
             <p className="mt-1 text-[24px] font-semibold text-heading">3</p>
             <p className="text-[12px] text-neutral">Standard, Night, Field</p>

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ShieldCheck, LogOut, PanelLeftClose, PanelLeftOpen, X, ChevronsRight, ChevronsLeft } from "lucide-react";
+import { ShieldCheck, LogOut, PanelLeftClose, PanelLeftOpen, X, ChevronsRight, ChevronsLeft, Crown } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { signOut } from "@/lib/session";
 import { useToast } from "@/app/components/Toast";
+import { CURRENT_PLAN, PLAN_LABEL, isPlanUnlocked } from "@/lib/planTiers";
 import type { SidebarItem } from "./sidebarConfig";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -148,10 +149,48 @@ export function Sidebar({
             one root item requires an exact match; every other item
             still prefix-matches its own nested sub-routes. */}
         <nav className="flex-1 px-5 space-y-1.5 overflow-y-auto">
-          {items.map(({ label, href, icon: Icon }) => {
+          {items.map(({ label, href, icon: Icon, requiredPlan }) => {
             const rootHref = items[0]?.href;
             const isActive =
               pathname === href || (href !== rootHref && pathname.startsWith(`${href}/`));
+
+            // Not enforced anywhere but the sidebar — there's no backend
+            // plan field to check against, so a direct URL visit still
+            // loads the page. This only stops the obvious path in: a
+            // crowned item can't be clicked into.
+            const isLocked = requiredPlan ? !isPlanUnlocked(requiredPlan, CURRENT_PLAN) : false;
+            const lockedTitle = requiredPlan
+              ? `Available on the ${PLAN_LABEL[requiredPlan]} plan and above`
+              : undefined;
+
+            if (isLocked) {
+              return (
+                <button
+                  key={href}
+                  type="button"
+                  title={lockedTitle}
+                  onClick={() =>
+                    toast.error(
+                      "This feature isn't on your plan",
+                      lockedTitle
+                    )
+                  }
+                  className={`relative flex w-full items-center gap-3 rounded-md px-4 py-2.5 text-sm font-medium text-white/40 hover:bg-white/5
+                    ${isCollapsed ? "lg:justify-center lg:px-0" : ""}
+                  `}
+                >
+                  <span className="relative shrink-0">
+                    <Icon className="h-5 w-5" strokeWidth={1.75} />
+                    <Crown
+                      className="absolute -top-1.5 -right-1.5 h-3 w-3 text-warning"
+                      strokeWidth={2}
+                      fill="currentColor"
+                    />
+                  </span>
+                  {!isCollapsed && <span className="truncate">{label}</span>}
+                </button>
+              );
+            }
 
             return (
               <Link

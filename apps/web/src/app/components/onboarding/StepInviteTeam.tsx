@@ -142,13 +142,25 @@ const StepInviteTeam = ({
                 </p>
               )}
             </div>
+
+            {/* UI-only — there's no salary column on the backend yet, so
+                this is collected for your records but not sent with the
+                invite. */}
+            <div>
+              <input
+                type="text"
+                placeholder="Salary (optional)"
+                {...register(`invites.${index}.salary`)}
+                className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
           </div>
         ))}
 
         <button
           type="button"
           onClick={() =>
-            append({ name: "", email: "", role: "TEAM_LEAD", department: "" })
+            append({ name: "", email: "", role: "TEAM_LEAD", department: "", salary: "" })
           }
           className="w-full rounded-md border border-neutral/30 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
         >

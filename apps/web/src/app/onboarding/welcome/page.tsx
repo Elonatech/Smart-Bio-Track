@@ -64,7 +64,7 @@ function OnboardingWelcomeContent() {
           Welcome to SmartBioTrack, {orgName}!
         </h1>
         <p className="text-white/80 max-w-xl mx-auto">
-          Your organization, first office geo-fence and work rules are
+          Your organization, first office geo-fence and time regulation are
           configured. Here are three things worth doing before your team&apos;s
           first clock-in.
         </p>

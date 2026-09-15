@@ -112,7 +112,7 @@ function VerifyOrganizationForm() {
       registerUser(user, accessToken);
 
       // A brand-new org lands in onboarding, not a dashboard that
-      // assumes offices and work rules already exist.
+      // assumes offices and time regulation already exist.
       router.push("/onboarding");
     } catch (error) {
       const message = extractErrorMessage(error);

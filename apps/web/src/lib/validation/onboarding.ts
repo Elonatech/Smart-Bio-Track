@@ -72,6 +72,11 @@ export const inviteTeamSchema = z.object({
         // being filled in. onboarding/page.tsx maps name -> id after
         // POST /departments and before POST /users.
         department: z.string().optional(),
+        // UI-only, like Time Regulation: CreateUserDto and the User model
+        // have no salary column, so this is collected but never sent to
+        // POST /users. Kept as a string so the field accepts free-form
+        // input (currency symbols, "negotiable", etc.) without a parser.
+        salary: z.string().optional(),
       })
       .superRefine((invite, ctx) => {
         // A Team Lead with no department is a broken account, not merely

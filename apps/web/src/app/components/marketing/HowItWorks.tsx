@@ -4,7 +4,7 @@ interface Step {
 }
 
 const ORG_STEPS: Step[] = [
-  { number: 1, text: "Set up offices, geo-fences, and work rules" },
+  { number: 1, text: "Set up offices, geo-fences, and time regulation" },
   { number: 2, text: "Invite employees, HR admins, and team leads" },
   { number: 3, text: "Monitor attendance in real time" },
 ];

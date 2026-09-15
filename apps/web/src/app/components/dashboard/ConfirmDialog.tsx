@@ -7,7 +7,7 @@ import { AlertTriangle, X } from "lucide-react";
 //
 // DeleteOfficeModal and DeleteEmployeeModal stay separate because they
 // each own an API call, its loading state and its error handling. This
-// one is for deletes that are purely local — work rules, holidays —
+// one is for deletes that are purely local — time regulation, holidays —
 // where the only thing needed is "are you sure?".
 //
 // Destructive actions get a confirm step even when the data is local:

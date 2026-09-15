@@ -9,7 +9,7 @@ import { DataTable } from "@/app/components/dashboard/DataTable";
 // Seeded example data — no backend AuditLog model or API exists yet
 // (no Prisma model, no controller/service, confirmed by search). This
 // is read-only by nature anyway (an audit trail shouldn't have an
-// "edit" button even once real), so unlike Work Rules/Holidays there's
+// "edit" button even once real), so unlike Time Regulation/Holidays there's
 // no form here — just search filtering over local data. Swap the
 // seed array for a real appClient.get('/audit-logs') once that exists.
 interface AuditLogEntry {

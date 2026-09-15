@@ -66,7 +66,7 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
       <div className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6">
         <div className="flex items-start justify-between mb-4">
           <h2 className="text-lg font-semibold text-heading">
-            {isEditing ? "Edit work rule" : "New work rule"}
+            {isEditing ? "Edit time regulation" : "New time regulation"}
           </h2>
           <button
             type="button"
