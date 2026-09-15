@@ -9,12 +9,14 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-users.dto';
+import { ListUsersDto } from './dto/list-users.dto';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -51,10 +53,13 @@ export class UsersController {
   // what they get back. A TEAM_LEAD is admitted but sees only their own
   // department — that narrowing lives in the service, next to the data, so a
   // future endpoint cannot pick up the role check and miss the scope.
+  // Paginated. `data` is { items, page, limit, total, totalPages } rather than a
+  // bare array — a breaking change made deliberately, because the alternative
+  // was an endpoint that returns however many users a customer happens to have.
   @Get()
   @Roles(UserRole.SUPER_ADMIN, UserRole.HR_ADMIN, UserRole.TEAM_LEAD)
-  findAll(@Req() req: AuthenticatedRequest) {
-    return this.usersService.findAll(req.user);
+  findAll(@Query() query: ListUsersDto, @Req() req: AuthenticatedRequest) {
+    return this.usersService.findAll(req.user, query);
   }
 
   // Suspends an active user, or restores a suspended one. The role ceiling and

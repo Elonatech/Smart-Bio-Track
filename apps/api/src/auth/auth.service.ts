@@ -233,15 +233,10 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired verification token');
     }
 
-    const existingOrgByName = await this.prisma.organization.findUnique({
-      where: { name: organizationName },
-    });
-
-    if (existingOrgByName) {
-      throw new BadRequestException(
-        'An organization with this name already exists',
-      );
-    }
+    // No check that the organization name is free, because it no longer has to
+    // be. Two companies genuinely called "Sterling Ltd" can both register; they
+    // are separate tenants addressed by id and never see one another. See the
+    // comment on Organization.name in schema.prisma.
 
     const employeeId = await this.generateUniqueEmployeeId();
 
@@ -275,17 +270,19 @@ export class AuthService {
         return created;
       });
     } catch (e) {
-      // The name and email were free when step one ran and when this method
-      // started, but a signup can sit pending for seven days — long enough for
-      // another organization to claim either in between. Postgres catches the
-      // race; without this the caller gets an opaque 500 for something they
-      // could actually act on.
+      // The address was free when step one ran, but a signup can sit pending
+      // for seven days — long enough for someone else to claim it in between.
+      // Postgres catches the race; without this the caller gets an opaque 500
+      // for something they could actually act on.
+      //
+      // Only the email can collide now. The organization name used to be able
+      // to as well, which is why this message named both.
       if (
         e instanceof Prisma.PrismaClientKnownRequestError &&
         e.code === 'P2002'
       ) {
         throw new ConflictException(
-          'That organization name or email address has already been taken. Please start again.',
+          'That email address has already been registered. Please start again.',
         );
       }
       throw e;

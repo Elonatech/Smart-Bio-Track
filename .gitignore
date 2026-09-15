@@ -40,3 +40,7 @@ yarn-error.log*
 
 /.claude
 ARCHITECTURE.md
+
+# Running record of the Phase 2 security and scale review — what changed, what
+# it relies on, and the tooling traps that cost time. Local-only by choice.
+docs/hardening-log.md

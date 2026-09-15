@@ -1,3 +1,4 @@
+import { randomBytes, randomUUID } from 'crypto';
 import request from 'supertest';
 import {
   createTestApp,
@@ -5,6 +6,7 @@ import {
   registerOrganization,
   TestContext,
 } from './helpers/test-app';
+import { TokenCleanupService } from '../src/maintenance/token-cleanup.service';
 
 /**
  * Verifies behaviour that the unit tests cannot see, because they mock
@@ -268,11 +270,105 @@ describe('Database constraints (integration)', () => {
         .expect(409);
 
       expect(await ctx.prisma.organization.count()).toBe(before);
+      // findFirst, not findUnique: the organization name stopped being a unique
+      // key, so Prisma no longer accepts it as one.
       expect(
-        await ctx.prisma.organization.findUnique({
+        await ctx.prisma.organization.findFirst({
           where: { name: 'Should Not Persist' },
         }),
       ).toBeNull();
+    });
+
+    it('lets two organizations register under the same name', async () => {
+      // Duplicate company names are ordinary, and the first registrant used to
+      // take the name from everyone else worldwide. Tenants are addressed by
+      // id, never see each other, and sign in by email or employee ID — so
+      // nothing here needed the name to be a key.
+      const shared = 'Sterling Ltd';
+
+      await registerOrganization(ctx, {
+        organizationName: shared,
+        email: 'first@sterling.test',
+      });
+      await registerOrganization(ctx, {
+        organizationName: shared,
+        email: 'second@sterling.test',
+      });
+
+      expect(
+        await ctx.prisma.organization.count({ where: { name: shared } }),
+      ).toBe(2);
+    });
+  });
+
+  describe('token cleanup sweep', () => {
+    /**
+     * The unit tests for TokenCleanupService mock PrismaService completely, so
+     * a misspelled column or a `where` shape Prisma rejects would pass every
+     * one of them. These run the real queries against real Postgres.
+     */
+    const sweep = () => ctx.app.get(TokenCleanupService);
+
+    const seedRefreshToken = async (
+      userId: string,
+      overrides: { expiresAt: Date; revoked?: boolean; rotatedAt?: Date },
+    ) =>
+      ctx.prisma.refreshToken.create({
+        data: {
+          tokenHash: randomBytes(32).toString('hex'),
+          userId,
+          familyId: randomUUID(),
+          expiresAt: overrides.expiresAt,
+          revoked: overrides.revoked ?? false,
+          rotatedAt: overrides.rotatedAt ?? null,
+        },
+      });
+
+    it('deletes expired tokens and leaves live ones alone', async () => {
+      await org('sweep');
+      const admin = await ctx.prisma.user.findUnique({
+        where: { email: 'adminsweep@test.local' },
+      });
+
+      const expired = await seedRefreshToken(admin!.id, {
+        expiresAt: new Date(Date.now() - 60_000),
+      });
+      const live = await seedRefreshToken(admin!.id, {
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+      });
+
+      const result = await sweep().cleanupExpiredTokens();
+
+      expect(result.refreshTokens).toBeGreaterThanOrEqual(1);
+      expect(
+        await ctx.prisma.refreshToken.findUnique({ where: { id: expired.id } }),
+      ).toBeNull();
+      expect(
+        await ctx.prisma.refreshToken.findUnique({ where: { id: live.id } }),
+      ).not.toBeNull();
+    });
+
+    it('keeps a revoked token that has not expired, so theft detection survives', async () => {
+      // The load-bearing case. A spent token must stay findable until it
+      // expires: if the sweep took revoked rows early, a replay would read as
+      // an unknown token — a plain 401 with no family revocation — and the
+      // thief's own session would outlive the detection that exists to kill it.
+      await org('sweep2');
+      const admin = await ctx.prisma.user.findUnique({
+        where: { email: 'adminsweep2@test.local' },
+      });
+
+      const spent = await seedRefreshToken(admin!.id, {
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+        revoked: true,
+        rotatedAt: new Date(Date.now() - 10 * 60_000),
+      });
+
+      await sweep().cleanupExpiredTokens();
+
+      expect(
+        await ctx.prisma.refreshToken.findUnique({ where: { id: spent.id } }),
+      ).not.toBeNull();
     });
   });
 });
