@@ -17,6 +17,7 @@ import {
   generateToken,
   hashToken,
 } from '../common/token.util';
+import { generateUniqueEmployeeId } from '../common/employee-id.util';
 
 /**
  * Which roles each role has authority over — for provisioning, suspending and
@@ -102,20 +103,29 @@ export class UsersService {
       );
     }
 
-    const existingByEmployeeId = await this.prisma.user.findUnique({
-      where: { employeeId: dto.employeeId },
-    });
+    // Only worth checking when the caller supplied one. A generated ID is
+    // already guaranteed unused by generateUniqueEmployeeId, which does
+    // its own lookup and retries on collision.
+    if (dto.employeeId) {
+      const existingByEmployeeId = await this.prisma.user.findUnique({
+        where: { employeeId: dto.employeeId },
+      });
 
-    if (existingByEmployeeId) {
-      // Same split as the email check above: an employee ID taken inside this
-      // organization is the admin's own data and worth naming, while one taken
-      // elsewhere is another tenant's and gets the uninformative answer.
-      throw new BadRequestException(
-        existingByEmployeeId.organizationId === organizationId
-          ? 'A user with this employee ID already exists'
-          : 'This employee ID is not available. Use a different one.',
-      );
+      if (existingByEmployeeId) {
+        // Same split as the email check above: an employee ID taken inside this
+        // organization is the admin's own data and worth naming, while one taken
+        // elsewhere is another tenant's and gets the uninformative answer.
+        throw new BadRequestException(
+          existingByEmployeeId.organizationId === organizationId
+            ? 'A user with this employee ID already exists'
+            : 'This employee ID is not available. Use a different one.',
+        );
+      }
     }
+
+    const employeeId =
+      dto.employeeId ??
+      (await generateUniqueEmployeeId(this.prisma, dto.role));
 
     // Both lookups are scoped to the caller's organization, so an admin
     // cannot attach a new user to another tenant's department or office.
@@ -142,7 +152,7 @@ export class UsersService {
     const user = await this.prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
-          employeeId: dto.employeeId,
+          employeeId,
           name: dto.name,
           email: normalizedEmail,
           role: dto.role,
