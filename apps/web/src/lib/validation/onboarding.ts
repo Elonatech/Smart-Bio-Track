@@ -24,8 +24,19 @@ export const officeSchema = z.object({
   officeName: z.string().min(2, { message: "Office name is required" }),
   address: z.string().min(5, { message: "Address is required" }),
   landmark: z.string().optional(),
-  latitude: z.number(),
-  longitude: z.number(),
+  // Real latitude/longitude bounds, not an arbitrary restriction — see
+  // OfficeFormModal.tsx's identical fields for why these were added: the
+  // map picker actually pans to whatever is typed here, so an out-of-range
+  // value used to sit unnoticed in a text box and now renders a blank,
+  // nowhere view instead.
+  latitude: z
+    .number()
+    .min(-90, { message: "Latitude must be between -90 and 90" })
+    .max(90, { message: "Latitude must be between -90 and 90" }),
+  longitude: z
+    .number()
+    .min(-180, { message: "Longitude must be between -180 and 180" })
+    .max(180, { message: "Longitude must be between -180 and 180" }),
   geofenceRadiusMeters: z.number().min(10).max(1000),
 });
 export type OfficeValues = z.infer<typeof officeSchema>;
