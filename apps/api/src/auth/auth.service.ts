@@ -36,7 +36,7 @@ import {
   generateToken,
   hashToken,
 } from '../common/token.util';
-import { generateEmployeeId } from '../common/employee-id.util';
+import { generateUniqueEmployeeId } from '../common/employee-id.util';
 import { MailService } from '../mail/mail.service';
 
 @Injectable()
@@ -238,7 +238,7 @@ export class AuthService {
     // are separate tenants addressed by id and never see one another. See the
     // comment on Organization.name in schema.prisma.
 
-    const employeeId = await this.generateUniqueEmployeeId();
+    const employeeId = await generateUniqueEmployeeId(this.prisma, 'SUPER_ADMIN');
 
     let user: User;
 
@@ -289,23 +289,6 @@ export class AuthService {
     }
 
     return this.issueTokens(user.id, user.email, user.role);
-  }
-
-  /**
-   * Retries on the astronomically rare collision rather than failing the
-   * whole signup over it — see employee-id.util.ts for the odds.
-   */
-  private async generateUniqueEmployeeId(): Promise<string> {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const candidate = generateEmployeeId();
-      const existing = await this.prisma.user.findUnique({
-        where: { employeeId: candidate },
-      });
-      if (!existing) {
-        return candidate;
-      }
-    }
-    throw new Error('Could not generate a unique employee ID');
   }
 
   /**
