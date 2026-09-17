@@ -50,6 +50,7 @@ model Department {
   organization   Organization @relation(fields: [organizationId], references: [id])
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  workRules      WorkRule[]
 
   employees User[]
 
@@ -66,6 +67,7 @@ model Office {
   organization         Organization @relation(fields: [organizationId], references: [id])
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
+  workRules            WorkRule[]
 
   employees User[]
 
@@ -93,9 +95,11 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  refreshToken       RefreshToken[]
-  activationToken    ActivationToken?
-  passwordResetToken PasswordResetToken[]
+  refreshToken        RefreshToken[]
+  punchEvents         PunchEvent[]
+  attendanceSummaries AttendanceSummary[]
+  activationToken     ActivationToken?
+  passwordResetToken  PasswordResetToken[]
 
   /// Postgres indexes a primary key and a UNIQUE column automatically. It does
   /// NOT index a foreign key. All three below were sequential scans of the
@@ -186,3 +190,74 @@ model PasswordResetToken {
   /// issuing a new one, and walked again by the cascade when a user is deleted.
   @@index([userId])
 }
+
+model AttendanceSummary{
+  id                    String                @id @default(uuid())
+  userId                String                
+  user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date                  DateTime              @db.Date
+  firstClockIn          DateTime?
+  lastClockOut          DateTime?
+  totalWorkingMinutes   Int                   @default(0)
+  totalBreakMinutes     Int                   @default(0)
+  status                AttendanceStatus      @default(PRESENT)
+  isLate                Boolean               @default(false)
+  minutesLate           Int                   @default(0)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  @@unique([userId, date])
+  @@index([date, status])
+}
+
+// Immutable log of every attendance action. Never updated or deleted
+// after creation — this is the source of truth. AttendanceSummary is
+// derived from these, not the other way around.
+model PunchEvent {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      PunchType
+  timestamp DateTime  @default(now())
+  createdAt DateTime  @default(now())
+
+  @@index([userId, timestamp])
+}
+
+// Real per-office / per-department work rule configuration — no
+// global hardcoded constant. Resolution priority (most to least
+// specific), implemented in AttendanceService.resolveWorkRule():
+//   1. officeId + departmentId both match the employee
+//   2. officeId matches, departmentId is null (office-wide default)
+//   3. departmentId matches, officeId is null (department-wide, any office)
+// If nothing matches, lateness detection is skipped for that punch
+// rather than guessing — see the service for how this is surfaced.
+model WorkRule {
+  id                       String      @id @default(uuid())
+  officeId                 String?
+  office                   Office?     @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  departmentId              String?
+  department                Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  startTime                String      // 24-hour "HH:mm", e.g. "08:00"
+  endTime                  String?     // 24-hour "HH:mm", optional — needed for overtime later
+  gracePeriodMinutes       Int         @default(10)
+  overtimeThresholdMinutes Int?
+  createdAt                DateTime    @default(now())
+  updatedAt                DateTime    @updatedAt
+
+  @@unique([officeId, departmentId])
+}
+
+enum PunchType {
+  CLOCK_IN
+  CLOCK_OUT
+  BREAK_START
+  BREAK_END
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+}
+
