@@ -7,6 +7,7 @@ import {
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { AuditService } from '../audit/audit.service';
 import type { ListUsersDto } from './dto/list-users.dto';
 
 describe('UsersService', () => {
@@ -40,6 +41,10 @@ describe('UsersService', () => {
     sendActivationEmail: jest.fn().mockResolvedValue(undefined),
   };
 
+  const mockAudit = {
+    record: jest.fn().mockResolvedValue(undefined),
+  };
+
   /** The raw activation token, which now only ever leaves via the email. */
   const emailedToken = (): string =>
     mockMail.sendActivationEmail.mock.calls[0][1] as string;
@@ -50,6 +55,27 @@ describe('UsersService', () => {
     email: 'Bob@Example.com',
     role: 'EMPLOYEE' as const,
   };
+
+  /** A caller with the given role, for the provisioning tests. */
+  const callerWithRole = (role: 'SUPER_ADMIN' | 'HR_ADMIN' | 'EMPLOYEE') => ({
+    id: 'caller-1',
+    name: 'Ada Owner',
+    role,
+    organizationId: orgId,
+    departmentId: null,
+  });
+
+  /** The audit entry written during the action under test. */
+  const auditedEntry = () =>
+    (
+      mockAudit.record.mock.calls[0][0] as {
+        action: string;
+        actor: { id: string; name: string };
+        targetId?: string;
+        targetLabel?: string;
+        ipAddress?: string;
+      }
+    );
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -73,6 +99,7 @@ describe('UsersService', () => {
         UsersService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: MailService, useValue: mockMail },
+        { provide: AuditService, useValue: mockAudit },
       ],
     }).compile();
 
@@ -91,11 +118,7 @@ describe('UsersService', () => {
         officeId: null,
       });
 
-      const result = await service.provision(
-        { ...baseDto, role: 'SUPER_ADMIN' },
-        'SUPER_ADMIN',
-        orgId,
-      );
+      const result = await service.provision({ ...baseDto, role: 'SUPER_ADMIN' }, callerWithRole('SUPER_ADMIN'));
 
       expect(result.role).toBe('SUPER_ADMIN');
       // The token is emailed, never returned — returning it would let anyone
@@ -106,11 +129,7 @@ describe('UsersService', () => {
 
     it('forbids an HR_ADMIN from creating a SUPER_ADMIN', async () => {
       await expect(
-        service.provision(
-          { ...baseDto, role: 'SUPER_ADMIN' },
-          'HR_ADMIN',
-          orgId,
-        ),
+        service.provision({ ...baseDto, role: 'SUPER_ADMIN' }, callerWithRole('HR_ADMIN')),
       ).rejects.toThrow(ForbiddenException);
 
       expect(mockPrisma.user.create).not.toHaveBeenCalled();
@@ -118,7 +137,7 @@ describe('UsersService', () => {
 
     it('forbids an HR_ADMIN from creating another HR_ADMIN', async () => {
       await expect(
-        service.provision({ ...baseDto, role: 'HR_ADMIN' }, 'HR_ADMIN', orgId),
+        service.provision({ ...baseDto, role: 'HR_ADMIN' }, callerWithRole('HR_ADMIN')),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -132,14 +151,14 @@ describe('UsersService', () => {
         officeId: null,
       });
 
-      const result = await service.provision(baseDto, 'HR_ADMIN', orgId);
+      const result = await service.provision(baseDto, callerWithRole('HR_ADMIN'));
 
       expect(result.status).toBe('PENDING');
     });
 
     it('forbids an EMPLOYEE from creating anyone', async () => {
       await expect(
-        service.provision(baseDto, 'EMPLOYEE', orgId),
+        service.provision(baseDto, callerWithRole('EMPLOYEE')),
       ).rejects.toThrow(ForbiddenException);
     });
   });
@@ -155,7 +174,7 @@ describe('UsersService', () => {
         officeId: null,
       });
 
-      await service.provision(baseDto, 'SUPER_ADMIN', orgId);
+      await service.provision(baseDto, callerWithRole('SUPER_ADMIN'));
 
       const createArg = mockPrisma.user.create.mock.calls[0][0] as {
         data: Record<string, unknown>;
@@ -176,7 +195,7 @@ describe('UsersService', () => {
         officeId: null,
       });
 
-      await service.provision(baseDto, 'SUPER_ADMIN', orgId);
+      await service.provision(baseDto, callerWithRole('SUPER_ADMIN'));
 
       const tokenArg = mockPrisma.activationToken.create.mock.calls[0][0] as {
         data: { tokenHash: string };
@@ -189,7 +208,7 @@ describe('UsersService', () => {
       mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'existing' });
 
       await expect(
-        service.provision(baseDto, 'SUPER_ADMIN', orgId),
+        service.provision(baseDto, callerWithRole('SUPER_ADMIN')),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -199,8 +218,7 @@ describe('UsersService', () => {
       await expect(
         service.provision(
           { ...baseDto, departmentId: 'dept-from-other-org' },
-          'SUPER_ADMIN',
-          orgId,
+          callerWithRole('SUPER_ADMIN'),
         ),
       ).rejects.toThrow(BadRequestException);
 
@@ -213,6 +231,7 @@ describe('UsersService', () => {
   describe('resendInvitation', () => {
     const admin = {
       id: 'admin-1',
+      name: 'Ada Owner',
       role: 'SUPER_ADMIN' as const,
       organizationId: orgId,
       departmentId: null,
@@ -336,6 +355,7 @@ describe('UsersService', () => {
   describe('toggleStatus / delete', () => {
     const admin = {
       id: 'admin-1',
+      name: 'Ada Owner',
       role: 'SUPER_ADMIN' as const,
       organizationId: orgId,
       departmentId: null,
@@ -506,7 +526,13 @@ describe('UsersService', () => {
     const caller = (
       role: 'SUPER_ADMIN' | 'HR_ADMIN' | 'TEAM_LEAD',
       departmentId: string | null = null,
-    ) => ({ id: 'caller-1', role, organizationId: orgId, departmentId });
+    ) => ({
+      id: 'caller-1',
+      name: 'Caller One',
+      role,
+      organizationId: orgId,
+      departmentId,
+    });
 
     /** The `where` the service actually sent to Prisma. */
     const whereSentToPrisma = () =>
@@ -595,9 +621,112 @@ describe('UsersService', () => {
     });
   });
 
+  describe('audit trail', () => {
+    const admin = {
+      id: 'admin-1',
+      name: 'Ada Owner',
+      role: 'SUPER_ADMIN' as const,
+      organizationId: orgId,
+      departmentId: null,
+    };
+
+    const target = {
+      id: 'user-2',
+      employeeId: 'EMP200',
+      name: 'Bob Employee',
+      email: 'bob@example.com',
+      role: 'EMPLOYEE' as const,
+      status: 'ACTIVE' as const,
+    };
+
+    beforeEach(() => {
+      mockPrisma.user.findFirst.mockResolvedValue(target);
+      mockPrisma.user.update.mockResolvedValue({ ...target, status: 'SUSPENDED' });
+    });
+
+    it('records who suspended whom, from where', async () => {
+      await service.toggleStatus(target.id, admin, '102.89.44.10');
+
+      expect(auditedEntry()).toMatchObject({
+        action: 'USER_SUSPENDED',
+        actor: { id: admin.id, name: admin.name },
+        targetId: target.id,
+        ipAddress: '102.89.44.10',
+      });
+    });
+
+    it('distinguishes a restore from a suspend', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({
+        ...target,
+        status: 'SUSPENDED',
+      });
+      mockPrisma.user.update.mockResolvedValue({ ...target, status: 'ACTIVE' });
+
+      await service.toggleStatus(target.id, admin);
+
+      expect(auditedEntry().action).toBe('USER_RESTORED');
+    });
+
+    it('records a deletion — the entry a leaver dispute turns on', async () => {
+      await service.delete(target.id, admin, '102.89.44.10');
+
+      expect(auditedEntry()).toMatchObject({
+        action: 'USER_DELETED',
+        targetId: target.id,
+      });
+    });
+
+    it('records a resent invitation', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({
+        ...target,
+        status: 'PENDING',
+      });
+      mockPrisma.activationToken.findFirst.mockResolvedValue(null);
+
+      await service.resendInvitation(target.id, admin);
+
+      expect(auditedEntry().action).toBe('INVITATION_RESENT');
+    });
+
+    it('stores the target as a label, not just an id', async () => {
+      // An id alone makes an entry unreadable once the person is gone, which
+      // is exactly when the trail is consulted. The label is how the record
+      // read at the time.
+      await service.delete(target.id, admin);
+
+      expect(auditedEntry().targetLabel).toContain(target.name);
+      expect(auditedEntry().targetLabel).toContain(target.employeeId);
+    });
+
+    it('writes inside the same transaction as the action', async () => {
+      // The load-bearing property. If the audit write could fail on its own,
+      // an action could happen with nothing recorded — and a trail with silent
+      // gaps invites the assumption that anything missing never happened.
+      await service.delete(target.id, admin);
+
+      const txArg = mockAudit.record.mock.calls[0][1];
+      expect(txArg).toBeDefined();
+      expect(txArg).toBe(mockPrisma);
+    });
+
+    it('records nothing when the action is refused', async () => {
+      const hr = { ...admin, id: 'hr-1', role: 'HR_ADMIN' as const };
+      mockPrisma.user.findFirst.mockResolvedValue({
+        ...target,
+        role: 'SUPER_ADMIN',
+      });
+
+      await expect(service.delete(target.id, hr)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(mockAudit.record).not.toHaveBeenCalled();
+    });
+  });
+
   describe('findAll paging', () => {
     const admin = {
       id: 'admin-1',
+      name: 'Ada Owner',
       role: 'SUPER_ADMIN' as const,
       organizationId: orgId,
       departmentId: null,

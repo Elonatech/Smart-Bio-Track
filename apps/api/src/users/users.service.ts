@@ -18,6 +18,7 @@ import {
   hashToken,
 } from '../common/token.util';
 import { generateUniqueEmployeeId } from '../common/employee-id.util';
+import { AuditService } from '../audit/audit.service';
 
 /**
  * Which roles each role has authority over — for provisioning, suspending and
@@ -41,6 +42,8 @@ const ROLE_AUTHORITY_MATRIX: Record<UserRole, UserRole[]> = {
 /** The authenticated caller, as JwtStrategy hands them to the controller. */
 interface Caller {
   id: string;
+  /** Recorded on audit entries as the actor's name at the time of the action. */
+  name: string;
   role: UserRole;
   organizationId: string;
   /** Nullable by schema: a user need not belong to a department. */
@@ -52,13 +55,16 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly auditService: AuditService,
   ) {}
 
-  async provision(
-    dto: CreateUserDto,
-    callerRole: UserRole,
-    organizationId: string,
-  ) {
+  /**
+   * Takes the whole caller rather than a role and an organization id, matching
+   * every other method here. The audit trail needs the actor's identity, not
+   * just their permissions.
+   */
+  async provision(dto: CreateUserDto, caller: Caller, ipAddress?: string) {
+    const { role: callerRole, organizationId } = caller;
     const allowedRoles = ROLE_AUTHORITY_MATRIX[callerRole] ?? [];
 
     if (!allowedRoles.includes(dto.role)) {
@@ -171,6 +177,19 @@ export class UsersService {
         },
       });
 
+      await this.auditService.record(
+        {
+          organizationId,
+          actor: caller,
+          action: 'USER_PROVISIONED',
+          targetType: 'User',
+          targetId: created.id,
+          targetLabel: `${created.name} (${created.employeeId})`,
+          ipAddress,
+        },
+        tx,
+      );
+
       return created;
     });
 
@@ -261,7 +280,7 @@ export class UsersService {
    * way out was deleting and recreating the person, which is now impossible
    * anyway, since a soft-deleted user keeps their email address.
    */
-  async resendInvitation(userId: string, caller: Caller) {
+  async resendInvitation(userId: string, caller: Caller, ipAddress?: string) {
     const user = await this.findManageable(
       userId,
       caller,
@@ -319,6 +338,19 @@ export class UsersService {
           expiresAt: expiryInDays(ACTIVATION_TOKEN_TTL_DAYS),
         },
       });
+
+      await this.auditService.record(
+        {
+          organizationId: caller.organizationId,
+          actor: caller,
+          action: 'INVITATION_RESENT',
+          targetType: 'User',
+          targetId: user.id,
+          targetLabel: `${user.name} (${user.email})`,
+          ipAddress,
+        },
+        tx,
+      );
     });
 
     try {
@@ -353,7 +385,7 @@ export class UsersService {
    * user who is not ACTIVE, which locks them out of every authenticated route
    * the instant this commits.
    */
-  async delete(userId: string, caller: Caller) {
+  async delete(userId: string, caller: Caller, ipAddress?: string) {
     const user = await this.findManageable(userId, caller, 'delete');
 
     await this.prisma.$transaction(async (tx) => {
@@ -382,6 +414,22 @@ export class UsersService {
         where: { userId: user.id, usedAt: null },
         data: { usedAt: new Date() },
       });
+
+      // The most important entry in the table. "Who removed this employee, and
+      // when" is the first question asked when a leaver disputes their record,
+      // and the user row alone cannot answer it.
+      await this.auditService.record(
+        {
+          organizationId: caller.organizationId,
+          actor: caller,
+          action: 'USER_DELETED',
+          targetType: 'User',
+          targetId: user.id,
+          targetLabel: `${user.name} (${user.employeeId})`,
+          ipAddress,
+        },
+        tx,
+      );
     });
 
     return { message: `${user.name}'s account has been deleted.` };
@@ -395,7 +443,7 @@ export class UsersService {
    * list calls active but that login rejects (it refuses anyone with a null
    * passwordHash). Withdraw an unaccepted invitation with DELETE instead.
    */
-  async toggleStatus(userId: string, caller: Caller) {
+  async toggleStatus(userId: string, caller: Caller, ipAddress?: string) {
     const user = await this.findManageable(userId, caller, 'suspend');
 
     if (user.status === 'PENDING') {
@@ -428,6 +476,20 @@ export class UsersService {
           data: { revoked: true },
         });
       }
+
+      await this.auditService.record(
+        {
+          organizationId: caller.organizationId,
+          actor: caller,
+          action:
+            nextStatus === 'SUSPENDED' ? 'USER_SUSPENDED' : 'USER_RESTORED',
+          targetType: 'User',
+          targetId: user.id,
+          targetLabel: `${user.name} (${user.employeeId})`,
+          ipAddress,
+        },
+        tx,
+      );
 
       return result;
     });

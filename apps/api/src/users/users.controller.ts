@@ -26,11 +26,20 @@ import { ResponseMessage } from '../common/decorators/response-message.decorator
 interface AuthenticatedRequest {
   user: {
     id: string;
+    /** Recorded as the actor's name on audit entries. */
+    name: string;
     email: string;
     role: UserRole;
     organizationId: string;
     departmentId: string | null;
   };
+  /**
+   * Express's view of the client address. Behind a proxy this is the proxy
+   * unless TRUST_PROXY_HOPS is set — see main.ts. Passed through to the audit
+   * trail as-is, where it is nullable precisely because it is not always
+   * trustworthy.
+   */
+  ip?: string;
 }
 
 @ApiBearerAuth()
@@ -42,11 +51,7 @@ export class UsersController {
   @Post()
   @Roles(UserRole.SUPER_ADMIN, UserRole.HR_ADMIN)
   provision(@Body() dto: CreateUserDto, @Req() req: AuthenticatedRequest) {
-    return this.usersService.provision(
-      dto,
-      req.user.role,
-      req.user.organizationId,
-    );
+    return this.usersService.provision(dto, req.user, req.ip);
   }
 
   // The role list here decides who may call this at all; it does not decide
@@ -72,7 +77,7 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.usersService.toggleStatus(id, req.user);
+    return this.usersService.toggleStatus(id, req.user, req.ip);
   }
 
   // Issues a fresh activation link to a user still stuck in PENDING. Same role
@@ -88,7 +93,7 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.usersService.resendInvitation(id, req.user);
+    return this.usersService.resendInvitation(id, req.user, req.ip);
   }
 
   @Delete(':id')
@@ -97,6 +102,6 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.usersService.delete(id, req.user);
+    return this.usersService.delete(id, req.user, req.ip);
   }
 }

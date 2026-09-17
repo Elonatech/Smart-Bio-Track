@@ -45,7 +45,4 @@ ARCHITECTURE.md
 
 # Running record of the Phase 2 security and scale review — what changed, what
 # it relies on, and the tooling traps that cost time. Local-only by choice.
-# The plain-English companion is the same findings for a non-technical reader;
-# keep the two in step.
 docs/hardening-log.md
-docs/hardening-summary-plain-english.md
