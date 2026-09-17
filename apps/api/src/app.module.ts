@@ -8,6 +8,8 @@ import { AuthModule } from './auth/auth.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { OfficesModule } from './offices/office.module';
 import { UsersModule } from './users/users.module';
+import { MaintenanceModule } from './maintenance/maintenance.module';
+import { AuditModule } from './audit/audit.module';
 import { THROTTLE_DEFAULT } from './common/throttle.config';
 
 @Module({
@@ -28,6 +30,8 @@ import { THROTTLE_DEFAULT } from './common/throttle.config';
     DepartmentsModule,
     OfficesModule,
     UsersModule,
+    MaintenanceModule,
+    AuditModule,
   ],
   controllers: [AppController],
   providers: [
