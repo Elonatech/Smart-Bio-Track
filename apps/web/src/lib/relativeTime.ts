@@ -25,7 +25,5 @@ export function formatRelativeTime(date: Date, now: Date = new Date()): string {
     }
   }
 
-  // Beyond a month, a relative label stops being useful ("2 months ago"
-  // is vaguer than the actual date) — fall back to a short absolute one.
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }

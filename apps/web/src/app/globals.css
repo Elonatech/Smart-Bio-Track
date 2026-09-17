@@ -64,7 +64,6 @@ option {
   --color-heading: #f3f4f6;
   --color-neutral: #9ca3af;
 
-  /* Drops well below the dark surface so the sidebar still reads as a
-     separate slab rather than merging into the page. */
+  
   --color-sidebar: #101a2d;
 }

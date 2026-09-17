@@ -56,11 +56,6 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
     { label: "Profile", href: `${HR_ADMIN_ROOT}/profile`, icon: User },
   ],
   TEAM_LEAD: [
-    // The one role whose first item isn't called "Overview": a team
-    // lead's overview IS the roster for today, so a separate Overview
-    // above it would just be a second page showing the same thing. Still
-    // items[0] and still the role's root path, which is all the active-
-    // link logic in Sidebar.tsx depends on.
     { label: "Team Today", href: TEAM_LEAD_ROOT, icon: Users },
     { label: "Pending Exceptions", href: `${TEAM_LEAD_ROOT}/exceptions`, icon: AlertTriangle },
     { label: "Department Reports", href: `${TEAM_LEAD_ROOT}/reports`, icon: FileText },
@@ -73,8 +68,7 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
     { label: "Leave Requests", href: `${EMPLOYEE_ROOT}/leave`, icon: CalendarClock },
     { label: "Profile", href: `${EMPLOYEE_ROOT}/profile`, icon: User },
   ],
-  // No dedicated Platform Admin dashboard yet — same fallback as
-  // roleRoutes.ts, just Super Admin's items for now.
+ 
   PLATFORM_ADMIN: [
     { label: "Overview", href: SUPER_ADMIN_ROOT, icon: LayoutDashboard },
     { label: "Offices & Geo-Fences", href: `${SUPER_ADMIN_ROOT}/offices`, icon: Building2 },
