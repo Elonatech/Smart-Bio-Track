@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    // CommonJS, and the reason is a bug we already paid for once.
+    //
+    // This package previously shipped `"main": "index.ts"` — raw TypeScript.
+    // Whether that works depends on the Node version: 22.14 strips the types
+    // and loads it, older releases parse it as CommonJS and die on `export`.
+    // Booting green on a developer's machine proved nothing about the deploy
+    // target. `production-boot.e2e-spec.ts` asserts the resolved entrypoint's
+    // extension for exactly this reason.
+    //
+    // ESM here would fail in the API instead, with ERR_REQUIRE_ESM: Nest
+    // compiles to CJS and loads with require(). Same choice as
+    // packages/constants, same reasoning.
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2023",
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["index.ts"],
+  "exclude": ["node_modules", "dist"]
+}

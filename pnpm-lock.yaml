@@ -72,6 +72,9 @@ importers:
       '@smartbiotrack/constants':
         specifier: workspace:*
         version: link:../../packages/constants
+      '@smartbiotrack/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       argon2:
         specifier: ^0.45.1
         version: 0.45.1
@@ -179,11 +182,78 @@ importers:
         specifier: ^8.20.0
         version: 8.50.0(eslint@9.39.1(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.2)
 
+  apps/app:
+    dependencies:
+      '@hookform/resolvers':
+        specifier: ^5.7.1
+        version: 5.7.1(@sinclair/typebox@0.34.52)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(class-transformer@0.5.1)(class-validator@0.15.1)(effect@3.20.0)(react-hook-form@7.85.0(react@19.2.4))(valibot@1.4.2(typescript@5.9.2))(zod@4.4.3)
+      '@tanstack/react-query':
+        specifier: ^5.101.4
+        version: 5.101.4(react@19.2.4)
+      axios:
+        specifier: ^1.19.0
+        version: 1.19.0(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.4)
+      next:
+        specifier: 16.2.12
+        version: 16.2.12(@babel/core@7.29.7(supports-color@8.1.1))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-dom:
+        specifier: 19.2.4
+        version: 19.2.4(react@19.2.4)
+      react-hook-form:
+        specifier: ^7.85.0
+        version: 7.85.0(react@19.2.4)
+      react-hot-toast:
+        specifier: ^2.6.0
+        version: 2.6.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+      zustand:
+        specifier: ^5.0.14
+        version: 5.0.14(@types/react@19.2.2)(react@19.2.4)
+    devDependencies:
+      '@tailwindcss/postcss':
+        specifier: ^4
+        version: 4.3.3
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      '@types/react':
+        specifier: ^19
+        version: 19.2.2
+      '@types/react-dom':
+        specifier: ^19
+        version: 19.2.2(@types/react@19.2.2)
+      eslint:
+        specifier: ^9
+        version: 9.39.1(jiti@2.7.0)(supports-color@8.1.1)
+      eslint-config-next:
+        specifier: 16.2.12
+        version: 16.2.12(@typescript-eslint/parser@8.50.0(eslint@9.39.1(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.2))(eslint@9.39.1(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.2)
+      tailwindcss:
+        specifier: ^4
+        version: 4.3.3
+      typescript:
+        specifier: ^5
+        version: 5.9.2
+
   apps/web:
     dependencies:
       '@hookform/resolvers':
         specifier: ^5.7.1
         version: 5.7.1(@sinclair/typebox@0.34.52)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(class-transformer@0.5.1)(class-validator@0.15.1)(effect@3.20.0)(react-hook-form@7.85.0(react@19.2.4))(valibot@1.4.2(typescript@5.9.2))(zod@4.4.3)
+      '@smartbiotrack/constants':
+        specifier: workspace:*
+        version: link:../../packages/constants
+      '@smartbiotrack/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@tanstack/react-query':
         specifier: ^5.101.4
         version: 5.101.4(react@19.2.4)
@@ -8198,7 +8268,7 @@ snapshots:
   eslint-import-resolver-node@0.3.10(supports-color@8.1.1):
     dependencies:
       debug: 3.2.7(supports-color@8.1.1)
-      is-core-module: 2.16.1
+      is-core-module: 2.16.2
       resolve: 2.0.0-next.7
     transitivePeerDependencies:
       - supports-color
@@ -8242,7 +8312,7 @@ snapshots:
       eslint-import-resolver-node: 0.3.10(supports-color@8.1.1)
       eslint-module-utils: 2.14.0(@typescript-eslint/parser@8.50.0(eslint@9.39.1(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.2))(eslint-import-resolver-node@0.3.10(supports-color@8.1.1))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)
       hasown: 2.0.4
-      is-core-module: 2.16.1
+      is-core-module: 2.16.2
       is-glob: 4.0.3
       minimatch: 3.1.2
       object.fromentries: 2.0.8
