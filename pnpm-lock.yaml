@@ -72,6 +72,9 @@ importers:
       '@smartbiotrack/constants':
         specifier: workspace:*
         version: link:../../packages/constants
+      '@smartbiotrack/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       argon2:
         specifier: ^0.45.1
         version: 0.45.1

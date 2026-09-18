@@ -18,6 +18,12 @@
       "outputs": ["coverage/**"]
     },
     "dev": {
+      // Build the workspace packages first. They ship compiled JavaScript
+      // (`main: dist/index.js`) rather than raw TypeScript — deliberately, see
+      // packages/types/tsconfig.json — so without this a fresh clone or a new
+      // branch starts `next dev` against a dist/ that does not exist yet, and
+      // the failure reads as a missing module rather than a missing build step.
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     }
