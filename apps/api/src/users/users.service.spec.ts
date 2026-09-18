@@ -67,15 +67,13 @@ describe('UsersService', () => {
 
   /** The audit entry written during the action under test. */
   const auditedEntry = () =>
-    (
-      mockAudit.record.mock.calls[0][0] as {
-        action: string;
-        actor: { id: string; name: string };
-        targetId?: string;
-        targetLabel?: string;
-        ipAddress?: string;
-      }
-    );
+    mockAudit.record.mock.calls[0][0] as {
+      action: string;
+      actor: { id: string; name: string };
+      targetId?: string;
+      targetLabel?: string;
+      ipAddress?: string;
+    };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -118,7 +116,10 @@ describe('UsersService', () => {
         officeId: null,
       });
 
-      const result = await service.provision({ ...baseDto, role: 'SUPER_ADMIN' }, callerWithRole('SUPER_ADMIN'));
+      const result = await service.provision(
+        { ...baseDto, role: 'SUPER_ADMIN' },
+        callerWithRole('SUPER_ADMIN'),
+      );
 
       expect(result.role).toBe('SUPER_ADMIN');
       // The token is emailed, never returned — returning it would let anyone
@@ -129,7 +130,10 @@ describe('UsersService', () => {
 
     it('forbids an HR_ADMIN from creating a SUPER_ADMIN', async () => {
       await expect(
-        service.provision({ ...baseDto, role: 'SUPER_ADMIN' }, callerWithRole('HR_ADMIN')),
+        service.provision(
+          { ...baseDto, role: 'SUPER_ADMIN' },
+          callerWithRole('HR_ADMIN'),
+        ),
       ).rejects.toThrow(ForbiddenException);
 
       expect(mockPrisma.user.create).not.toHaveBeenCalled();
@@ -137,7 +141,10 @@ describe('UsersService', () => {
 
     it('forbids an HR_ADMIN from creating another HR_ADMIN', async () => {
       await expect(
-        service.provision({ ...baseDto, role: 'HR_ADMIN' }, callerWithRole('HR_ADMIN')),
+        service.provision(
+          { ...baseDto, role: 'HR_ADMIN' },
+          callerWithRole('HR_ADMIN'),
+        ),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -151,7 +158,10 @@ describe('UsersService', () => {
         officeId: null,
       });
 
-      const result = await service.provision(baseDto, callerWithRole('HR_ADMIN'));
+      const result = await service.provision(
+        baseDto,
+        callerWithRole('HR_ADMIN'),
+      );
 
       expect(result.status).toBe('PENDING');
     });
@@ -309,9 +319,9 @@ describe('UsersService', () => {
         createdAt: new Date(Date.now() - 5_000),
       });
 
-      await expect(
-        service.resendInvitation(invitee.id, admin),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.resendInvitation(invitee.id, admin)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(mockPrisma.activationToken.create).not.toHaveBeenCalled();
       expect(mockMail.sendActivationEmail).not.toHaveBeenCalled();
     });
@@ -346,9 +356,9 @@ describe('UsersService', () => {
     it('treats a user in another organization as not found', async () => {
       mockPrisma.user.findFirst.mockResolvedValue(null);
 
-      await expect(
-        service.resendInvitation(invitee.id, admin),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.resendInvitation(invitee.id, admin)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -641,7 +651,10 @@ describe('UsersService', () => {
 
     beforeEach(() => {
       mockPrisma.user.findFirst.mockResolvedValue(target);
-      mockPrisma.user.update.mockResolvedValue({ ...target, status: 'SUSPENDED' });
+      mockPrisma.user.update.mockResolvedValue({
+        ...target,
+        status: 'SUSPENDED',
+      });
     });
 
     it('records who suspended whom, from where', async () => {
@@ -756,10 +769,7 @@ describe('UsersService', () => {
       // between pages on every request.
       await service.findAll(admin, paging());
 
-      expect(findManyArgs().orderBy).toEqual([
-        { name: 'asc' },
-        { id: 'asc' },
-      ]);
+      expect(findManyArgs().orderBy).toEqual([{ name: 'asc' }, { id: 'asc' }]);
     });
 
     it('translates page and limit into skip and take', async () => {

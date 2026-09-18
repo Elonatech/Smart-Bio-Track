@@ -130,8 +130,7 @@ export class UsersService {
     }
 
     const employeeId =
-      dto.employeeId ??
-      (await generateUniqueEmployeeId(this.prisma, dto.role));
+      dto.employeeId ?? (await generateUniqueEmployeeId(this.prisma, dto.role));
 
     // Both lookups are scoped to the caller's organization, so an admin
     // cannot attach a new user to another tenant's department or office.
