@@ -5,13 +5,8 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { ThemeToggle } from "@/app/components/ThemeToggle";
 import { usePageHeaderContext } from "./PageHeaderContext";
 
-const ROLE_LABEL: Record<string, string> = {
-  SUPER_ADMIN: "Org Super Admin",
-  HR_ADMIN: "HR Administrator",
-  TEAM_LEAD: "Team Lead",
-  EMPLOYEE: "Employee",
-  PLATFORM_ADMIN: "Platform Admin",
-};
+// See the note in Sidebar.tsx: this was the same map written out a fourth time.
+import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
 
 function getInitials(nameOrEmail: string): string {
   const parts = nameOrEmail.trim().split(/\s+/);

@@ -1,8 +1,12 @@
 import { z } from "zod";
 
-// Matches @smartbiotrack/constants' PASSWORD_REGEX exactly (packages/constants/index.ts)
-// — must contain lowercase, uppercase, a digit, and a special character.
-const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/;
+// Now imported rather than copied. The comment here used to read "Matches
+// @smartbiotrack/constants' PASSWORD_REGEX exactly" above a second hand-typed
+// copy of the pattern — an accurate comment and a standing invitation to drift,
+// since nothing checked it. Loosen the server's rule and this one would have
+// gone on rejecting passwords the API was happy to accept, with the error
+// appearing on the form and nowhere in the logs.
+import { PASSWORD_REGEX } from "@smartbiotrack/constants";
 const PASSWORD_MESSAGE =
   "Must be 8+ characters and include an uppercase letter, a lowercase letter, a number, and a special character.";
 

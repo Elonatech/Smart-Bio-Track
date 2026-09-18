@@ -8,13 +8,12 @@ import { signOut } from "@/lib/session";
 import { useToast } from "@/app/components/Toast";
 import type { SidebarItem } from "./sidebarConfig";
 
-const ROLE_LABEL: Record<string, string> = {
-  SUPER_ADMIN: "Org Super Admin",
-  HR_ADMIN: "HR Administrator",
-  TEAM_LEAD: "Team Lead",
-  EMPLOYEE: "Employee",
-  PLATFORM_ADMIN: "Platform Admin",
-};
+// Was a third hand-written copy of this map, typed `Record<string, string>` —
+// which is why it never complained about carrying a PLATFORM_ADMIN entry for a
+// role the backend cannot issue. `Record<UserRole, string>` in
+// roleCreationMatrix.ts is exhaustive, so a new role now fails to compile until
+// it is given a label here too.
+import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
 
 interface SidebarProps {
   items: SidebarItem[];

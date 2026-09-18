@@ -1,15 +1,22 @@
 import { create } from "zustand";
+import type { UserRole } from "@smartbiotrack/types";
 
-// The set of roles a logged-in user can have. This is a TypeScript
-// "union type" — a UserRole can ONLY be one of these five exact strings.
-// If you type a role anywhere that isn't in this list, TypeScript will
-// error at compile time instead of letting a typo slip into production.
-export type UserRole =
-  | "EMPLOYEE"
-  | "HR_ADMIN"
-  | "TEAM_LEAD"
-  | "SUPER_ADMIN"
-  | "PLATFORM_ADMIN"; // not in the backend's Prisma enum yet — the Org/Platform admin split is still a pending backend decision
+// The set of roles a logged-in user can have.
+//
+// No longer written out here. It comes from packages/types, which the API's
+// shared-enums.spec.ts holds — at compile time, in both directions — to the
+// `UserRole` enum in prisma/schema.prisma. Re-exported so the dozens of
+// existing `import type { UserRole } from "@/lib/store/auth-store"` lines keep
+// working; the definition simply moved somewhere that cannot drift.
+//
+// It used to list a fifth role, PLATFORM_ADMIN, annotated "not in the backend's
+// Prisma enum yet". That "yet" held for the whole of Phase 2: no user could
+// ever hold the role, so every branch written for it — a nav menu, a route, a
+// role-matrix entry — was unreachable code that read as a working feature.
+// Removed 18 Sep 2026. If the Org/Platform split is built, it starts in the
+// Prisma schema, because a role tied to no organization has to answer for every
+// org-scoped query first.
+export type { UserRole };
 
 // Shape of the user object we keep in memory once someone is logged in.
 // Mirrors what GET /auth/me returns (see the object JwtStrategy.validate
@@ -22,7 +29,10 @@ export interface AuthUser {
   name?: string;
   email: string;
   role: UserRole;
-  organizationId: string | null; // null for Platform Admin, who isn't tied to one org
+  // Nullable because /auth/me can return null for it, not because any current
+  // role is org-less. The old note here said "null for Platform Admin" — a role
+  // that never existed. Every role we actually have belongs to an organization.
+  organizationId: string | null;
   organizationName?: string;
 
   // The department this user belongs to, or null if they aren't assigned to

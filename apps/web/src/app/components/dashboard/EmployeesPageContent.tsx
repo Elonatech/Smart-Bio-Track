@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
+import type { VisibleUserStatus } from "@smartbiotrack/types";
 import { ROLE_CREATION_MATRIX, ROLE_LABEL } from "@/lib/roleCreationMatrix";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { DataTable } from "@/app/components/dashboard/DataTable";
@@ -26,7 +27,12 @@ interface EmployeeListItem {
   name: string;
   email: string;
   role: UserRole;
-  status: "PENDING" | "ACTIVE" | "SUSPENDED";
+  // VisibleUserStatus, not UserStatus: findAll filters DELETED rows out before
+  // they reach the browser. Derived from the shared UserStatus via Exclude, so
+  // it cannot invent a status the database has never heard of — which is what
+  // the hand-written `"PENDING" | "ACTIVE" | "SUSPENDED"` here had become after
+  // soft deletes added a fourth value and nobody updated this line.
+  status: VisibleUserStatus;
   departmentId: string | null;
   officeId: string | null;
 }

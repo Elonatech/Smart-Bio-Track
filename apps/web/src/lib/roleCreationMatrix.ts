@@ -11,7 +11,6 @@ export const ROLE_CREATION_MATRIX: Record<UserRole, UserRole[]> = {
   HR_ADMIN: ["TEAM_LEAD", "EMPLOYEE"],
   TEAM_LEAD: [],
   EMPLOYEE: [],
-  PLATFORM_ADMIN: [],
 };
 
 export const ROLE_LABEL: Record<UserRole, string> = {
@@ -19,5 +18,4 @@ export const ROLE_LABEL: Record<UserRole, string> = {
   HR_ADMIN: "HR Administrator",
   TEAM_LEAD: "Team Lead",
   EMPLOYEE: "Employee",
-  PLATFORM_ADMIN: "Platform Admin",
 };
