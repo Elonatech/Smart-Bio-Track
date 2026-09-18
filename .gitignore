@@ -46,3 +46,10 @@ ARCHITECTURE.md
 # Running record of the Phase 2 security and scale review — what changed, what
 # it relies on, and the tooling traps that cost time. Local-only by choice.
 docs/hardening-log.md
+
+# The plain-English companion to the log, for briefing management. Same
+# reasoning, and arguably more so: it describes every weakness we found in
+# deliberately clear language, which is exactly what makes it readable by
+# someone who should not have it. It was tracked by oversight until 18 Sep
+# 2026 — this line is the fix going forward; earlier commits still hold it.
+docs/hardening-summary-plain-english.md
