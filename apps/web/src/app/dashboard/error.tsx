@@ -49,7 +49,7 @@ export default function DashboardError({
           dashboard.
         </p>
 
-      
+         
         {process.env.NODE_ENV === "development" && (
           <pre className="mt-4 max-h-40 overflow-auto rounded-md bg-background p-3 text-left text-xs text-alert">
             {error.message}
