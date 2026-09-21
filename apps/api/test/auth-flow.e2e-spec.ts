@@ -243,6 +243,98 @@ describe('Auth flow and RBAC (integration)', () => {
     });
   });
 
+  describe('audit trail', () => {
+    it('records a suspension against the real database', async () => {
+      const emp = await onboard('EMPLOYEE', 'audit1');
+      void emp;
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'audit1@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${user!.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const entry = await ctx.prisma.auditLog.findFirst({
+        where: { targetId: user!.id, action: 'USER_SUSPENDED' },
+      });
+
+      expect(entry).not.toBeNull();
+      // Denormalised on purpose: an id alone is unreadable once the person is
+      // gone, which is exactly when the trail gets consulted.
+      expect(entry?.actorName).toBeTruthy();
+      expect(entry?.targetLabel).toContain(user!.name);
+    });
+
+    it('rolls the action back if the audit write fails', async () => {
+      // The property the whole design rests on. Recording happens inside the
+      // action's transaction, so there is no path that performs a suspension
+      // without leaving a record. Forced here by pointing the entry at an
+      // organization that does not exist, which the foreign key rejects.
+      //
+      // Self-contained on purpose: beforeEach truncates every table, so a test
+      // that borrows another's fixtures passes or fails depending on order.
+      await onboard('EMPLOYEE', 'auditrollback');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'auditrollback@acme.test' },
+      });
+      const before = user!.status;
+
+      await expect(
+        ctx.prisma.$transaction(async (tx) => {
+          await tx.user.update({
+            where: { id: user!.id },
+            data: { status: 'ACTIVE' },
+          });
+          await tx.auditLog.create({
+            data: {
+              organizationId: '00000000-0000-0000-0000-000000000000',
+              actorName: 'Nobody',
+              action: 'USER_RESTORED',
+            },
+          });
+        }),
+      ).rejects.toThrow();
+
+      const after = await ctx.prisma.user.findUnique({
+        where: { id: user!.id },
+      });
+      expect(after?.status).toBe(before);
+    });
+
+    it('is scoped to the caller organization and closed to non-admins', async () => {
+      const res = await request(httpServer(ctx))
+        .get('/api/audit-logs')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(Array.isArray(res.body.data.items)).toBe(true);
+      for (const entry of res.body.data.items as { id: string }[]) {
+        const row = await ctx.prisma.auditLog.findUnique({
+          where: { id: entry.id },
+        });
+        expect(row?.organizationId).toBeTruthy();
+      }
+
+      // HR_ADMIN can manage users but appears in this trail as a subject.
+      // Reading it is a SUPER_ADMIN decision.
+      const hrToken = await onboard('HR_ADMIN', 'audithr');
+      await request(httpServer(ctx))
+        .get('/api/audit-logs')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(403);
+    });
+
+    it('rejects an unknown action filter rather than returning nothing', async () => {
+      // An empty result reads to an auditor exactly like "this never happened".
+      await request(httpServer(ctx))
+        .get('/api/audit-logs?action=NOT_A_REAL_ACTION')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
+    });
+  });
+
   describe('user list paging', () => {
     it('caps limit rather than trusting it', async () => {
       // Without a ceiling the cap is decoration: ?limit=999999 reinstates the

@@ -68,6 +68,7 @@ model Organization {
   users       User[]
   departments Department[]
   offices     Office[]
+  auditLogs   AuditLog[]
 }
 
 model Department {
@@ -149,6 +150,54 @@ model User {
   @@index([organizationId])
   @@index([departmentId])
   @@index([officeId])
+}
+
+/// Append-only record of who did what, and when.
+///
+/// For a product holding attendance and pay data this is not a feature, it is
+/// what makes the system defensible: when a former employee disputes their
+/// hours or an admin denies suspending someone, this table is the answer. There
+/// is deliberately no update or delete path anywhere in the code, and
+/// TokenCleanupService does not touch it — audit rows outlive the records they
+/// describe, and should be kept for as long as the payroll data they explain.
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  /// Null for actions the system takes on its own — a scheduled job, or the
+  /// automated punch flagging Phase 3 adds.
+  actorId        String?
+
+  /// The actor and target as they read AT THE TIME, not a join done later.
+  ///
+  /// This is the whole discipline of an audit trail. People get renamed,
+  /// change role, and leave; resolving names at read time would make a
+  /// three-year-old entry describe today's org chart rather than what actually
+  /// happened. Storing the label costs a few bytes and keeps the record true.
+  actorName      String
+  actorRole      UserRole?
+
+  /// e.g. USER_SUSPENDED. A string rather than a Prisma enum on purpose:
+  /// Phase 3 adds CLOCK_IN, PUNCH_APPROVED, DEVICE_REVOKED and more, and an
+  /// enum would mean a database migration for each one. The write side is
+  /// still type-safe — see AuditAction in audit.service.ts.
+  action         String
+
+  targetType     String?
+  targetId       String?
+  targetLabel    String?
+
+  /// Nullable because it is not always knowable — behind a proxy without
+  /// TRUST_PROXY_HOPS set, Express reports the proxy rather than the caller,
+  /// and a wrong address in an audit trail is worse than none.
+  ipAddress      String?
+
+  createdAt      DateTime @default(now())
+
+  /// Every read is "this organization's entries, newest first", which is
+  /// exactly what this composite serves.
+  @@index([organizationId, createdAt])
 }
 
 /// Issued when an admin provisions a user. The raw token is handed to the

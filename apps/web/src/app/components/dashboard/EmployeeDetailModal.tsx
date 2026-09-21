@@ -6,6 +6,7 @@ import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import type { UserRole } from "@/lib/store/auth-store";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
+import type { VisibleUserStatus } from "@smartbiotrack/types";
 
 export interface EmployeeDetail {
   id: string;
@@ -13,7 +14,8 @@ export interface EmployeeDetail {
   name: string;
   email: string;
   role: UserRole;
-  status: "PENDING" | "ACTIVE" | "SUSPENDED";
+  /** See the note in EmployeesPageContent.tsx — DELETED never reaches here. */
+  status: VisibleUserStatus;
   departmentName: string | null;
   officeName: string | null;
 }

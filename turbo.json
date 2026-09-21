@@ -18,11 +18,11 @@
       "outputs": ["coverage/**"]
     },
     "dev": {
-      // Build workspace dependencies first. @smartbiotrack/constants resolves
-      // to dist/index.js, so without this the API crashes on boot with
-      // MODULE_NOT_FOUND on a fresh clone — nothing in the dev path compiles
-      // it. Only dependencies are built (^build), not the apps themselves,
-      // which still start from source with hot reload.
+      // Build the workspace packages first. They ship compiled JavaScript
+      // (`main: dist/index.js`) rather than raw TypeScript — deliberately, see
+      // packages/types/tsconfig.json — so without this a fresh clone or a new
+      // branch starts `next dev` against a dist/ that does not exist yet, and
+      // the failure reads as a missing module rather than a missing build step.
       "dependsOn": ["^build"],
       "cache": false,
       "persistent": true

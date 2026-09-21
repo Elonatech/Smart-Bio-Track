@@ -68,14 +68,9 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
     { label: "Leave Requests", href: `${EMPLOYEE_ROOT}/leave`, icon: CalendarClock },
     { label: "Profile", href: `${EMPLOYEE_ROOT}/profile`, icon: User },
   ],
- 
-  PLATFORM_ADMIN: [
-    { label: "Overview", href: SUPER_ADMIN_ROOT, icon: LayoutDashboard },
-    { label: "Offices & Geo-Fences", href: `${SUPER_ADMIN_ROOT}/offices`, icon: Building2 },
-    { label: "Time Regulation", href: `${SUPER_ADMIN_ROOT}/time-regulation`, icon: Clock },
-    { label: "Holiday Calendar", href: `${SUPER_ADMIN_ROOT}/holidays`, icon: Calendar },
-    { label: "Audit Logs", href: `${SUPER_ADMIN_ROOT}/audit-logs`, icon: ClipboardList },
-    { label: "Organization Settings", href: `${SUPER_ADMIN_ROOT}/settings`, icon: Settings, requiredPlan: "ENTERPRISE" },
-    { label: "Profile", href: `${SUPER_ADMIN_ROOT}/profile`, icon: User },
-  ],
+  // A PLATFORM_ADMIN menu stood here — seven items, duplicating Super Admin's
+  // as a placeholder until the role got its own dashboard. It was unreachable:
+  // the Prisma enum has no such role, so no session could ever select it.
+  // Removed 18 Sep 2026 with the rest of #25; git history has it if the
+  // Org/Platform split is ever built, and it starts on the backend if so.
 };
