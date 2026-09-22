@@ -235,3 +235,5 @@ pnpm --filter api test:e2e
 pnpm --filter api check-types && pnpm --filter api test && pnpm --filter api lint
 
 npx tsc --noEmit -p apps/api/tsconfig.json
+
+git show --stat --find-renames HEAD
