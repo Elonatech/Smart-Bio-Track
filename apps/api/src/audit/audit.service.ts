@@ -17,6 +17,11 @@ export const AUDIT_ACTIONS = [
   'USER_RESTORED',
   'USER_DELETED',
   'INVITATION_RESENT',
+  // The first entry no person performs. Written by the system when repeated
+  // failed sign-ins lock an account (#9), which is precisely the kind of event
+  // an administrator needs to see without anyone having thought to report it:
+  // one locked account is a forgotten password, thirty in an hour is an attack.
+  'USER_LOCKED_OUT',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

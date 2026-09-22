@@ -1,5 +1,6 @@
 import {
   Injectable,
+  type OnModuleDestroy,
   UnauthorizedException,
   BadRequestException,
   InternalServerErrorException,
@@ -37,17 +38,78 @@ import {
   hashToken,
 } from '../common/token.util';
 import { generateUniqueEmployeeId } from '../common/employee-id.util';
+import { hashPassword, needsPasswordRehash } from '../common/password.util';
+import { LOCKOUT_THRESHOLD, lockoutExpiry } from './lockout.config';
+import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
 
+/**
+ * A real argon2 hash, verified against when no account matches, so that a
+ * failed sign-in costs the same whether or not the account exists.
+ *
+ * Hashed from a random value at first use rather than hardcoded: a checked-in
+ * constant would be a hash of a *known* string, and the whole point is that no
+ * caller can ever supply the input that matches it.
+ *
+ * Hashed through `PASSWORD_HASH_OPTIONS`, the same settings every real password
+ * uses — which is what keeps the decoy the same cost as the real thing. Equal
+ * cost is the entire mechanism: a cheaper decoy reopens the timing oracle in
+ * the direction of "unknown accounts answer faster".
+ *
+ * It used to call `argon2.hash` with no options, which was correct only
+ * because the three real sites did the same. #20 moved them all behind one
+ * definition, so this now follows them automatically rather than by anyone
+ * remembering.
+ *
+ * Memoised, so the hash is computed once per process and every later refusal
+ * pays only the verify.
+ */
+let decoyHash: Promise<string> | null = null;
+
+function decoyPasswordHash(): Promise<string> {
+  decoyHash ??= hashPassword(`${randomUUID()}${randomUUID()}`);
+  return decoyHash;
+}
+
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleDestroy {
   private readonly logger = new Logger(AuthService.name);
+
+  /**
+   * Writes started during a request but deliberately not awaited by it.
+   *
+   * Only the failed-sign-in counter uses this: awaiting a database round trip
+   * on a refusal would make a real account measurably slower to reject than an
+   * unknown one, which is the timing oracle #19 closed.
+   *
+   * Detaching the write is correct; forgetting about it is not. Two things
+   * need to be able to wait for these:
+   *
+   *  * **Shutdown.** Nest resolves onModuleDestroy before the process exits;
+   *    without this, a deploy or a SIGTERM drops whatever was in flight, and
+   *    the writes most likely to be in flight are the ones recording an attack
+   *    in progress.
+   *  * **Tests.** The e2e suite truncates every table between tests. An
+   *    in-flight transaction and a TRUNCATE contend for the same lock, which
+   *    surfaced as fourteen unrelated tests failing further down the file —
+   *    a far more confusing symptom than its cause.
+   */
+  private readonly pendingWrites = new Set<Promise<unknown>>();
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private mailService: MailService,
-  ) {}
+    private auditService: AuditService,
+  ) {
+    // Warm the decoy at boot, not on the first refusal.
+    //
+    // Without this the first unknown-account sign-in of each process pays for
+    // a hash *and* a verify while every later one pays only the verify — a
+    // one-off outlier that still says "this identifier was never seen before".
+    // Rare enough to look like noise, which is precisely why it would survive.
+    void decoyPasswordHash();
+  }
 
   /**
    * First half of self-service org signup: takes only email + password.
@@ -107,7 +169,7 @@ export class AuthService {
     // arrived. Rotating the token hash invalidates the older link, so this
     // cannot leave two live tokens pointing at one address.
 
-    const passwordHash = await argon2.hash(password);
+    const passwordHash = await hashPassword(password);
     const rawToken = generateToken();
 
     // Upsert rather than create: an existing pending row for this email — live
@@ -318,7 +380,7 @@ export class AuthService {
       throw new BadRequestException('This account has already been activated');
     }
 
-    const passwordHash = await argon2.hash(password);
+    const passwordHash = await hashPassword(password);
 
     const user = await this.prisma.$transaction(async (tx) => {
       const activated = await tx.user.update({
@@ -355,13 +417,102 @@ export class AuthService {
     // A PENDING user has no passwordHash yet, so this also covers "invited but
     // never activated" without leaking that the account exists.
     if (!user || !user.passwordHash) {
+      // Verify against a decoy before refusing.
+      //
+      // The reply was already identical for "no such account" and "wrong
+      // password" — but the *timing* was not, and timing is readable from
+      // anywhere. Returning here skipped argon2 entirely, and argon2 is
+      // deliberately slow: a real account answered in ~100ms while an unknown
+      // one came back almost at once. That gap is a lookup oracle. An attacker
+      // sends a list of addresses with any password at all and sorts by
+      // response time, which is exactly the enumeration #13a closed on the
+      // registration endpoint — reopened here, on the endpoint that does not
+      // even need a valid password to answer.
+      //
+      // So do the work anyway. The result is discarded; the cost is the point.
+      await argon2.verify(await decoyPasswordHash(), dto.password);
+
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    const now = new Date();
+    const isLocked = user.lockedUntil !== null && user.lockedUntil > now;
+
+    // The lock is checked *after* this verify, never before — see below.
     const passwordValid = await argon2.verify(user.passwordHash, dto.password);
 
     if (!passwordValid) {
+      // Count the failure, but do not wait for the write.
+      //
+      // Awaiting a round trip to Neon here would add ~20ms to a failed sign-in
+      // for a *real* account and nothing at all for an unknown one, which is
+      // #19's timing oracle rebuilt at a fifth of the volume — quieter, still
+      // extractable by averaging. Detaching it keeps both refusals costing
+      // exactly one argon2 verify.
+      //
+      // The trade is that a crash between the response and the write loses one
+      // increment. For a counter whose threshold is five, that is the cheaper
+      // of the two failures by a wide margin.
+      if (!isLocked) {
+        this.trackPendingWrite(this.recordFailedAttempt(user));
+      }
+
       throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Everything below here is reached only with the correct password, which
+    // is what makes it safe to say anything specific at all.
+    if (isLocked) {
+      // Naming the lock leaks nothing a caller with the right password does
+      // not already know, and the alternative is an employee who cannot tell
+      // "my password is wrong" from "I am locked out" and keeps trying.
+      //
+      // A correct password during a lockout neither clears the lock nor
+      // extends it. Clearing it would make the lock trivially bypassable by
+      // the one attacker who has already succeeded; extending it would punish
+      // the employee for the attacker's persistence.
+      throw new UnauthorizedException(
+        'Too many failed attempts. Try again in a few minutes.',
+      );
+    }
+
+    // Clear the slate, but only when there is something to clear — otherwise
+    // every successful sign-in in the product writes to the users table for no
+    // reason.
+    if (user.failedLoginAttempts > 0 || user.lockedUntil !== null) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
+
+    // Quietly upgrade a hash made with older settings.
+    //
+    // An argon2 hash carries its own parameters, so `verify` keeps working
+    // against whatever produced it — which is why changing PASSWORD_HASH_OPTIONS
+    // locks nobody out, and equally why every account created before the change
+    // would otherwise keep its original cost for life. A successful sign-in is
+    // the only moment the plaintext is in hand, so it is the only moment this
+    // can happen.
+    //
+    // After the verify, never before: the refusal path must stay exactly as
+    // expensive as it was, or this undoes #19.
+    if (needsPasswordRehash(user.passwordHash)) {
+      try {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: await hashPassword(dto.password) },
+        });
+      } catch (error) {
+        // Never fail a valid sign-in over an optimisation. The user is who they
+        // say they are; the worst case is that they keep the old hash and we
+        // try again next time.
+        this.logger.error(
+          `Password rehash failed for ${user.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
 
     // Whitelist, not a blacklist, and the difference is the whole point.
@@ -385,6 +536,117 @@ export class AuthService {
     }
 
     return this.issueTokens(user.id, user.email, user.role);
+  }
+
+  private trackPendingWrite(work: Promise<unknown>): void {
+    this.pendingWrites.add(work);
+    void work.finally(() => this.pendingWrites.delete(work));
+  }
+
+  /**
+   * Waits for every detached write to finish.
+   *
+   * `allSettled`, not `all`: these are best-effort writes that already handle
+   * their own failures, and a rejection here must not prevent shutdown.
+   */
+  async flushPendingWrites(): Promise<void> {
+    await Promise.allSettled([...this.pendingWrites]);
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.flushPendingWrites();
+  }
+
+  /**
+   * Records one failed sign-in, and locks the account at the threshold.
+   *
+   * Called detached from the request (see `login`), so it must never throw —
+   * an unhandled rejection here would take the process down over a counter.
+   *
+   * **The counter resets to zero when the lock is set**, rather than climbing.
+   * Otherwise a user whose lock had just expired would be re-locked by their
+   * very next mistake, since the count would still be sitting at the
+   * threshold — a fifteen-minute lock that quietly becomes permanent for
+   * anyone who keeps typing the same wrong password.
+   */
+  private async recordFailedAttempt(
+    user: Pick<
+      User,
+      | 'id'
+      | 'name'
+      | 'employeeId'
+      | 'organizationId'
+      | 'failedLoginAttempts'
+      | 'lockedUntil'
+    >,
+  ): Promise<void> {
+    try {
+      const now = new Date();
+
+      await this.prisma.$transaction(async (tx) => {
+        // Clear a lock that has already run out, atomically. Doing this as a
+        // conditional update rather than reading first is what keeps the whole
+        // method free of read-modify-write.
+        await tx.user.updateMany({
+          where: { id: user.id, lockedUntil: { lte: now } },
+          data: { failedLoginAttempts: 0, lockedUntil: null },
+        });
+
+        // `increment`, not "read the count and write count + 1".
+        //
+        // This method runs detached from the request, so several failed
+        // sign-ins can be in flight at once — and with a read-modify-write
+        // every one of them reads the same stale value and writes 1. The
+        // counter never climbs, and the account never locks. That is not a
+        // theoretical race: an attacker guessing passwords sends requests in
+        // parallel, which is precisely the case this feature exists for, so
+        // the bug would have hidden from every honest user and been available
+        // to every dishonest one. Caught by the e2e suite; invisible to the
+        // unit tests, because a mocked Prisma returns whatever it is told.
+        const updated = await tx.user.update({
+          where: { id: user.id },
+          data: { failedLoginAttempts: { increment: 1 } },
+          select: { failedLoginAttempts: true },
+        });
+
+        if (updated.failedLoginAttempts < LOCKOUT_THRESHOLD) return;
+
+        // Conditional on the account not already being locked, so that two
+        // attempts crossing the threshold together produce one lock and one
+        // audit entry rather than two of each.
+        const locked = await tx.user.updateMany({
+          where: { id: user.id, lockedUntil: null },
+          data: { failedLoginAttempts: 0, lockedUntil: lockoutExpiry(now) },
+        });
+
+        if (locked.count === 1) {
+          // Inside the transaction, like every other audit write (#22): if the
+          // entry cannot be stored, the lock is not applied either. An
+          // unrecorded lockout is the one that gets reported as "the system
+          // randomly logged me out".
+          await this.auditService.record(
+            {
+              organizationId: user.organizationId,
+              // No actor. This is the system reacting, not a person acting —
+              // AuditService renders that as "System" rather than leaving the
+              // reader to guess whether a blank name is a bug.
+              actor: null,
+              action: 'USER_LOCKED_OUT',
+              targetType: 'User',
+              targetId: user.id,
+              targetLabel: `${user.name} (${user.employeeId})`,
+            },
+            tx,
+          );
+        }
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to record a failed sign-in for ${user.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   /**
@@ -621,7 +883,7 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
-    const passwordHash = await argon2.hash(password);
+    const passwordHash = await hashPassword(password);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
