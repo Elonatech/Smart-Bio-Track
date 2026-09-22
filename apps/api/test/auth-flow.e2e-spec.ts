@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { AuthService } from '../src/auth/auth.service';
 import {
   createTestApp,
   httpServer,
@@ -240,6 +241,121 @@ describe('Auth flow and RBAC (integration)', () => {
         .expect(200);
 
       expect(res.body.data.role).toBe('EMPLOYEE');
+    });
+  });
+
+  describe('account lockout', () => {
+    const LOGIN = '/api/auth/login';
+
+    /**
+     * Waits for the detached failed-attempt writes to finish.
+     *
+     * The counter is written outside the request on purpose — awaiting a
+     * database round trip on a refusal would make a real account measurably
+     * slower to reject than an unknown one, rebuilding the timing oracle #19
+     * closed. So the row is updated shortly *after* the response.
+     *
+     * This asks the service itself when it is finished rather than polling the
+     * database until the numbers look right. Polling passes as soon as the
+     * value it wants appears, which is not the same as the writes being done —
+     * the leftovers then collide with the TRUNCATE in the next test's
+     * beforeEach, and fourteen unrelated tests further down the file fail with
+     * no visible connection to this one. That happened.
+     */
+    const settleWrites = () =>
+      ctx.app.get(AuthService).flushPendingWrites();
+
+    const failLogin = (identifier: string) =>
+      request(httpServer(ctx))
+        .post(LOGIN)
+        .send({ identifier, password: 'WrongPassw0rd!' })
+        .expect(401);
+
+    it('locks an account after five failed attempts', async () => {
+      await onboard('EMPLOYEE', 'lockme');
+      const email = 'lockme@acme.test';
+
+      for (let i = 0; i < 5; i++) await failLogin(email);
+      await settleWrites();
+
+      const locked = await ctx.prisma.user.findUnique({ where: { email } });
+      expect(locked?.lockedUntil).toBeTruthy();
+
+      // The correct password, refused — which is the whole point. A lockout
+      // that the right password walks through protects nothing.
+      const refused = await request(httpServer(ctx))
+        .post(LOGIN)
+        .send({ identifier: email, password: 'Passw0rd!' })
+        .expect(401);
+
+      expect(refused.body.message).toMatch(/too many failed attempts/i);
+    });
+
+    it('tells a wrong password nothing about the lock', async () => {
+      await onboard('EMPLOYEE', 'locksecret');
+      const email = 'locksecret@acme.test';
+
+      for (let i = 0; i < 5; i++) await failLogin(email);
+      await settleWrites();
+
+      // Announcing the lock to someone still guessing would say "this address
+      // is real, and under attack" — enumeration rebuilt from the other end.
+      const stillGuessing = await failLogin(email);
+      expect(stillGuessing.body.message).toBe('Invalid credentials');
+
+      // That last attempt started a write of its own.
+      await settleWrites();
+    });
+
+    it('records the lockout in the audit trail', async () => {
+      await onboard('EMPLOYEE', 'lockaudit');
+      const email = 'lockaudit@acme.test';
+
+      for (let i = 0; i < 5; i++) await failLogin(email);
+      await settleWrites();
+
+      const entries = await request(httpServer(ctx))
+        .get('/api/audit-logs')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .query({ action: 'USER_LOCKED_OUT' })
+        .expect(200);
+
+      expect(entries.body.data.items).toHaveLength(1);
+      // No person did this, and the trail says so rather than leaving a blank
+      // name for a reader to interpret.
+      expect(entries.body.data.items[0].actorName).toBe('System');
+      expect(entries.body.data.items[0].actorId).toBeNull();
+    });
+
+    it('clears the count when a sign-in succeeds', async () => {
+      await onboard('EMPLOYEE', 'lockreset');
+      const email = 'lockreset@acme.test';
+
+      await failLogin(email);
+      await failLogin(email);
+      await settleWrites();
+
+      await request(httpServer(ctx))
+        .post(LOGIN)
+        .send({ identifier: email, password: 'Passw0rd!' })
+        .expect(200);
+
+      const row = await ctx.prisma.user.findUnique({ where: { email } });
+      expect(row?.failedLoginAttempts).toBe(0);
+      expect(row?.lockedUntil).toBeNull();
+    });
+
+    it('never counts attempts against an address with no account', async () => {
+      // Nothing to count, and nothing to create either: a row written for an
+      // unknown address would be a record of who an attacker guessed at.
+      await failLogin('nobody@acme.test');
+      await failLogin('nobody@acme.test');
+      await settleWrites();
+
+      const row = await ctx.prisma.user.findUnique({
+        where: { email: 'nobody@acme.test' },
+      });
+      expect(row).toBeNull();
     });
   });
 

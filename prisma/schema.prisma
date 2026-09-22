@@ -128,6 +128,24 @@ model User {
   /// leaving"). updatedAt cannot serve — any later edit overwrites it.
   deletedAt    DateTime?
 
+  /// Consecutive failed sign-ins, reset to zero by any successful one.
+  ///
+  /// Counted per *account*, which is the unit that matters and the one IP
+  /// throttling cannot see: a thousand addresses each trying five passwords
+  /// against one account stays under every per-IP limit ever written.
+  failedLoginAttempts Int @default(0)
+
+  /// Set when the count crosses the threshold; sign-in is refused until it
+  /// passes.
+  ///
+  /// Deliberately a timestamp rather than a boolean `locked`. A lockout that
+  /// needs an administrator to clear it turns a wrong password typed five
+  /// times into a support ticket, and — worse — hands anyone who knows an
+  /// employee's email a way to keep them out of the system indefinitely.
+  /// Expiry makes the attack cost an attacker continuous effort and costs the
+  /// employee fifteen minutes.
+  lockedUntil DateTime?
+
   refreshToken       RefreshToken[]
   activationTokens   ActivationToken[]
   passwordResetToken PasswordResetToken[]

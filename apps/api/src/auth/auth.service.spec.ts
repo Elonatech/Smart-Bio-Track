@@ -9,6 +9,7 @@ import * as argon2 from 'argon2';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
+import { AuditService } from '../audit/audit.service';
 
 jest.mock('argon2');
 
@@ -20,6 +21,10 @@ describe('AuthService', () => {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      // Lockout uses updateMany for its conditional writes — "clear the lock
+      // only if it has expired", "set the lock only if it is not already set" —
+      // which is how two simultaneous attempts produce one lock instead of two.
+      updateMany: jest.fn(),
       delete: jest.fn(),
     },
     organization: { findUnique: jest.fn() },
@@ -55,6 +60,13 @@ describe('AuthService', () => {
     sign: jest.fn().mockReturnValue('signed-token'),
   };
 
+  // Sign-in writes one audit entry, and only one: the lockout. Every other
+  // auth action is the account acting on itself, which the trail does not
+  // record — it exists to say who did what to *someone else*.
+  const mockAudit = {
+    record: jest.fn().mockResolvedValue(undefined),
+  };
+
   const mockMail = {
     sendOrganizationVerificationEmail: jest.fn().mockResolvedValue(undefined),
     sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
@@ -77,6 +89,7 @@ describe('AuthService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwt },
         { provide: MailService, useValue: mockMail },
+        { provide: AuditService, useValue: mockAudit },
       ],
     }).compile();
 
@@ -86,11 +99,23 @@ describe('AuthService', () => {
   describe('login', () => {
     const user = {
       id: 'user-1',
+      name: 'Jane Doe',
+      employeeId: 'EMP-0001',
+      organizationId: 'org-1',
       email: 'jane@example.com',
       passwordHash: 'hashed-pw',
       role: 'EMPLOYEE',
       status: 'ACTIVE',
+      // Present and explicit, not omitted. Prisma returns null for both, and a
+      // fixture that leaves them undefined makes `lockedUntil !== null` true
+      // for every user — which would have the reset-on-success branch firing
+      // in every test and passing anyway.
+      failedLoginAttempts: 0,
+      lockedUntil: null,
     };
+
+    /** Fifteen minutes from now, i.e. a lock that is still in force. */
+    const activeLock = () => new Date(Date.now() + 15 * 60_000);
 
     it('throws on unknown email', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null);
@@ -98,6 +123,62 @@ describe('AuthService', () => {
       await expect(
         service.login({ identifier: 'nope@example.com', password: 'x' }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    // The three below are one guard: a refusal must cost the same whether or
+    // not the account exists.
+    //
+    // They assert that argon2 runs, rather than measuring elapsed time. A
+    // timing assertion would be the more direct test and a far worse one — it
+    // fails on a loaded CI runner and passes on a fast laptop with the bug
+    // present. What actually produces the timing difference is skipping
+    // argon2, so that is what is pinned here.
+    it('still verifies a password when no account matches', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      (argon2.verify as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.login({ identifier: 'nope@example.com', password: 'x' }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      // Returning before this call is the oracle: a known identifier costs
+      // ~100ms of argon2, an unknown one costs almost nothing, and an attacker
+      // reads the difference from anywhere on the internet.
+      expect(argon2.verify).toHaveBeenCalledTimes(1);
+    });
+
+    it('still verifies a password for an invited-but-not-activated account', async () => {
+      // PENDING users have no passwordHash. Skipping argon2 here would say
+      // "this address is registered but has never signed in" — arguably worse
+      // than the unknown-account leak, since it identifies new starters.
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...user,
+        status: 'PENDING',
+        passwordHash: null,
+      });
+      (argon2.verify as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.login({ identifier: user.email, password: 'x' }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(argon2.verify).toHaveBeenCalledTimes(1);
+    });
+
+    it('never verifies against the real hash of another account', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      (argon2.verify as jest.Mock).mockResolvedValue(false);
+
+      await expect(
+        service.login({ identifier: 'nope@example.com', password: 'x' }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      // The decoy is hashed from randomUUID at first use, so no caller can
+      // supply the input that matches it — and it is never one of ours.
+      const [hashUsed] = (argon2.verify as jest.Mock).mock.calls[0] as [
+        unknown,
+      ];
+      expect(hashUsed).not.toBe(user.passwordHash);
     });
 
     it('throws on wrong password', async () => {
@@ -119,6 +200,325 @@ describe('AuthService', () => {
       await expect(
         service.login({ identifier: user.email, password: 'Passw0rd!' }),
       ).rejects.toThrow(UnauthorizedException);
+    });
+
+    // Account lockout (#9). The limit IP throttling cannot express: a thousand
+    // addresses each trying five passwords against one account never trips a
+    // per-IP counter, because no single address misbehaves.
+    describe('account lockout', () => {
+      // The counter write is deliberately detached from the request so that a
+      // failed sign-in costs one argon2 verify and nothing else — awaiting a
+      // database round trip here would rebuild #19's timing oracle at lower
+      // volume. These tests therefore let the microtask queue drain before
+      // asserting, which is what `await Promise.resolve()` twice does.
+      const settle = async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      };
+
+      /** The conditional write that sets the lock, if it was made. */
+      const lockWrite = () =>
+        mockPrisma.user.updateMany.mock.calls.find(
+          (call) =>
+            (call[0] as { data?: { lockedUntil?: unknown } }).data
+              ?.lockedUntil instanceof Date,
+        );
+
+      it('increments the count rather than rewriting it', async () => {
+        // `increment`, not read-then-write. Several failed sign-ins can be in
+        // flight at once — this method runs detached from the request — and a
+        // read-modify-write has every one of them read the same stale value
+        // and write 1. The counter never climbs and the account never locks.
+        //
+        // An earlier version of this code did exactly that. These unit tests
+        // passed, because a mocked Prisma returns whatever it is told; the e2e
+        // suite against a real database is what caught it.
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+        mockPrisma.user.update.mockResolvedValue({ failedLoginAttempts: 2 });
+
+        await expect(
+          service.login({ identifier: user.email, password: 'wrong' }),
+        ).rejects.toThrow(UnauthorizedException);
+        await settle();
+
+        expect(mockPrisma.user.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: user.id },
+            data: { failedLoginAttempts: { increment: 1 } },
+          }),
+        );
+      });
+
+      it('locks the account at the threshold', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+        mockPrisma.user.update.mockResolvedValue({ failedLoginAttempts: 5 });
+        mockPrisma.user.updateMany.mockResolvedValue({ count: 1 });
+
+        await expect(
+          service.login({ identifier: user.email, password: 'wrong' }),
+        ).rejects.toThrow(UnauthorizedException);
+        await settle();
+
+        const write = lockWrite();
+        expect(write).toBeDefined();
+        // Reset to zero, not left at five. Otherwise the next mistake after
+        // the lock expires re-locks immediately, and a fifteen-minute lock
+        // quietly becomes permanent for anyone still typing it wrong.
+        expect((write![0] as { data: { failedLoginAttempts: number } }).data
+          .failedLoginAttempts).toBe(0);
+      });
+
+      it('sets the lock only if it is not already set', async () => {
+        // Two attempts crossing the threshold together must produce one lock
+        // and one audit entry, not two of each.
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+        mockPrisma.user.update.mockResolvedValue({ failedLoginAttempts: 5 });
+        mockPrisma.user.updateMany.mockResolvedValue({ count: 1 });
+
+        await expect(
+          service.login({ identifier: user.email, password: 'wrong' }),
+        ).rejects.toThrow(UnauthorizedException);
+        await settle();
+
+        expect((lockWrite()![0] as { where: { lockedUntil: null } }).where)
+          .toEqual(expect.objectContaining({ lockedUntil: null }));
+      });
+
+      it('records the lockout in the audit trail', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+        mockPrisma.user.update.mockResolvedValue({ failedLoginAttempts: 5 });
+        mockPrisma.user.updateMany.mockResolvedValue({ count: 1 });
+
+        await expect(
+          service.login({ identifier: user.email, password: 'wrong' }),
+        ).rejects.toThrow(UnauthorizedException);
+        await settle();
+
+        expect(mockAudit.record).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'USER_LOCKED_OUT',
+            // No actor: the system reacted, nobody acted.
+            actor: null,
+            targetId: user.id,
+            targetLabel: 'Jane Doe (EMP-0001)',
+          }),
+          expect.anything(), // the transaction client
+        );
+      });
+
+      it('writes no second audit entry when another attempt locked it first', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+        mockPrisma.user.update.mockResolvedValue({ failedLoginAttempts: 6 });
+        // count: 0 — the conditional write matched nothing, because the row was
+        // already locked by whichever attempt got there first.
+        mockPrisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(
+          service.login({ identifier: user.email, password: 'wrong' }),
+        ).rejects.toThrow(UnauthorizedException);
+        await settle();
+
+        expect(mockAudit.record).not.toHaveBeenCalled();
+      });
+
+      it('writes no audit entry for a failure below the threshold', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+        mockPrisma.user.update.mockResolvedValue({ failedLoginAttempts: 2 });
+
+        await expect(
+          service.login({ identifier: user.email, password: 'wrong' }),
+        ).rejects.toThrow(UnauthorizedException);
+        await settle();
+
+        expect(mockAudit.record).not.toHaveBeenCalled();
+        expect(lockWrite()).toBeUndefined();
+      });
+
+      it('refuses a locked account even with the right password', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue({
+          ...user,
+          lockedUntil: activeLock(),
+        });
+        (argon2.verify as jest.Mock).mockResolvedValue(true);
+
+        await expect(
+          service.login({ identifier: user.email, password: 'Passw0rd!' }),
+        ).rejects.toThrow('Too many failed attempts. Try again in a few minutes.');
+      });
+
+      it('does not clear the lock when the right password arrives', async () => {
+        // Clearing it would make the lock bypassable by the one attacker who
+        // has already guessed correctly.
+        mockPrisma.user.findUnique.mockResolvedValue({
+          ...user,
+          lockedUntil: activeLock(),
+        });
+        (argon2.verify as jest.Mock).mockResolvedValue(true);
+
+        await expect(
+          service.login({ identifier: user.email, password: 'Passw0rd!' }),
+        ).rejects.toThrow(UnauthorizedException);
+
+        expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      });
+
+      it('does not extend the lock while it is in force', async () => {
+        // Nor should a wrong password during a lockout keep pushing the expiry
+        // outward — that turns a persistent attacker into an indefinite one.
+        mockPrisma.user.findUnique.mockResolvedValue({
+          ...user,
+          lockedUntil: activeLock(),
+        });
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+
+        await expect(
+          service.login({ identifier: user.email, password: 'wrong' }),
+        ).rejects.toThrow(UnauthorizedException);
+        await settle();
+
+        expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      });
+
+      it('says only "invalid credentials" to a wrong password on a locked account', async () => {
+        // The lock is revealed *after* a correct password and never before.
+        // Announcing it to anyone who guesses wrong would say "this address is
+        // real and under attack" — enumeration, rebuilt from the other end.
+        mockPrisma.user.findUnique.mockResolvedValue({
+          ...user,
+          lockedUntil: activeLock(),
+        });
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+
+        await expect(
+          service.login({ identifier: user.email, password: 'wrong' }),
+        ).rejects.toThrow('Invalid credentials');
+      });
+
+      it('lets a lapsed lock through and starts the count again', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue({
+          ...user,
+          failedLoginAttempts: 3,
+          lockedUntil: new Date(Date.now() - 60_000), // expired a minute ago
+        });
+        (argon2.verify as jest.Mock).mockResolvedValue(true);
+        (argon2.needsRehash as jest.Mock).mockReturnValue(false);
+
+        const result = await service.login({
+          identifier: user.email,
+          password: 'Passw0rd!',
+        });
+
+        expect(result).toHaveProperty('accessToken');
+        expect(mockPrisma.user.update).toHaveBeenCalledWith({
+          where: { id: user.id },
+          data: { failedLoginAttempts: 0, lockedUntil: null },
+        });
+      });
+
+      it('does not write on a clean successful sign-in', async () => {
+        // Nothing to clear. Without this guard every sign-in in the product
+        // writes to the users table for no reason.
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(true);
+        (argon2.needsRehash as jest.Mock).mockReturnValue(false);
+
+        await service.login({ identifier: user.email, password: 'Passw0rd!' });
+
+        expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      });
+
+      it('never counts a failure against an account that does not exist', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+
+        await expect(
+          service.login({ identifier: 'nobody@example.com', password: 'x' }),
+        ).rejects.toThrow(UnauthorizedException);
+        await settle();
+
+        expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      });
+    });
+
+    // Upgrading old hashes. Without this, changing the hashing parameters
+    // applies only to accounts created afterwards, and everyone already
+    // registered keeps their original cost for life.
+    describe('rehashing on sign-in', () => {
+      it('re-hashes a password stored with older settings', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(true);
+        (argon2.needsRehash as jest.Mock).mockReturnValue(true);
+        (argon2.hash as jest.Mock).mockResolvedValue('rehashed-pw');
+
+        await service.login({ identifier: user.email, password: 'Passw0rd!' });
+
+        expect(mockPrisma.user.update).toHaveBeenCalledWith({
+          where: { id: user.id },
+          data: { passwordHash: 'rehashed-pw' },
+        });
+      });
+
+      it('leaves a current hash alone', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(true);
+        (argon2.needsRehash as jest.Mock).mockReturnValue(false);
+
+        await service.login({ identifier: user.email, password: 'Passw0rd!' });
+
+        expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      });
+
+      it('signs the user in anyway if the re-hash fails', async () => {
+        // The user is who they say they are. Failing a valid sign-in over an
+        // optimisation would turn a database hiccup into an outage.
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(true);
+        (argon2.needsRehash as jest.Mock).mockReturnValue(true);
+        (argon2.hash as jest.Mock).mockResolvedValue('rehashed-pw');
+        // `Once`, not a standing rejection. `jest.clearAllMocks()` in
+        // beforeEach clears recorded calls but NOT implementations, so a
+        // permanent mockRejectedValue here leaks into every later test that
+        // touches user.update — which nothing did until lockout added a write
+        // to the successful sign-in path, at which point an unrelated test
+        // started failing with "db down".
+        mockPrisma.user.update.mockRejectedValueOnce(new Error('db down'));
+
+        await expect(
+          service.login({ identifier: user.email, password: 'Passw0rd!' }),
+        ).resolves.toEqual({
+          accessToken: 'signed-token',
+          refreshToken: 'signed-token',
+        });
+      });
+
+      it('never re-hashes when the password was wrong', async () => {
+        // This runs after the verify on purpose. Doing it earlier would make a
+        // refusal cost more for real accounts than unknown ones, which is #19
+        // reopened from the other side.
+        mockPrisma.user.findUnique.mockResolvedValue(user);
+        (argon2.verify as jest.Mock).mockResolvedValue(false);
+        (argon2.needsRehash as jest.Mock).mockReturnValue(true);
+
+        await expect(
+          service.login({ identifier: user.email, password: 'wrong' }),
+        ).rejects.toThrow(UnauthorizedException);
+
+        // Specifically no *rehash*. A failed sign-in does now write to this
+        // table — the lockout counter — so "update was never called" is no
+        // longer the right assertion and would pass for the wrong reason.
+        const rehashed = mockPrisma.user.update.mock.calls.some(
+          (call) =>
+            (call[0] as { data?: { passwordHash?: string } }).data
+              ?.passwordHash !== undefined,
+        );
+        expect(rehashed).toBe(false);
+      });
     });
 
     it('issues tokens on valid credentials', async () => {
