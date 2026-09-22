@@ -16,11 +16,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto } from './dto/logout.dto';
 import {
-  JWT_ACCESS_SECRET,
-  JWT_ACCESS_EXPIRY,
-  JWT_REFRESH_SECRET,
-  JWT_REFRESH_EXPIRY,
-} from './jwt/jwt.contants';
+  jwtAccessSecret,
+  jwtAccessExpiry,
+  jwtRefreshSecret,
+  jwtRefreshExpiry,
+} from './jwt/jwt.constants';
 import { CompleteRegistrationDto } from './dto/complete-registration.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -963,8 +963,8 @@ export class AuthService implements OnModuleDestroy {
     const accessToken = this.jwtService.sign(
       { ...payload, jti: randomUUID() },
       {
-        secret: JWT_ACCESS_SECRET,
-        expiresIn: JWT_ACCESS_EXPIRY as JwtSignOptions['expiresIn'],
+        secret: jwtAccessSecret(),
+        expiresIn: jwtAccessExpiry() as JwtSignOptions['expiresIn'],
       },
     );
 
@@ -977,8 +977,8 @@ export class AuthService implements OnModuleDestroy {
     const refreshToken = this.jwtService.sign(
       { ...payload, jti: randomUUID() },
       {
-        secret: JWT_REFRESH_SECRET,
-        expiresIn: JWT_REFRESH_EXPIRY as JwtSignOptions['expiresIn'],
+        secret: jwtRefreshSecret(),
+        expiresIn: jwtRefreshExpiry() as JwtSignOptions['expiresIn'],
       },
     );
 
