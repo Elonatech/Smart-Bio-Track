@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service';
-import { JWT_ACCESS_SECRET } from './jwt.contants';
+import { jwtAccessSecret } from './jwt.constants';
 
 interface JwtPayload {
   sub: string;
@@ -16,7 +16,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: JWT_ACCESS_SECRET,
+      // Called here rather than read at import: the strategy is constructed
+      // while Nest builds the module graph, which happens after bootstrap()
+      // has validated the environment. See jwt.constants.ts.
+      secretOrKey: jwtAccessSecret(),
     });
   }
 
