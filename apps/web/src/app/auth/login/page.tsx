@@ -2,8 +2,8 @@
 // Needed because this page uses hooks (useState, react-hook-form,
 // useRouter, Zustand) — all client-only, same reasoning as providers.tsx.
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -35,10 +35,26 @@ interface LoginResponse {
 // every page that signs someone in, so a new field on GET /auth/me reaches
 // all of them at once.
 
-export default function LoginPage() {
+function LoginForm() {
   const toast = useToast();
   const router = useRouter();
   const login = useAuthStore((state) => state.login);
+  const hasRestored = useAuthStore((state) => state.hasRestored);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const user = useAuthStore((state) => state.user);
+
+  // Where middleware.ts said this visitor was originally headed.
+  //
+  // Only ever a path, never an absolute URL: `next` arrives in the query
+  // string where anyone can write it, and redirecting to an arbitrary value
+  // would turn this page into an open redirect — a link that looks like ours
+  // and lands on somebody else's sign-in form.
+  const searchParams = useSearchParams();
+  const requestedNext = searchParams.get("next");
+  const nextPath =
+    requestedNext && requestedNext.startsWith("/") && !requestedNext.startsWith("//")
+      ? requestedNext
+      : null;
 
   // Local state just for this page: whether a submit is in flight
   // (so we can disable the button / show "Signing in...") and any
@@ -57,6 +73,24 @@ export default function LoginPage() {
   useEffect(() => {
     setIsDeviceRegistered(localStorage.getItem("deviceRegistered") === "true");
   }, []);
+
+  // Forward anyone who already has a session.
+  //
+  // This is the safety net under middleware.ts. That runs on a *hint* cookie,
+  // which can be missing while the real session is alive — cookies cleared
+  // selectively, the hint expiring a moment before the refresh token, a
+  // browser that dropped it. In that case middleware bounces a signed-in user
+  // here, and without this they would sit on a sign-in form for an account
+  // they are already signed into.
+  //
+  // Waits for hasRestored: before the restore completes, `isAuthenticated` is
+  // false for everyone, signed in or not, and redirecting on it would send
+  // every visitor to the dashboard for an instant.
+  useEffect(() => {
+    if (!hasRestored || !isAuthenticated || !user) return;
+
+    router.replace(nextPath ?? getDashboardPath(user.role));
+  }, [hasRestored, isAuthenticated, user, nextPath, router]);
 
   // react-hook-form manages the form's values, touched/dirty state,
   // and validation for us. zodResolver plugs our Zod schema in as the
@@ -94,7 +128,9 @@ export default function LoginPage() {
       toast.success(user.name ? `Welcome back, ${user.name.split(" ")[0]}` : "Signed in");
       login(user, accessToken);
 
-      router.push(getDashboardPath(user.role));
+      // Back to wherever they were headed when middleware intercepted them,
+      // or their own dashboard if they simply came to sign in.
+      router.push(nextPath ?? getDashboardPath(user.role));
     } catch (error) {
       // extractErrorMessage handles the backend's inconsistent error
       // shapes (plain string, class-validator array, or the doubly-
@@ -279,5 +315,27 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Suspense boundary for `useSearchParams`.
+ *
+ * Not optional and not decoration: reading the query string makes this
+ * component client-only, and Next refuses to prerender a page that does so
+ * without a boundary — `next build` fails outright with
+ * "useSearchParams() should be wrapped in a suspense boundary". It compiles and
+ * typechecks perfectly first; only the production build objects, which is why
+ * this was caught by running one rather than by trusting tsc.
+ *
+ * The fallback renders nothing. The gap is the time it takes to read a query
+ * parameter that is already in the URL, and a flash of skeleton on a sign-in
+ * page would be more jarring than the blank instant it replaces.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

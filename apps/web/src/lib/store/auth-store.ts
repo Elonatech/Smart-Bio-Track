@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { clearSessionHint, setSessionHint } from "@/lib/session-hint";
 import type { UserRole } from "@smartbiotrack/types";
 
 // The set of roles a logged-in user can have.
@@ -161,17 +162,26 @@ export const useAuthStore = create<AuthState>((set) => ({
   isAuthenticated: false,
   hasRestored: false,
 
-  login: (user, accessToken) =>
-    set({ user, accessToken, isAuthenticated: true, hasRestored: true }),
+  // The session hint is written and cleared here, in the three places session
+  // state actually changes, rather than at each call site. Scattering it would
+  // guarantee that some future sign-out path forgets it and leaves middleware
+  // waving signed-out visitors through to a dashboard shell.
+  login: (user, accessToken) => {
+    setSessionHint();
+    set({ user, accessToken, isAuthenticated: true, hasRestored: true });
+  },
 
   // A successful sign-up logs the new Org Super Admin straight in — same
   // shape as login, no separate "session" concept.
-  register: (user, accessToken) =>
-    set({ user, accessToken, isAuthenticated: true, hasRestored: true }),
+  register: (user, accessToken) => {
+    setSessionHint();
+    set({ user, accessToken, isAuthenticated: true, hasRestored: true });
+  },
 
   setAccessToken: (accessToken) => set({ accessToken }),
 
-  clearSession: () =>
+  clearSession: () => {
+    clearSessionHint();
     set({
       user: null,
       accessToken: null,
@@ -179,7 +189,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Stays true: the restore attempt is over. Resetting it here would put
       // guards back into their loading state and hang the UI after sign-out.
       hasRestored: true,
-    }),
+    });
+  },
 
   markRestored: () => set({ hasRestored: true }),
 }));
