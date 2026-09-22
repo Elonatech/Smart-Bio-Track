@@ -236,10 +236,4 @@ pnpm --filter api check-types && pnpm --filter api test && pnpm --filter api lin
 
 npx tsc --noEmit -p apps/api/tsconfig.json
 
-<!-- pushing backend changes -->
-git add apps/api packages/constants packages/types
-git status
-git commit -m "feat(api): </what changed>
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
-git push
+git show --stat --find-renames HEAD
