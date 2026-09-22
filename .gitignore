@@ -53,3 +53,12 @@ docs/hardening-log.md
 # someone who should not have it. It was tracked by oversight until 18 Sep
 # 2026 — this line is the fix going forward; earlier commits still hold it.
 docs/hardening-summary-plain-english.md
+
+# Period summaries that feed the monthly management report. Same material as the
+# two documents above, condensed — so the same reasoning applies. Remove this
+# line deliberately if a report is meant to be shared through the repository
+# rather than sent.
+docs/reports/
+
+
+docs/
