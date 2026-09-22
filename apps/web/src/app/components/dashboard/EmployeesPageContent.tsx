@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
-import type { VisibleUserStatus } from "@smartbiotrack/types";
+import type { Page, UserListItem, VisibleUserStatus } from "@smartbiotrack/types";
 import { ROLE_CREATION_MATRIX, ROLE_LABEL } from "@/lib/roleCreationMatrix";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { DataTable } from "@/app/components/dashboard/DataTable";
@@ -21,34 +21,21 @@ import {
 // flows. The only real difference between the two roles is which roles
 // each is allowed to invite (ROLE_CREATION_MATRIX), looked up here from
 // whoever's actually logged in rather than hardcoded per page.
-interface EmployeeListItem {
-  id: string;
-  employeeId: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  // VisibleUserStatus, not UserStatus: findAll filters DELETED rows out before
-  // they reach the browser. Derived from the shared UserStatus via Exclude, so
-  // it cannot invent a status the database has never heard of — which is what
-  // the hand-written `"PENDING" | "ACTIVE" | "SUSPENDED"` here had become after
-  // soft deletes added a fourth value and nobody updated this line.
-  status: VisibleUserStatus;
-  departmentId: string | null;
-  officeId: string | null;
-}
+// The row shape now comes from packages/types, where the API's own Prisma
+// select is tied to the same definition (#26). The copy that used to live here
+// declared eight fields while the API sent nine — `createdAt` went over the
+// wire and was silently dropped. Harmless, and precisely the drift nothing was
+// watching for.
+type EmployeeListItem = UserListItem;
 
 /**
  * GET /users returns one page, not the whole directory — it used to return
  * every row, which for a five-thousand-employee customer was a multi-megabyte
  * response serialised in a single tick.
+ *
+ * `Page<T>` is the shared envelope; every paginated endpoint uses it.
  */
-interface UserPage {
-  items: EmployeeListItem[];
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-}
+type UserPage = Page<EmployeeListItem>;
 
 /** Matches DataTable's own page size, so the rhythm of the list is unchanged. */
 const PAGE_SIZE = 10;

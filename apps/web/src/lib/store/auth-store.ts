@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { clearSessionHint, setSessionHint } from "@/lib/session-hint";
+import type { MeResponse } from "@smartbiotrack/types";
 import type { UserRole } from "@smartbiotrack/types";
 
 // The set of roles a logged-in user can have.
@@ -47,54 +48,34 @@ export interface AuthUser {
   departmentName?: string | null;
 }
 
-// The raw body of GET /auth/me.
+// The raw body of GET /auth/me — now defined once, in packages/types, and
+// annotated on the API's own handler (#26).
 //
-// Declared once, here, on purpose. It used to be copy-pasted into
-// login/page.tsx, complete-registration/page.tsx and
-// verify-organization/page.tsx — three identical interfaces and three
-// hand-written mappings into AuthUser. When the backend started returning
-// `departmentName`, all three silently dropped it, and TypeScript said
-// nothing: every added field is optional, and "absent" is legal for an
-// optional field. Three copies of a type is three places to forget.
+// It used to be declared here and restated nowhere else only because an earlier
+// fix had already collapsed three copies into one. That was an improvement and
+// still left the browser guessing: this interface described what somebody
+// believed the API returned, and nothing anywhere compared the two.
 //
-// Fields are optional here for a different reason than in AuthUser: an older
-// API deployment genuinely may not send them, and the app should degrade
-// rather than crash.
-export interface MeResponse {
-  id: string;
-  name?: string;
-  email: string;
-  role: AuthUser["role"];
-  organizationId: string | null;
-  organizationName?: string;
-  departmentId?: string | null;
-  departmentName?: string | null;
-}
+// Re-exported so existing imports keep working; the definition simply moved
+// somewhere both halves can see.
+export type { MeResponse };
 
-/**
- * Maps GET /auth/me onto the user we keep in the store.
- *
- * The single place that mapping happens, so a new field on the backend is one
- * edit rather than a hunt through every page that signs someone in.
- *
- * `fallbacks` covers the signup flows: registration knows the admin's name and
- * organization from the form the user just filled in, which is worth keeping
- * if the API response hasn't caught up. It is only ever a fallback — whatever
- * the server says wins.
- */
 export function toAuthUser(
   me: MeResponse,
   fallbacks: Partial<Pick<AuthUser, "name" | "organizationName">> = {}
 ): AuthUser {
   return {
     id: me.id,
-    name: me.name ?? fallbacks.name,
+    // The wire guarantees these now, so the fallbacks cover one real case:
+    // Sign Up renders the new admin's details from the form before the first
+    // /auth/me round trip has happened at all.
+    name: me.name || fallbacks.name,
     email: me.email,
     role: me.role,
     organizationId: me.organizationId,
-    organizationName: me.organizationName ?? fallbacks.organizationName,
-    departmentId: me.departmentId ?? null,
-    departmentName: me.departmentName ?? null,
+    organizationName: me.organizationName || fallbacks.organizationName,
+    departmentId: me.departmentId,
+    departmentName: me.departmentName,
   };
 }
 
