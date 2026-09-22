@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import { jwtAccessSecret } from './jwt.constants';
+import type { MeResponse } from '@smartbiotrack/types';
 
 interface JwtPayload {
   sub: string;
@@ -23,7 +24,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: JwtPayload) {
+  // The declared return type is the contract for GET /auth/me: the controller
+  // hands `req.user` straight back, so whatever this builds *is* the response
+  // body. Annotating it here means dropping a field, adding one, or changing a
+  // type fails tsc in this app rather than surfacing as a blank name in the
+  // browser three deploys later. See packages/types (#26).
+  async validate(payload: JwtPayload): Promise<MeResponse> {
     // `department` is included, not just `departmentId`, because this is what
     // scopes a TEAM_LEAD's visibility (UsersService.visibleUsersWhere) *and*
     // what the dashboard labels their pages with. Both come from one LEFT JOIN

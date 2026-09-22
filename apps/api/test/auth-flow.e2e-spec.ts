@@ -1,4 +1,8 @@
 import request from 'supertest';
+import {
+  ME_RESPONSE_KEYS,
+  USER_LIST_ITEM_KEYS,
+} from '@smartbiotrack/types';
 import { AuthService } from '../src/auth/auth.service';
 import {
   createTestApp,
@@ -241,6 +245,57 @@ describe('Auth flow and RBAC (integration)', () => {
         .expect(200);
 
       expect(res.body.data.role).toBe('EMPLOYEE');
+    });
+  });
+
+  // The only check here that survives compilation.
+  //
+  // Both apps are annotated against the shared shapes in packages/types, so a
+  // mismatch fails tsc — but types vanish at runtime, and nothing compares a
+  // JSON body to an interface. A field the API quietly starts or stops sending
+  // is invisible to the browser's compiler and shows up as a blank on screen.
+  // These assert the actual wire format against the key lists.
+  describe('response shapes (#26)', () => {
+    it('GET /auth/me returns exactly the documented fields', async () => {
+      const res = await request(httpServer(ctx))
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // Sorted equality, not "contains": an *extra* field matters as much as a
+      // missing one. Extra fields are how data nobody meant to publish reaches
+      // the browser.
+      expect(Object.keys(res.body.data).sort()).toEqual(
+        [...ME_RESPONSE_KEYS].sort(),
+      );
+    });
+
+    it('GET /users rows carry exactly the documented fields', async () => {
+      await onboard('EMPLOYEE', 'shape');
+
+      const res = await request(httpServer(ctx))
+        .get('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body.data.items.length).toBeGreaterThan(0);
+
+      for (const item of res.body.data.items) {
+        expect(Object.keys(item).sort()).toEqual([...USER_LIST_ITEM_KEYS].sort());
+      }
+    });
+
+    it('never leaks a password hash to any client', async () => {
+      // The reason "exactly" beats "contains" above, stated as its own test so
+      // it cannot be weakened by accident.
+      const res = await request(httpServer(ctx))
+        .get('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const serialised = JSON.stringify(res.body);
+      expect(serialised).not.toContain('passwordHash');
+      expect(serialised).not.toContain('$argon2');
     });
   });
 
