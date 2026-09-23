@@ -32,6 +32,7 @@ import { RolesGuard } from './roles.guard';
 import { Roles } from './roles.decorator';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
 import { Throttle } from '@nestjs/throttler';
+import type { MeResponse } from '@smartbiotrack/types';
 import {
   THROTTLE_FORGOT_PASSWORD,
   THROTTLE_LOGIN,
@@ -226,7 +227,11 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ResponseMessage('Profile retrieved.')
-  me(@Req() req: { user: unknown }) {
+  me(@Req() req: { user: MeResponse }): MeResponse {
+    // `unknown` until #26. The handler returning an untyped value meant the
+    // response shape lived nowhere at all on this side — it was whatever
+    // JwtStrategy happened to build, and the browser's copy was a guess about
+    // it written by hand.
     return req.user;
   }
 

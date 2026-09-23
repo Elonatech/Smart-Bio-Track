@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, UserRole, UserStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import type { UserListItemKey } from '@smartbiotrack/types';
 import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-users.dto';
 import { ListUsersDto } from './dto/list-users.dto';
@@ -49,6 +50,31 @@ interface Caller {
   /** Nullable by schema: a user need not belong to a department. */
   departmentId: string | null;
 }
+
+/**
+ * Exactly the columns `GET /users` returns, tied to the shared definition.
+ *
+ * `satisfies Record<UserListItemKey, true>` is doing real work: it fails to
+ * compile if this select is missing a key the shared `UserListItem` declares,
+ * **and** if it adds one the shared type does not. Before #26 the two were kept
+ * in step by memory, and were not — the browser's copy had eight fields while
+ * this sent nine, so `createdAt` went over the wire and was ignored.
+ *
+ * Adding a column to the staff list now starts here *and* in packages/types, or
+ * it does not compile. That is the point: the wire format is a contract with
+ * another program, not a local detail.
+ */
+const USER_LIST_SELECT = {
+  id: true,
+  employeeId: true,
+  name: true,
+  email: true,
+  role: true,
+  status: true,
+  departmentId: true,
+  officeId: true,
+  createdAt: true,
+} satisfies Record<UserListItemKey, true>;
 
 @Injectable()
 export class UsersService {
@@ -593,17 +619,7 @@ export class UsersService {
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
         skip: (page - 1) * limit,
         take: limit,
-        select: {
-          id: true,
-          employeeId: true,
-          name: true,
-          email: true,
-          role: true,
-          status: true,
-          departmentId: true,
-          officeId: true,
-          createdAt: true,
-        },
+        select: USER_LIST_SELECT,
       }),
       this.prisma.user.count({ where: filter }),
     ]);
