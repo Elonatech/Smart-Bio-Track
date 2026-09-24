@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import { LogIn, LogOut, Coffee, Timer } from "lucide-react";
 import { ClockInFlow } from "@/app/components/dashboard/ClockInFlow";
 import { useToast } from "@/app/components/Toast";
+import { useAuthStore } from "@/lib/store/auth-store";
 
 // The "Today's status" card that opens every role's overview. Every
 // dashboard showed an identical copy of this markup, so a mobile layout
@@ -16,10 +17,12 @@ import { useToast } from "@/app/components/Toast";
 // LOCAL-ONLY state, the same pattern every other backend-less feature in
 // this app uses (Work Rules, Holidays, Departments before their
 // endpoints existed): there is no Attendance/Punch model in
-// prisma/schema.prisma and no endpoint to record any of this against, so
-// nothing here survives a refresh — it exists so the whole clock-in →
-// break → clock-out loop can be seen and demoed end to end instead of
-// dead-ending at a permanently disabled button.
+// prisma/schema.prisma and no endpoint to record any of this against.
+// It survives a same-tab page refresh (see the sessionStorage helpers
+// below) so the loop doesn't look broken mid-demo, but never a real
+// server — it exists so the whole clock-in → break → clock-out loop can
+// be seen and demoed end to end instead of dead-ending at a permanently
+// disabled button.
 function formatElapsed(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const hours = Math.floor(s / 3600);
@@ -30,6 +33,58 @@ function formatElapsed(totalSeconds: number): string {
 
 function formatClockTime(date: Date): string {
   return `${date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} WAT`;
+}
+
+// Local-only persistence for the demo clock-in/break/clock-out loop above —
+// NOT a stand-in for a real backend. Without this, refreshing mid-shift lost
+// the whole loop, which reads as a bug in a demo even though the underlying
+// "nothing is saved to a server" story hasn't changed: the same honest toasts
+// still fire on every action, this just keeps THIS SCREEN's own state alive
+// across a reload the same way an unsaved form draft might.
+//
+// sessionStorage (not localStorage): a shift that's still "open" only makes
+// sense for the tab that's live right now — closing the tab is close enough
+// to "the shift ended" for data that was never going to survive a real
+// server round trip anyway.
+//
+// Keyed per user, same convention as notifications.ts's read-state, so
+// signing out and a different person signing in on the same browser never
+// inherits someone else's open shift.
+interface StoredTodayStatus {
+  /** Local YYYY-MM-DD. A shift left open from a previous day is stale, not resumable. */
+  date: string;
+  clockedInAt: string | null;
+  clockedOutAt: string | null;
+  breakStartedAt: string | null;
+  completedBreakSeconds: number;
+}
+
+function storageKey(userId: string): string {
+  return `today-status:${userId}`;
+}
+
+function todayKey(now: Date): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function loadStoredStatus(userId: string): StoredTodayStatus | null {
+  try {
+    const raw = sessionStorage.getItem(storageKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredTodayStatus;
+    return parsed.date === todayKey(new Date()) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredStatus(userId: string, status: StoredTodayStatus) {
+  try {
+    sessionStorage.setItem(storageKey(userId), JSON.stringify(status));
+  } catch {
+    // Same shrug as notifications.ts: losing this just means a refresh
+    // mid-shift looks like a fresh day, which is safe, not silently wrong.
+  }
 }
 
 function MiniStat({
@@ -59,13 +114,63 @@ function MiniStat({
 
 export function TodayStatusCard() {
   const toast = useToast();
+  const userId = useAuthStore((state) => state.user?.id);
+
+  // Read once, synchronously, when this component instance is FIRST
+  // created — not in an effect. An effect-based restore raced against the
+  // write-back effect below: React (in development) runs every effect
+  // twice on mount to catch exactly this kind of bug, and the second
+  // effect's run was seeing the first run's *pre-restore* values, saving
+  // blanks over the shift a moment after it was read back in. Doing the
+  // read here, before any effect exists to race it, removes the race
+  // entirely rather than papering over it.
+  //
+  // The function form of useState's initial value — not a plain value —
+  // is what makes this a ONE-TIME read: React only ever calls this
+  // function on the very first render of this component instance and
+  // ignores it on every render after. A plain expression here would
+  // re-read and re-parse sessionStorage on every render instead, including
+  // every second this card is ticking while someone's clocked in.
+  //
+  // AuthGuard (see AuthGuard.tsx) renders nothing until the session is
+  // restored and only mounts this component afterwards, so userId is
+  // already known the first time this function body runs — there's no
+  // "userId arrives later" case to handle here.
   const [isClockInOpen, setIsClockInOpen] = useState(false);
-  const [clockedInAt, setClockedInAt] = useState<Date | null>(null);
-  const [clockedOutAt, setClockedOutAt] = useState<Date | null>(null);
-  const [breakStartedAt, setBreakStartedAt] = useState<Date | null>(null);
+  const [clockedInAt, setClockedInAt] = useState<Date | null>(() => {
+    const stored = userId ? loadStoredStatus(userId) : null;
+    return stored?.clockedInAt ? new Date(stored.clockedInAt) : null;
+  });
+  const [clockedOutAt, setClockedOutAt] = useState<Date | null>(() => {
+    const stored = userId ? loadStoredStatus(userId) : null;
+    return stored?.clockedOutAt ? new Date(stored.clockedOutAt) : null;
+  });
+  const [breakStartedAt, setBreakStartedAt] = useState<Date | null>(() => {
+    const stored = userId ? loadStoredStatus(userId) : null;
+    return stored?.breakStartedAt ? new Date(stored.breakStartedAt) : null;
+  });
   // Only COMPLETED breaks — the one currently in progress, if any, is
   // computed live in render from breakStartedAt instead of stored here.
-  const [completedBreakSeconds, setCompletedBreakSeconds] = useState(0);
+  const [completedBreakSeconds, setCompletedBreakSeconds] = useState(() => {
+    const stored = userId ? loadStoredStatus(userId) : null;
+    return stored?.completedBreakSeconds ?? 0;
+  });
+
+  // The only thing that touches storage now. Fires once on mount with
+  // whatever was just restored above (a harmless no-op re-save, since it's
+  // writing back exactly what it read) and again on every real change —
+  // no separate "have we restored yet" flag needed, because there's no
+  // restore step left to race against.
+  useEffect(() => {
+    if (!userId) return;
+    saveStoredStatus(userId, {
+      date: todayKey(new Date()),
+      clockedInAt: clockedInAt ? clockedInAt.toISOString() : null,
+      clockedOutAt: clockedOutAt ? clockedOutAt.toISOString() : null,
+      breakStartedAt: breakStartedAt ? breakStartedAt.toISOString() : null,
+      completedBreakSeconds,
+    });
+  }, [userId, clockedInAt, clockedOutAt, breakStartedAt, completedBreakSeconds]);
 
   const isClockedIn = clockedInAt !== null && clockedOutAt === null;
   const isOnBreak = breakStartedAt !== null;

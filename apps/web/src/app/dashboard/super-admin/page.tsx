@@ -9,11 +9,20 @@ import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { SAMPLE_WORK_RULES } from "@/app/components/dashboard/workRuleSamples";
 import { SAMPLE_FLAGGED_PUNCHES } from "@/app/components/dashboard/flaggedPunchSamples";
-import { SAMPLE_AUDIT_LOGS } from "@/app/components/dashboard/auditLogSamples";
 
 interface OfficeSummary {
   id: string;
   name: string;
+}
+
+// Only the fields this widget actually renders — the full shape (with
+// actorRole, targetType, etc.) lives in the audit-logs page itself, which
+// is the one place that needs all of it.
+interface RecentAuditEntry {
+  id: string;
+  actorName: string;
+  action: string;
+  targetLabel: string | null;
 }
 
 // A shorter label per rule than its full form-facing name ("Night Shift
@@ -33,13 +42,14 @@ export default function SuperAdminDashboardPage() {
   });
   usePageHeader("Organization overview", `${orgName} · ${today} · WAT`);
 
-  // Employees and offices are the two numbers on this card with a real
-  // backend behind them — everything else here (Time Regulation, Flagged
-  // Punches, Recent activity) has no Prisma model yet, so those stay
-  // sourced from the same seed data their own pages render rather than
-  // being faked into looking live.
+  // Employees, offices, and (as of the audit-log backend landing) recent
+  // activity are real. Time Regulation and Flagged Punches still have no
+  // Prisma model, so those two cards stay sourced from the same seed data
+  // their own pages render rather than being faked into looking live.
   const [employeeCount, setEmployeeCount] = useState<number | null>(null);
   const [offices, setOffices] = useState<OfficeSummary[] | null>(null);
+  const [recentActivity, setRecentActivity] = useState<RecentAuditEntry[] | null>(null);
+  const [recentActivityError, setRecentActivityError] = useState(false);
 
   useEffect(() => {
     let isActive = true;
@@ -63,6 +73,21 @@ export default function SuperAdminDashboardPage() {
       })
       .catch(() => {});
 
+    // page 1 is always newest-first (the endpoint orders by createdAt desc),
+    // so the first 3 of a 3-row page is just "the 3 most recent entries".
+    appClient
+      .get<{ items: RecentAuditEntry[] }>("/audit-logs", {
+        params: { page: 1, limit: 3 },
+      })
+      .then((res) => {
+        if (isActive) setRecentActivity(res.data.items);
+      })
+      .catch(() => {
+        // Distinct from "no entries yet" (an empty array) — a fetch
+        // failure should say so, not quietly claim a quiet organization.
+        if (isActive) setRecentActivityError(true);
+      });
+
     return () => {
       isActive = false;
     };
@@ -83,10 +108,6 @@ export default function SuperAdminDashboardPage() {
           : `${officeNames.slice(0, 2).join(", ")} +${officeNames.length - 2} more`;
 
   const ruleSubtitle = SAMPLE_WORK_RULES.map((r) => shortRuleLabel(r.name)).join(", ");
-
-  // Sample data is already newest-first — real audit entries would need
-  // an explicit orderBy, but there is no endpoint to add one to yet.
-  const recentActivity = SAMPLE_AUDIT_LOGS.slice(0, 3);
 
   return (
     <div>
@@ -172,17 +193,32 @@ export default function SuperAdminDashboardPage() {
         </div>
 
         <div className="flex flex-col gap-3 mt-6">
-          {recentActivity.map((log, index) => (
-            <div key={log.id}>
-              <p className="text-[14px] text-neutral">
-                {log.actor} · {log.action.replaceAll("_", " ").toLowerCase()} ·{" "}
-                {log.target}
-              </p>
-              {index !== recentActivity.length - 1 && (
-                <hr className="border-neutral/20 mt-3" />
-              )}
-            </div>
-          ))}
+          {recentActivity === null && !recentActivityError && (
+            <p className="text-[13px] text-neutral">Loading recent activity…</p>
+          )}
+
+          {recentActivityError && (
+            <p className="text-[13px] text-alert">
+              Couldn&apos;t load recent activity. Please refresh.
+            </p>
+          )}
+
+          {recentActivity !== null && recentActivity.length === 0 && (
+            <p className="text-[13px] text-neutral">No activity recorded yet.</p>
+          )}
+
+          {recentActivity !== null &&
+            recentActivity.map((log, index) => (
+              <div key={log.id}>
+                <p className="text-[14px] text-neutral">
+                  {log.actorName} · {log.action.replaceAll("_", " ").toLowerCase()}
+                  {log.targetLabel ? ` · ${log.targetLabel}` : ""}
+                </p>
+                {index !== recentActivity.length - 1 && (
+                  <hr className="border-neutral/20 mt-3" />
+                )}
+              </div>
+            ))}
         </div>
       </div>
     </div>
