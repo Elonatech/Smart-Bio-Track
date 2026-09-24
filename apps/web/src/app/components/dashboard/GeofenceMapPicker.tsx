@@ -5,6 +5,7 @@ import { Search, LocateFixed } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { describeGeolocationError } from "@/lib/geo";
+import { geocodeAddressWithFallback, reverseGeocodeOnce } from "@/lib/geocode";
 
 // Leaflet's default marker icon references image paths that only resolve
 // correctly when Leaflet's own CSS is served from its own directory —
@@ -36,6 +37,17 @@ interface GeofenceMapPickerProps {
   radiusMeters: number;
   /** Fired on drag-end and on map click — never fired continuously mid-drag. */
   onPositionChange: (latitude: number, longitude: number) => void;
+  /**
+   * Fired whenever this component itself resolves a human-readable address
+   * for the current position — after a successful search, and after
+   * "Use my current location" reverse-geocodes. NOT fired for a manual
+   * drag or map click: at that point nobody has asked what the new spot
+   * is called, and guessing would mean overwriting whatever address the
+   * caller's own field already has with something nobody confirmed.
+   * Optional because not every caller shows an address field at all —
+   * OfficeFormModal doesn't (the backend has no column for it yet).
+   */
+  onAddressResolved?: (address: string) => void;
 }
 
 // Real bounds, not arbitrary ones — these are what a latitude/longitude
@@ -46,74 +58,31 @@ interface GeofenceMapPickerProps {
 // silently panned to nowhere, rendering a blank grey/blue view with no
 // error at all. Clamped here so the map itself can never do that, no
 // matter what called it.
+//
+// NaN specifically: `{...register("latitude", { valueAsNumber: true })}`
+// turns an EMPTY input into NaN, not undefined — clearing the field to
+// retype it is the ordinary way someone edits a number box, not a typo.
+// `NaN ?? DEFAULT_LATITUDE` at the call site doesn't catch this either;
+// `??` only steps in for null/undefined, and NaN is neither. Leaflet's
+// own `setLatLng` throws a raw, uncaught "Invalid LatLng object" on NaN,
+// which is what actually crashed this screen — a value considered instead
+// of a caught exception, right at the one place already promising to
+// handle "no matter what called it".
+function isFiniteCoordinate(value: number): boolean {
+  return Number.isFinite(value);
+}
 function clampLatitude(value: number): number {
+  if (!isFiniteCoordinate(value)) return 0;
   return Math.min(90, Math.max(-90, value));
 }
 function clampLongitude(value: number): number {
+  if (!isFiniteCoordinate(value)) return 0;
   return Math.min(180, Math.max(-180, value));
 }
 
-interface GeocodeResult {
-  lat: string;
-  lon: string;
-  display_name: string;
-}
-
-// Nominatim — OpenStreetMap's own free geocoder, no API key, same free
-// tier as the map tiles themselves. Its usage policy asks for no more
-// than one request per second and no heavy automated use; one search per
-// manual button click from an admin setting up an office is exactly the
-// light, human-triggered use it is meant for. If this app's usage ever
-// grows past that, this is the same kind of swap as the tile URL — a
-// paid geocoder behind the same function signature, nothing above it
-// changes.
-async function geocodeOnce(query: string): Promise<GeocodeResult | null> {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error("Address lookup failed. Try again.");
-  }
-  const results = (await response.json()) as GeocodeResult[];
-  return results[0] ?? null;
-}
-
-/**
- * Falls back to a broader search when the exact address has no match —
- * OSM's coverage of individual residential streets in less-mapped areas
- * is genuinely incomplete (confirmed directly: "4 Oluwakemi Street,
- * Shasha Road, Egbeda, Lagos" has no OSM data at all, but "Shasha Road,
- * Egbeda, Lagos" does). Rather than a flat "not found", this tries again
- * one comma-separated segment at a time — house number/street first,
- * then street, then area — which is exactly what a person would do by
- * hand. `matchedQuery` on the result tells the caller how much of the
- * original address it actually matched, so "closest match" can say what
- * it means instead of implying it found the exact address.
- */
-async function geocodeAddressWithFallback(
-  query: string
-): Promise<(GeocodeResult & { matchedQuery: string }) | null> {
-  const segments = query
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  // Stops at 2 segments remaining (e.g. "Lagos, Nigeria") rather than
-  // falling all the way to a single country name, which would place the
-  // pin somewhere so broad it is worse than just saying nothing matched.
-  // Math.max(0, ...) guarantees at least one attempt even for a query
-  // with fewer than 2 segments (a single word, or no commas at all) —
-  // without it, `segments.length - 2` goes negative and the loop below
-  // never runs even once.
-  const lastStart = Math.max(0, segments.length - 2);
-  for (let start = 0; start <= lastStart; start++) {
-    const candidate = segments.slice(start).join(", ");
-    const result = await geocodeOnce(candidate);
-    if (result) {
-      return { ...result, matchedQuery: candidate };
-    }
-  }
-  return null;
-}
+// Geocoding (address <-> coordinates) lives in lib/geocode.ts now — shared
+// with StepOffice.tsx's own "Address" field, which needs the identical
+// lookup (see its onLocateAddress prop below).
 
 // Isolates every Leaflet-specific detail behind one small, swappable
 // component. OfficeFormModal only ever sees latitude/longitude/radius in,
@@ -135,6 +104,7 @@ export function GeofenceMapPicker({
   longitude,
   radiusMeters,
   onPositionChange,
+  onAddressResolved,
 }: GeofenceMapPickerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -185,6 +155,7 @@ export function GeofenceMapPicker({
         setApproximateMatch(result.display_name);
       }
       onPositionChange(parseFloat(result.lat), parseFloat(result.lon));
+      onAddressResolved?.(result.display_name);
     } catch {
       setSearchError("Address lookup failed. Try again, or place the pin manually.");
     } finally {
@@ -214,8 +185,23 @@ export function GeofenceMapPicker({
     setApproximateMatch(null);
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        onPositionChange(position.coords.latitude, position.coords.longitude);
-        setIsLocating(false);
+        const { latitude: lat, longitude: lon } = position.coords;
+        onPositionChange(lat, lon);
+
+        // Best-effort: the pin's real position is already set above and
+        // does not depend on this succeeding. A reverse-geocode failure
+        // (offline, Nominatim down, this exact spot has no OSM data)
+        // should never undo a real GPS fix just because there's nothing
+        // to call it — it only means the Address field stays whatever
+        // it already was, same as clicking the map does today.
+        reverseGeocodeOnce(lat, lon)
+          .then((address) => {
+            if (address) onAddressResolved?.(address);
+          })
+          .catch(() => {
+            // Deliberately silent — see the comment above.
+          })
+          .finally(() => setIsLocating(false));
       },
       (error) => {
         setLocateError(describeGeolocationError(error));
@@ -307,6 +293,15 @@ export function GeofenceMapPicker({
     const circle = circleRef.current;
     const map = mapRef.current;
     if (!marker || !circle || !map) return;
+
+    // Deliberately does nothing here rather than falling back to
+    // clampLatitude/clampLongitude's own NaN handling — this is what runs
+    // on every keystroke while someone clears the field to retype a
+    // number, and snapping the pin to (0, 0) for that one keystroke would
+    // read as its own bug even though it wouldn't crash. Leaving the pin
+    // exactly where it already is means clearing-then-retyping just holds
+    // still until a real number lands, then jumps once, correctly.
+    if (!isFiniteCoordinate(latitude) || !isFiniteCoordinate(longitude)) return;
 
     const lat = clampLatitude(latitude);
     const lng = clampLongitude(longitude);

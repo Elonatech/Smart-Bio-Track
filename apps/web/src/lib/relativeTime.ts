@@ -14,7 +14,7 @@ const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 /** "2h ago", "4 days ago", "1 week ago" — always in the past, never a future tense. */
 export function formatRelativeTime(date: Date, now: Date = new Date()): string {
   const diffMs = now.getTime() - date.getTime();
-
+ 
   if (diffMs < 30_000) {
     return "Just now";
   }

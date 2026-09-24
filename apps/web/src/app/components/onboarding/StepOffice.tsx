@@ -1,7 +1,9 @@
 import dynamic from "next/dynamic";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { officeSchema, type OfficeValues } from "@/lib/validation/onboarding";
+import { geocodeAddressWithFallback } from "@/lib/geocode";
 
 // ssr:false is required, not optional, here: Leaflet reads `window` at
 // module-evaluation time (inside GeofenceMapPicker's top-level
@@ -50,10 +52,51 @@ export function StepOffice({ defaultValues, onNext, onBack }: StepOfficeProps) {
   const radius = watch("geofenceRadiusMeters");
   const latitude = watch("latitude");
   const longitude = watch("longitude");
+  const address = watch("address");
 
   function handleMapPositionChange(lat: number, lng: number) {
     setValue("latitude", lat, { shouldValidate: true, shouldDirty: true });
     setValue("longitude", lng, { shouldValidate: true, shouldDirty: true });
+  }
+
+  // Searching an address INSIDE the map, or using the device's real
+  // location, already tells this form where the office is — without
+  // this, the Address field up here stayed blank until the same address
+  // was typed a second time, into a second box, a few inches below.
+  function handleAddressResolved(address: string) {
+    setValue("address", address, { shouldValidate: true, shouldDirty: true });
+  }
+
+  // The reverse of the above: THIS field is the one someone reaches for
+  // first — it's labelled "Address" and sits above everything else. Only
+  // the map's own internal search box moved the pin, so typing a real
+  // address up here visibly did nothing, which reads as broken even
+  // though the map-box workaround worked. Same lookup, same fallback
+  // behaviour as that box (see lib/geocode.ts) — this field can now
+  // trigger it too, via the button below or by pressing Enter.
+  const [isLocatingAddress, setIsLocatingAddress] = useState(false);
+  const [locateAddressError, setLocateAddressError] = useState<string | null>(null);
+
+  async function handleLocateAddress() {
+    const query = (address ?? "").trim();
+    if (!query) return;
+
+    setIsLocatingAddress(true);
+    setLocateAddressError(null);
+    try {
+      const result = await geocodeAddressWithFallback(query);
+      if (!result) {
+        setLocateAddressError(
+          "No location found for this address. Use the map's search box, or place the pin manually."
+        );
+        return;
+      }
+      handleMapPositionChange(parseFloat(result.lat), parseFloat(result.lon));
+    } catch {
+      setLocateAddressError("Address lookup failed. Try again.");
+    } finally {
+      setIsLocatingAddress(false);
+    }
   }
 
   const onSubmit = (values: OfficeValues) => {
@@ -88,14 +131,37 @@ export function StepOffice({ defaultValues, onNext, onBack }: StepOfficeProps) {
           >
             Address
           </label>
-          <input
-            id="address"
-            type="text"
-            {...register("address")}
-            className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+          <div className="flex gap-2">
+            <input
+              id="address"
+              type="text"
+              {...register("address")}
+              onKeyDown={(event) => {
+                // Same reasoning as the map's own search box: this input
+                // sits inside StepOffice's <form>, so an unhandled Enter
+                // would submit the whole step instead of locating the
+                // address.
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleLocateAddress();
+                }
+              }}
+              className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            <button
+              type="button"
+              onClick={handleLocateAddress}
+              disabled={isLocatingAddress || !address?.trim()}
+              className="shrink-0 rounded-md border border-neutral/30 px-3 py-2 text-sm font-medium text-heading hover:bg-neutral/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLocatingAddress ? "Locating…" : "Locate"}
+            </button>
+          </div>
           {errors.address && (
             <p className="mt-1 text-sm text-alert">{errors.address.message}</p>
+          )}
+          {locateAddressError && (
+            <p className="mt-1 text-sm text-alert">{locateAddressError}</p>
           )}
         </div>
       </div>
@@ -125,6 +191,7 @@ export function StepOffice({ defaultValues, onNext, onBack }: StepOfficeProps) {
           longitude={longitude ?? DEFAULT_LONGITUDE}
           radiusMeters={radius ?? 100}
           onPositionChange={handleMapPositionChange}
+          onAddressResolved={handleAddressResolved}
         />
         <p className="mt-1 text-xs text-neutral">
           Drag the pin or click anywhere on the map to set the office

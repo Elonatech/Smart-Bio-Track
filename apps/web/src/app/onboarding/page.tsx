@@ -6,6 +6,7 @@ import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import { getDashboardPath } from "@/lib/roleRoutes";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { consumeOnboardingIndustryHint } from "@/lib/onboarding-hint";
 import { PartyPopper } from "lucide-react";
 import { StepProgress } from "@/app/components/onboarding/StepProgress";
 import { StepOrgProfile } from "@/app/components/onboarding/StepOrgProfile";
@@ -42,6 +43,7 @@ export default function OnboardingPage() {
   const toast = useToast();
   const router = useRouter();
   const userId = useAuthStore((state) => state.user?.id);
+  const organizationName = useAuthStore((state) => state.user?.organizationName);
   const hasRestored = useAuthStore((state) => state.hasRestored);
 
   // Gates both restoring and saving. Without it the save effect fires on
@@ -83,6 +85,8 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (!hasRestored) return;
 
+    let restoredFromSavedProgress = false;
+
     if (userId) {
       try {
         const raw = localStorage.getItem(getProgressKey(userId));
@@ -92,14 +96,41 @@ export default function OnboardingPage() {
           // Clamp: a saved step from an older build with a different
           // number of steps shouldn't strand someone on a blank screen.
           setCurrentStep(Math.min(Math.max(saved.currentStep ?? 1, 1), 6));
+          restoredFromSavedProgress = true;
         }
       } catch {
         // Corrupt or unreadable — start fresh rather than crash.
       }
     }
 
+    // First time reaching this wizard, not a resumed one (no saved
+    // progress at all): step 1 asks for the organization name and
+    // industry again even though verify-organization just collected
+    // both. Prefill them instead of asking twice.
+    //
+    // Gated on `!restoredFromSavedProgress` specifically — someone who
+    // left step 1 with different values and came back to "Continue
+    // setup" must see THEIR edit, not have it silently replaced by
+    // whatever they originally typed at signup.
+    if (!restoredFromSavedProgress) {
+      const industryHint = consumeOnboardingIndustryHint();
+      if (organizationName || industryHint) {
+        setPayload((prev) => ({
+          ...prev,
+          orgProfile: {
+            // Same fallback StepOrgProfile uses on its own — the only
+            // option today, so there's nothing to prefill it FROM yet.
+            timezone: "WAT",
+            organizationName: organizationName ?? "",
+            industry: industryHint ?? "",
+            ...prev.orgProfile,
+          },
+        }));
+      }
+    }
+
     setIsRestored(true);
-  }, [hasRestored, userId]);
+  }, [hasRestored, userId, organizationName]);
 
   // Save on every change, so progress survives a closed tab, not just an
   // in-app navigation.
