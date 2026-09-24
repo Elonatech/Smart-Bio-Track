@@ -45,6 +45,10 @@ const config = {
   roots: ['<rootDir>/src'],
   testMatch: ['**/*.test.ts', '**/*.test.tsx'],
   clearMocks: true,
+  // Registers jest-dom's matchers (toBeInTheDocument, etc.) for every test
+  // file, component or not — cheap to load, and a pure-logic test simply
+  // never calls a DOM matcher, so there's nothing to opt out of per file.
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
 };
 
 export default createJestConfig(config);
