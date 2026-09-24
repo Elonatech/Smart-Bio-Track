@@ -44,11 +44,27 @@ const config = {
   // tests and runs whatever build output happens to match.
   roots: ['<rootDir>/src'],
   testMatch: ['**/*.test.ts', '**/*.test.tsx'],
-  clearMocks: true,
-  // Registers jest-dom's matchers (toBeInTheDocument, etc.) for every test
-  // file, component or not — cheap to load, and a pure-logic test simply
-  // never calls a DOM matcher, so there's nothing to opt out of per file.
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
+
+  /**
+   * The `@/` alias, stated for Jest's own resolver.
+   *
+   * This looks redundant — `next/jest` already reads `paths` from tsconfig,
+   * and aliased *imports* resolve without it. They resolve because the SWC
+   * transformer rewrites `import … from "@/lib/x"` into a relative path before
+   * Jest ever sees it.
+   *
+   * `jest.mock('@/lib/api-client')` is not an import. It is a string argument
+   * to a function, SWC leaves it alone, and Jest's resolver has no idea what
+   * `@/` means — so the suite fails to load with "Cannot find module", while
+   * every ordinary import of the same file works. Mapping it here covers both
+   * paths and stops the behaviour depending on a transform's internals.
+   */
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
+
+  clearMocks: true,
 };
 
 export default createJestConfig(config);

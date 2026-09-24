@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AuthGuard } from "@/app/components/AuthGuard";
+import { RoleGuard } from "@/app/components/RoleGuard";
 import { Sidebar } from "@/app/components/dashboard/Sidebar";
 import { DashboardNavbar } from "@/app/components/dashboard/DashboardNavbar";
 import { SIDEBAR_ITEMS } from "@/app/components/dashboard/sidebarConfig";
@@ -15,6 +16,11 @@ const COLLAPSED_STORAGE_KEY = "dashboard-sidebar-collapsed";
 // content. AuthGuard wraps the whole shell, not just the content area,
 // so an unauthenticated visitor sees only the sign-in prompt, never a
 // flash of sidebar/navbar around nothing.
+//
+// RoleGuard sits *inside* AuthGuard, and the order is load-bearing (#28).
+// It needs a restored session to know the role, and AuthGuard is what
+// guarantees one — inverted, RoleGuard would read `undefined` during every
+// restore and either wave everyone through or redirect them at random.
 export default function DashboardLayout({
   children,
 }: {
@@ -41,36 +47,38 @@ export default function DashboardLayout({
 
   return (
     <AuthGuard>
-      {/* Wraps navbar + content: the navbar reads the current title/
+      <RoleGuard>
+        {/* Wraps navbar + content: the navbar reads the current title/
           subtitle, and each page sets them via usePageHeader — both
           need to be inside the same provider. */}
-      <PageHeaderProvider>
-        <div className="flex h-screen">
-          {/* role is undefined for the instant before AuthGuard's own
+        <PageHeaderProvider>
+          <div className="flex h-screen">
+            {/* role is undefined for the instant before AuthGuard's own
               isAuthenticated check resolves, and SIDEBAR_ITEMS[role]
               can itself be undefined if role somehow doesn't match a
               known key (e.g. hand-edited localStorage during dev) —
               `?? []` in both cases falls back to an empty sidebar
               rather than crashing on a missing lookup. */}
-          <Sidebar
-            items={(role && SIDEBAR_ITEMS[role]) ?? []}
-            isMobileOpen={isMobileOpen}
-            onCloseMobile={() => setIsMobileOpen(false)}
-            isCollapsed={isCollapsed}
-            onToggleCollapse={toggleCollapse}
-          />
-          <div className="flex-1 flex flex-col min-w-0">
-            <DashboardNavbar onOpenMobileMenu={() => setIsMobileOpen(true)} />
-            {/* pb-10 lives here rather than on each page: every dashboard
+            <Sidebar
+              items={(role && SIDEBAR_ITEMS[role]) ?? []}
+              isMobileOpen={isMobileOpen}
+              onCloseMobile={() => setIsMobileOpen(false)}
+              isCollapsed={isCollapsed}
+              onToggleCollapse={toggleCollapse}
+            />
+            <div className="flex-1 flex flex-col min-w-0">
+              <DashboardNavbar onOpenMobileMenu={() => setIsMobileOpen(true)} />
+              {/* pb-10 lives here rather than on each page: every dashboard
                 route shares this scroll container, so one rule gives them
                 all breathing room at the bottom, instead of ~20 pages
                 each remembering their own margin and drifting apart. */}
-            <main className="flex-1 overflow-y-auto bg-background px-6 xl:px-10 sm:pt-6 pt-4 pb-10">
-              {children}
-            </main>
+              <main className="flex-1 overflow-y-auto bg-background px-6 xl:px-10 sm:pt-6 pt-4 pb-10">
+                {children}
+              </main>
+            </div>
           </div>
-        </div>
-      </PageHeaderProvider>
+        </PageHeaderProvider>
+      </RoleGuard>
     </AuthGuard>
   );
 }

@@ -1,5 +1,6 @@
 import axios, { AxiosResponse, isAxiosError } from "axios";
 import { useAuthStore } from "./store/auth-store";
+import { hardRedirect } from "./navigate";
 
 export const appClient = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api",
@@ -137,9 +138,7 @@ appClient.interceptors.response.use(
       // dead cookie (see AuthController.refresh), so this only has to drop the
       // local half.
       useAuthStore.getState().clearSession();
-      if (typeof window !== "undefined") {
-        window.location.href = "/auth/login";
-      }
+      hardRedirect("/auth/login");
       return Promise.reject(error);
     }
   }

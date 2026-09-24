@@ -22,6 +22,7 @@ session management and role-based access control (RBAC) on top.
 ## 2. What we achieved
 
 ### Data model
+
 - Added an `Organization` model as the tenant root; scoped `User`,
   `Department`, and `Office` to it via `organizationId`.
 - `Department` name uniqueness changed from global to per-organization
@@ -32,6 +33,7 @@ session management and role-based access control (RBAC) on top.
   groundwork for admin-provisioned users who haven't set their own password yet.
 
 ### Auth mechanics (`apps/api/src/auth/`)
+
 > Note: `register()` described below was **deleted on 17 August** and replaced
 > by the provisioning flow. Retained here as the record of what was built at
 > the time; see §7 for the current endpoint list.
@@ -49,6 +51,7 @@ session management and role-based access control (RBAC) on top.
   `JWT_REFRESH_SECRET` are missing, instead of failing silently on first login.
 
 ### Testing
+
 - 13 Jest unit tests covering register (password mismatch, duplicate
   email/employeeId, invalid department, happy path), login (unknown user,
   wrong password, suspended account, happy path), and refresh (unknown/
@@ -58,6 +61,7 @@ session management and role-based access control (RBAC) on top.
   wrong role, 200 correct role).
 
 ### Tooling / process
+
 - Fixed `pnpm-workspace.yaml` (a literal placeholder string was breaking
   `pnpm install`), wired `packages/constants` as a proper `@smartbiotrack/constants`
   workspace package.
@@ -70,7 +74,7 @@ session management and role-based access control (RBAC) on top.
 ## 3. Challenges and how we resolved them
 
 | Challenge | Resolution |
-|---|---|
+| --------- | ---------- |
 | Draft `register.dto.ts` had syntax errors (missing colons, missing decorator imports) and a broken relative import path | Manual review + fix; found and fixed as part of code review before running anything |
 | `pnpm-workspace.yaml` had a literal placeholder (`argon2: set this to true or false`) that would break every `pnpm install` | Caught in review, set to `true` |
 | No multi-tenancy in the original schema — everyone shared one flat namespace | Added `Organization` model; required deciding uniqueness scope (kept `email`/`employeeId` globally unique for now, per your call, to defer domain-based scoping) |

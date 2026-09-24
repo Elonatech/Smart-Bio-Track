@@ -15,7 +15,13 @@
     },
     "test": {
       "dependsOn": ["^test"],
-      "outputs": ["coverage/**"]
+      // No `outputs`. Turbo caches a task by its outputs, and neither app
+      // writes any — the run's value is the pass or fail, which is not a file.
+      // Declaring "coverage/**" made Turbo warn "no output files found" on
+      // every single run, which is the kind of noise that trains people to
+      // stop reading warnings. Add it back the day a suite is run with
+      // --coverage and the report is actually wanted.
+      "outputs": []
     },
     "dev": {
       // Build the workspace packages first. They ship compiled JavaScript

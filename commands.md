@@ -22,6 +22,31 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 <!-- Start the API from root -->
 pnpm --filter api dev
 
+<!-- ===================== -->
+<!-- The WEB app (apps/web) -->
+<!-- ===================== -->
+
+<!-- It had no tests at all until 22 Sep 2026. It has some now -- Jest via -->
+<!-- next/jest, same runner as the API so there is only one to learn. -->
+pnpm --filter web test
+pnpm --filter web check-types
+
+<!-- Run one file -->
+pnpm --filter web test -- proxy.test.ts
+
+<!-- Both apps at once, through Turbo -->
+pnpm test
+
+<!-- Start the web app -->
+pnpm --filter web dev
+
+<!-- STOP THE WEB DEV SERVER BEFORE A MERGE OR A BRANCH SWITCH. -->
+<!-- Turbopack keeps a map of the routes in apps/web/.next. Rewriting files -->
+<!-- underneath a running server leaves that map describing a tree that no -->
+<!-- longer exists, and the symptom is a 404 on a page whose file you are -->
+<!-- looking at. If that happens: -->
+rm -rf apps/web/.next
+
 <!-- ============================================= -->
 <!-- Prisma migrations -->
 <!-- ============================================= -->
@@ -213,7 +238,10 @@ pnpm --filter api test:e2e
 <!--   other's data mid-test. -->
 <!-- - Rate limiting is disabled in all suites except rate-limiting.e2e-spec, -->
 <!--   otherwise every suite would start failing on its 6th request. -->
-<!-- - Slower than unit tests (real network to Neon). Expect ~30-60s. -->
+<!-- - Slower than unit tests (real network to Neon). Expect 9-11 MINUTES as -->
+<!--   of 22 Sep 2026 -- 88 tests, each doing real HTTP against a real -->
+<!--   database. It is not hung. The old note here said 30-60s, which is how -->
+<!--   somebody learns to kill it at the two-minute mark and then to skip it. -->
 
 <!-- ============================================= -->
 <!-- Before you push — run ALL THREE -->
@@ -233,6 +261,28 @@ pnpm --filter api test:e2e
 
 <!-- Or as a single chain that stops at the first failure: -->
 pnpm --filter api check-types && pnpm --filter api test && pnpm --filter api lint
+
+<!-- ============================================= -->
+<!-- Before you push a FRONTEND change -->
+<!-- ============================================= -->
+pnpm --filter web check-types
+pnpm --filter web test
+
+<!-- AND THE BUILD. This one is not optional and not the same as check-types. -->
+<!-- next build catches things tsc cannot: a page reading the query string -->
+<!-- without a Suspense boundary compiles, typechecks and runs perfectly in -->
+<!-- dev, then fails the production build outright. We hit exactly that. -->
+pnpm --filter web build
+
+<!-- ============================================= -->
+<!-- After changing packages/types -->
+<!-- ============================================= -->
+
+<!-- The shared package ships COMPILED output (main: dist/index.js), so -->
+<!-- neither app can see a new export until it is rebuilt. Skip this and you -->
+<!-- get "has no exported member 'X'", which reads like a missing dependency -->
+<!-- rather than a missing build step. -->
+npx turbo run build --filter=@smartbiotrack/types
 
 npx tsc --noEmit -p apps/api/tsconfig.json
 
