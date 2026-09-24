@@ -1,5 +1,10 @@
 import { USER_ROLES, type UserRole } from '@smartbiotrack/types';
-import { ROLE_DASHBOARD_PATH, getDashboardPath } from './roleRoutes';
+import {
+  ROLE_BY_DASHBOARD_SEGMENT,
+  ROLE_DASHBOARD_PATH,
+  getDashboardPath,
+  roleForDashboardPath,
+} from './roleRoutes';
 import { ROLE_CREATION_MATRIX, ROLE_LABEL } from './roleCreationMatrix';
 
 /**
@@ -63,5 +68,48 @@ describe('role maps', () => {
       expect(ROLE_CREATION_MATRIX.TEAM_LEAD).toEqual([]);
       expect(ROLE_CREATION_MATRIX.EMPLOYEE).toEqual([]);
     });
+  });
+});
+
+/**
+ * The reverse map, added with #28's RoleGuard.
+ *
+ * It is derived from ROLE_DASHBOARD_PATH rather than written out, so these
+ * tests are really about the derivation holding — a segment map that drifts
+ * from the paths fails *open*, matching nothing and letting every role
+ * through.
+ */
+describe('roleForDashboardPath', () => {
+  it.each(USER_ROLES)('maps the %s dashboard path back to it', (role) => {
+    expect(roleForDashboardPath(ROLE_DASHBOARD_PATH[role])).toBe(role);
+  });
+
+  it.each(USER_ROLES)('maps a nested page under %s back to it', (role) => {
+    expect(roleForDashboardPath(`${ROLE_DASHBOARD_PATH[role]}/profile/edit`)).toBe(role);
+  });
+
+  it('has exactly one segment per role, with none collapsed', () => {
+    // Two roles resolving to the same segment would make the guard let one of
+    // them into the other's area, silently.
+    expect(Object.keys(ROLE_BY_DASHBOARD_SEGMENT)).toHaveLength(USER_ROLES.length);
+  });
+
+  it('returns null for /dashboard itself', () => {
+    expect(roleForDashboardPath('/dashboard')).toBeNull();
+  });
+
+  it('returns null for an unknown area, rather than guessing', () => {
+    expect(roleForDashboardPath('/dashboard/reports')).toBeNull();
+  });
+
+  it('returns null outside the dashboard entirely', () => {
+    expect(roleForDashboardPath('/auth/login')).toBeNull();
+    expect(roleForDashboardPath('/')).toBeNull();
+  });
+
+  it('is not fooled by a path that merely contains a role segment', () => {
+    // /marketing/super-admin is not the Super Admin area. A guard matching on
+    // `includes` would treat it as one.
+    expect(roleForDashboardPath('/marketing/super-admin')).toBeNull();
   });
 });
