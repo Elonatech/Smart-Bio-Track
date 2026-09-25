@@ -835,4 +835,368 @@ describe('UsersService', () => {
       expect(findManyArgs().where).not.toHaveProperty('OR');
     });
   });
+
+  /**
+   * PATCH /users/:id (#30).
+   *
+   * Until 25 Sep 2026 no endpoint changed a user at all, so everything here is
+   * new surface. The parts worth the most scrutiny are the ones that are not
+   * obvious from the happy path: the role ceiling applying to the *destination*
+   * role, and a role change ending the sessions it demotes.
+   */
+  describe('update', () => {
+    const target = {
+      id: 'u9',
+      employeeId: 'EMP-0009',
+      name: 'Bola Eze',
+      email: 'bola@example.com',
+      role: 'EMPLOYEE' as const,
+      status: 'ACTIVE' as const,
+      organizationId: orgId,
+      departmentId: null,
+      officeId: null,
+    };
+
+    beforeEach(() => {
+      mockPrisma.user.findFirst.mockResolvedValue(target);
+      mockPrisma.user.update.mockResolvedValue({ ...target, name: 'Bolanle Eze' });
+      mockPrisma.department.findFirst.mockResolvedValue({ id: 'dept-1' });
+      mockPrisma.office.findFirst.mockResolvedValue({ id: 'office-1' });
+    });
+
+    it('updates only the fields supplied', async () => {
+      await service.update('u9', { name: 'Bolanle Eze' }, callerWithRole('HR_ADMIN'));
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'u9' },
+        data: { name: 'Bolanle Eze' },
+      });
+    });
+
+    it('treats null as "clear it" and omission as "leave it alone"', async () => {
+      // The distinction the DTO exists for. Without it, removing somebody from
+      // a department is inexpressible and the column is write-once.
+      await service.update('u9', { departmentId: null }, callerWithRole('HR_ADMIN'));
+
+      const data = mockPrisma.user.update.mock.calls[0][0].data;
+      expect(data.department).toEqual({ disconnect: true });
+      expect(data).not.toHaveProperty('office');
+    });
+
+    it('connects a department that belongs to the caller organization', async () => {
+      await service.update('u9', { departmentId: 'dept-1' }, callerWithRole('HR_ADMIN'));
+
+      expect(mockPrisma.department.findFirst).toHaveBeenCalledWith({
+        where: { id: 'dept-1', organizationId: orgId },
+      });
+      expect(mockPrisma.user.update.mock.calls[0][0].data.department).toEqual({
+        connect: { id: 'dept-1' },
+      });
+    });
+
+    it('refuses a department from another organization', async () => {
+      // Scoped lookup, same as provision. Without it a guessed UUID attaches
+      // one tenant's employee to another tenant's department.
+      mockPrisma.department.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update('u9', { departmentId: 'dept-elsewhere' }, callerWithRole('HR_ADMIN')),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses an office from another organization', async () => {
+      mockPrisma.office.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update('u9', { officeId: 'office-elsewhere' }, callerWithRole('HR_ADMIN')),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects a patch with nothing in it', async () => {
+      await expect(
+        service.update('u9', {}, callerWithRole('HR_ADMIN')),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    describe('the role ceiling', () => {
+      it('stops an HR_ADMIN promoting anyone to SUPER_ADMIN', async () => {
+        // The escalation this endpoint could have introduced. HR_ADMIN may
+        // edit a TEAM_LEAD; without a check on the destination role they could
+        // make that person SUPER_ADMIN and be administered by someone they
+        // just promoted.
+        await expect(
+          service.update('u9', { role: 'SUPER_ADMIN' }, callerWithRole('HR_ADMIN')),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+
+        expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      });
+
+      it('stops an HR_ADMIN creating a peer', async () => {
+        await expect(
+          service.update('u9', { role: 'HR_ADMIN' }, callerWithRole('HR_ADMIN')),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+
+      it('lets a SUPER_ADMIN assign any role', async () => {
+        await service.update('u9', { role: 'HR_ADMIN' }, callerWithRole('SUPER_ADMIN'));
+
+        expect(mockPrisma.user.update).toHaveBeenCalled();
+      });
+
+      it('lets an HR_ADMIN assign a role within its ceiling', async () => {
+        await service.update('u9', { role: 'TEAM_LEAD' }, callerWithRole('HR_ADMIN'));
+
+        expect(mockPrisma.user.update).toHaveBeenCalled();
+      });
+
+      it('does not re-check when the role is resent unchanged', async () => {
+        // A form that submits every field resends the current role on an edit
+        // that only touches the name. Treating that as an assignment would
+        // make the destination check fire on a no-op.
+        //
+        // Worth recording why this cannot currently fail: ROLE_AUTHORITY_MATRIX
+        // gates *which users* you may edit by their present role, and the same
+        // matrix gates which role you may assign. They are one table, so
+        // anybody you are allowed to edit already holds a role you are allowed
+        // to assign. The short-circuit is therefore defensive today and becomes
+        // load-bearing the moment those two uses diverge — for example if
+        // editing is ever widened without widening assignment.
+        mockPrisma.user.findFirst.mockResolvedValue({ ...target, role: 'TEAM_LEAD' });
+
+        await service.update(
+          'u9',
+          { role: 'TEAM_LEAD', name: 'Bolanle Eze' },
+          callerWithRole('HR_ADMIN'),
+        );
+
+        expect(mockPrisma.user.update).toHaveBeenCalled();
+      });
+
+      it('will not let an HR_ADMIN edit another HR_ADMIN at all', async () => {
+        // The ceiling on the *target*, which predates this endpoint and which
+        // update() inherits from findManageable rather than restating.
+        mockPrisma.user.findFirst.mockResolvedValue({ ...target, role: 'HR_ADMIN' });
+
+        await expect(
+          service.update('u9', { name: 'x' }, callerWithRole('HR_ADMIN')),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+    });
+
+    describe('sessions after a role change', () => {
+      it('revokes refresh tokens when the role changes', async () => {
+        // The role is baked into the access token and refresh tokens are a
+        // separate store. Without this, somebody demoted from HR_ADMIN keeps
+        // administrative access while their browser stays open, and can renew
+        // it for the life of the refresh token.
+        await service.update('u9', { role: 'TEAM_LEAD' }, callerWithRole('HR_ADMIN'));
+
+        expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+          where: { userId: 'u9', revoked: false },
+          data: { revoked: true },
+        });
+      });
+
+      it('leaves sessions alone for an edit that does not touch the role', async () => {
+        // Signing somebody out because their department was corrected would be
+        // its own small outage.
+        await service.update('u9', { name: 'Bolanle Eze' }, callerWithRole('HR_ADMIN'));
+
+        expect(mockPrisma.refreshToken.updateMany).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('the audit entry', () => {
+      it('records what changed, not only who changed it', async () => {
+        await service.update('u9', { role: 'TEAM_LEAD' }, callerWithRole('SUPER_ADMIN'), '10.0.0.1');
+
+        const entry = auditedEntry();
+        expect(entry.action).toBe('USER_UPDATED');
+        expect(entry.targetId).toBe('u9');
+        // The row holds the post-change state, so without this the trail
+        // cannot say what the role was before.
+        expect(entry.targetLabel).toContain('EMPLOYEE to TEAM_LEAD');
+        expect(entry.ipAddress).toBe('10.0.0.1');
+      });
+
+      it('names a renamed person both ways round', async () => {
+        await service.update('u9', { name: 'Bolanle Eze' }, callerWithRole('HR_ADMIN'));
+
+        expect(auditedEntry().targetLabel).toContain('"Bola Eze" to "Bolanle Eze"');
+      });
+
+      it('does not report a field that was resent unchanged', async () => {
+        await service.update(
+          'u9',
+          { name: 'Bola Eze', role: 'TEAM_LEAD' },
+          callerWithRole('HR_ADMIN'),
+        );
+
+        const label = auditedEntry().targetLabel ?? '';
+        expect(label).toContain('TEAM_LEAD');
+        expect(label).not.toContain('name');
+      });
+    });
+
+    it('refuses to edit your own account', async () => {
+      await expect(
+        service.update('caller-1', { name: 'Me' }, callerWithRole('SUPER_ADMIN')),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('refuses a user in another organization', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update('u9', { name: 'x' }, callerWithRole('SUPER_ADMIN')),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  /**
+   * POST /users/:id/reinstate (#23).
+   *
+   * SUPER_ADMIN only and always a fresh invitation — a management decision of
+   * 24 Sep 2026, so the tests below are pinning a policy, not an
+   * implementation preference. Widening either half should require editing
+   * this block, deliberately.
+   */
+  describe('reinstate', () => {
+    const removed = {
+      id: 'u9',
+      employeeId: 'EMP-0009',
+      name: 'Bola Eze',
+      email: 'bola@example.com',
+      role: 'EMPLOYEE' as const,
+      status: 'DELETED' as const,
+      organizationId: orgId,
+      departmentId: null,
+      officeId: null,
+    };
+
+    beforeEach(() => {
+      mockPrisma.user.findFirst.mockResolvedValue(removed);
+      mockPrisma.user.update.mockResolvedValue({ ...removed, status: 'PENDING' });
+      mockPrisma.activationToken.create.mockResolvedValue({ id: 'tok-1' });
+    });
+
+    it('brings the user back as PENDING, not ACTIVE', async () => {
+      // PENDING is what a returning employee actually is: no password set yet.
+      // ACTIVE would be a row the list calls active and login refuses.
+      await service.reinstate('u9', callerWithRole('SUPER_ADMIN'));
+
+      const data = mockPrisma.user.update.mock.calls[0][0].data;
+      expect(data.status).toBe('PENDING');
+      expect(data.deletedAt).toBeNull();
+    });
+
+    it('destroys the old password', async () => {
+      // Otherwise "fresh invitation" is a suggestion: the returning employee
+      // could ignore the email and sign in with a password set before they
+      // left, which is the outcome the decision explicitly rejected.
+      await service.reinstate('u9', callerWithRole('SUPER_ADMIN'));
+
+      expect(mockPrisma.user.update.mock.calls[0][0].data.passwordHash).toBeNull();
+    });
+
+    it('clears any lockout they left behind', async () => {
+      await service.reinstate('u9', callerWithRole('SUPER_ADMIN'));
+
+      const data = mockPrisma.user.update.mock.calls[0][0].data;
+      expect(data.failedLoginAttempts).toBe(0);
+      expect(data.lockedUntil).toBeNull();
+    });
+
+    it('issues a new activation token and emails it', async () => {
+      await service.reinstate('u9', callerWithRole('SUPER_ADMIN'));
+
+      expect(mockPrisma.activationToken.create).toHaveBeenCalled();
+      expect(mockMail.sendActivationEmail).toHaveBeenCalledWith(
+        'bola@example.com',
+        expect.any(String),
+        'Acme Corp',
+      );
+    });
+
+    it('stores only a hash of the token, never the token', async () => {
+      await service.reinstate('u9', callerWithRole('SUPER_ADMIN'));
+
+      const stored = mockPrisma.activationToken.create.mock.calls[0][0].data.tokenHash;
+      expect(stored).not.toBe(emailedToken());
+    });
+
+    describe('who may do it', () => {
+      it('refuses an HR_ADMIN', async () => {
+        // The decision, as a test. HR_ADMIN may remove someone but not undo a
+        // removal, because the two are indistinguishable afterwards.
+        await expect(
+          service.reinstate('u9', callerWithRole('HR_ADMIN')),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+
+        expect(mockPrisma.user.update).not.toHaveBeenCalled();
+        expect(mockMail.sendActivationEmail).not.toHaveBeenCalled();
+      });
+
+      it('refuses an EMPLOYEE', async () => {
+        await expect(
+          service.reinstate('u9', callerWithRole('EMPLOYEE')),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+    });
+
+    it('refuses a user who is not actually removed', async () => {
+      // findFirst filters on status DELETED, so an ACTIVE user is simply not
+      // found — reinstating somebody who was never removed would reset their
+      // password and sign them out for no reason.
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.reinstate('u9', callerWithRole('SUPER_ADMIN')),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('refuses a removed user in another organization', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.reinstate('stranger', callerWithRole('SUPER_ADMIN')),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'stranger',
+          organizationId: orgId,
+          status: 'DELETED',
+        },
+      });
+    });
+
+    it('writes USER_REINSTATED, distinct from USER_RESTORED', async () => {
+      // Un-suspending and bringing somebody back from removal are events of
+      // very different weight. A trail that calls them the same thing cannot
+      // answer the question an auditor actually asks.
+      await service.reinstate('u9', callerWithRole('SUPER_ADMIN'), '10.0.0.9');
+
+      const entry = auditedEntry();
+      expect(entry.action).toBe('USER_REINSTATED');
+      expect(entry.targetLabel).toBe('Bola Eze (EMP-0009)');
+      expect(entry.ipAddress).toBe('10.0.0.9');
+    });
+
+    it('keeps the reinstatement when the email fails, and says so', async () => {
+      // Same reasoning as provision: the row and token are committed, and
+      // rolling back would leave the admin with an error and a user who is
+      // neither removed nor restored.
+      mockMail.sendActivationEmail.mockRejectedValueOnce(new Error('brevo down'));
+
+      await expect(
+        service.reinstate('u9', callerWithRole('SUPER_ADMIN')),
+      ).rejects.toThrow(/could not be sent/i);
+
+      expect(mockPrisma.user.update).toHaveBeenCalled();
+    });
+  });
+
 });

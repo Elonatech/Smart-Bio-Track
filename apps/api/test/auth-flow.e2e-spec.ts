@@ -1184,4 +1184,369 @@ describe('Auth flow and RBAC (integration)', () => {
       expect(ctx.mail.sent).toHaveLength(before);
     });
   });
+
+  /**
+   * PATCH /api/users/:id (#30) and POST /api/users/:id/reinstate (#23).
+   *
+   * Both were added on 25 Sep 2026, and between them they close the user
+   * lifecycle, which until now only ran forwards: provision, suspend, delete,
+   * and no way back or sideways.
+   *
+   * The unit tests cover the branches. What only e2e can show is that the
+   * guards survive the real request pipeline — the roles decorator, the UUID
+   * pipe, the validation pipe and the transaction — and that a role change
+   * genuinely ends the demoted session rather than merely marking a row.
+   */
+  describe('editing a user (#30)', () => {
+    it('requires authentication', async () => {
+      const emp = await ctx.prisma.user.findFirst({ where: { role: 'EMPLOYEE' } });
+      await request(httpServer(ctx))
+        .patch(`/api/users/${emp?.id ?? '00000000-0000-0000-0000-000000000000'}`)
+        .send({ name: 'Nope' })
+        .expect(401);
+    });
+
+    it('changes a name and records the before and after in the audit trail', async () => {
+      await onboard('EMPLOYEE', 'edit1');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'edit1@acme.test' },
+      });
+
+      const res = await request(httpServer(ctx))
+        .patch(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Renamed Person' })
+        .expect(200);
+
+      expect(res.body.data.name).toBe('Renamed Person');
+
+      const entry = await ctx.prisma.auditLog.findFirst({
+        where: { action: 'USER_UPDATED', targetId: user?.id },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // The row now holds the new name, so without this the trail could not
+      // say what it used to be — which is the whole question in a dispute.
+      expect(entry).not.toBeNull();
+      expect(entry?.targetLabel).toContain('"User edit1" to "Renamed Person"');
+    });
+
+    it('assigns a department to someone the setup wizard left unassigned', async () => {
+      // The concrete gap #30 was raised for. The wizard's invite step collects
+      // name, email and role only, so everyone onboarded during setup had no
+      // department and no route to being given one — and a TEAM_LEAD's entire
+      // data scope keys off departmentId.
+      await onboard('EMPLOYEE', 'edit2');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'edit2@acme.test' },
+      });
+      expect(user?.departmentId).toBeNull();
+
+      const dept = await ctx.prisma.department.create({
+        data: { name: 'Field Ops', organizationId: user!.organizationId },
+      });
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ departmentId: dept.id })
+        .expect(200);
+
+      const after = await ctx.prisma.user.findUnique({ where: { id: user?.id } });
+      expect(after?.departmentId).toBe(dept.id);
+    });
+
+    it('clears a department when sent null', async () => {
+      await onboard('EMPLOYEE', 'edit3');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'edit3@acme.test' },
+      });
+      const dept = await ctx.prisma.department.create({
+        data: { name: 'Temporary', organizationId: user!.organizationId },
+      });
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ departmentId: dept.id })
+        .expect(200);
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ departmentId: null })
+        .expect(200);
+
+      const after = await ctx.prisma.user.findUnique({ where: { id: user?.id } });
+      expect(after?.departmentId).toBeNull();
+    });
+
+    it('signs out a demoted user immediately', async () => {
+      // The part that only a live request can prove. The role is baked into
+      // the access token, so a demotion that does not revoke sessions leaves
+      // administrative access working for as long as the browser stays open.
+      const hrToken = await onboard('HR_ADMIN', 'demote');
+      const hr = await ctx.prisma.user.findUnique({
+        where: { email: 'demote@acme.test' },
+      });
+
+      // Working as an HR admin before.
+      await request(httpServer(ctx))
+        .get('/api/users')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${hr?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: 'EMPLOYEE' })
+        .expect(200);
+
+      // The access token still says HR_ADMIN, but JwtStrategy re-reads the
+      // user on every request, so the new role applies at once.
+      await request(httpServer(ctx))
+        .get('/api/users')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(403);
+
+      // And the refresh token is gone, so they cannot mint a fresh one.
+      const liveSessions = await ctx.prisma.refreshToken.count({
+        where: { userId: hr?.id, revoked: false },
+      });
+      expect(liveSessions).toBe(0);
+    });
+
+    it('stops an HR_ADMIN promoting anyone to SUPER_ADMIN', async () => {
+      const hrToken = await onboard('HR_ADMIN', 'ceiling');
+      await onboard('EMPLOYEE', 'target1');
+      const target = await ctx.prisma.user.findUnique({
+        where: { email: 'target1@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${target?.id}`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .send({ role: 'SUPER_ADMIN' })
+        .expect(403);
+
+      const after = await ctx.prisma.user.findUnique({ where: { id: target?.id } });
+      expect(after?.role).toBe('EMPLOYEE');
+    });
+
+    it('refuses an EMPLOYEE outright', async () => {
+      const empToken = await onboard('EMPLOYEE', 'nobody');
+      await onboard('EMPLOYEE', 'target2');
+      const target = await ctx.prisma.user.findUnique({
+        where: { email: 'target2@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${target?.id}`)
+        .set('Authorization', `Bearer ${empToken}`)
+        .send({ name: 'Hacked' })
+        .expect(403);
+    });
+
+    it('rejects an empty patch rather than writing a pointless audit row', async () => {
+      await onboard('EMPLOYEE', 'edit4');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'edit4@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({})
+        .expect(400);
+    });
+
+    it('rejects a malformed department id instead of clearing the column', async () => {
+      // ValidateIf skips the UUID check only for exactly null. An empty string
+      // must not be read as "clear it".
+      await onboard('EMPLOYEE', 'edit5');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'edit5@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ departmentId: 'not-a-uuid' })
+        .expect(400);
+    });
+
+    it('will not let an admin edit their own account', async () => {
+      const admin = await ctx.prisma.user.findFirst({
+        where: { role: 'SUPER_ADMIN' },
+      });
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${admin?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ role: 'EMPLOYEE' })
+        .expect(400);
+    });
+  });
+
+  describe('reinstating a removed employee (#23)', () => {
+    /** Onboards someone, then removes them. Returns the row. */
+    const onboardAndRemove = async (suffix: string) => {
+      await onboard('EMPLOYEE', suffix);
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: `${suffix}@acme.test` },
+      });
+
+      await request(httpServer(ctx))
+        .delete(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      return user!;
+    };
+
+    it('brings the person back as PENDING with a fresh invitation', async () => {
+      const user = await onboardAndRemove('back1');
+
+      const res = await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/reinstate`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body.data.status).toBe('PENDING');
+
+      const after = await ctx.prisma.user.findUnique({ where: { id: user.id } });
+      expect(after?.status).toBe('PENDING');
+      expect(after?.deletedAt).toBeNull();
+
+      // A fresh invitation, not the old one — DELETE spent every live token.
+      const liveInvites = await ctx.prisma.activationToken.count({
+        where: { userId: user.id, usedAt: null },
+      });
+      expect(liveInvites).toBe(1);
+    });
+
+    it('destroys the old password, so the invitation cannot be ignored', async () => {
+      const user = await onboardAndRemove('back2');
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/reinstate`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // The decision was "fresh invitation". If the old credential survived,
+      // a returning employee could skip the email and sign in with a password
+      // set before they left — which is the outcome it explicitly rejected.
+      await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'back2@acme.test', password: 'Passw0rd!' })
+        .expect(401);
+
+      const after = await ctx.prisma.user.findUnique({ where: { id: user.id } });
+      expect(after?.passwordHash).toBeNull();
+    });
+
+    it('lets the returning employee activate and sign in again', async () => {
+      // The end-to-end point of the feature: re-hiring works.
+      const user = await onboardAndRemove('back3');
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/reinstate`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      await request(httpServer(ctx))
+        .post('/api/auth/complete-registration')
+        .send({
+          token: ctx.mail.tokenFor('back3@acme.test', 'activation'),
+          password: 'NewPassw0rd!',
+          confirmPassword: 'NewPassw0rd!',
+        })
+        .expect(200);
+
+      await request(httpServer(ctx))
+        .post('/api/auth/login')
+        .send({ identifier: 'back3@acme.test', password: 'NewPassw0rd!' })
+        .expect(200);
+    });
+
+    it('frees the email address that the removal had reserved', async () => {
+      // The blockage #23 described: the soft-deleted row keeps the address, so
+      // re-inviting the same person hit the duplicate-email guard.
+      const user = await onboardAndRemove('back4');
+
+      await request(httpServer(ctx))
+        .post('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Returning Person',
+          email: 'back4@acme.test',
+          role: 'EMPLOYEE',
+        })
+        .expect(400);
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/reinstate`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // Now the address belongs to a live account again — the same one.
+      const after = await ctx.prisma.user.findUnique({ where: { id: user.id } });
+      expect(after?.email).toBe('back4@acme.test');
+      expect(after?.status).toBe('PENDING');
+    });
+
+    it('refuses an HR_ADMIN, per the 24 Sep decision', async () => {
+      const hrToken = await onboard('HR_ADMIN', 'hrback');
+      const user = await onboardAndRemove('back5');
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/reinstate`)
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(403);
+
+      const after = await ctx.prisma.user.findUnique({ where: { id: user.id } });
+      expect(after?.status).toBe('DELETED');
+    });
+
+    it('refuses a user who was never removed', async () => {
+      await onboard('EMPLOYEE', 'active1');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'active1@acme.test' },
+      });
+
+      // Reinstating somebody who is already active would wipe their password
+      // and sign them out for no reason.
+      await request(httpServer(ctx))
+        .post(`/api/users/${user?.id}/reinstate`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(404);
+    });
+
+    it('writes USER_REINSTATED, not USER_RESTORED', async () => {
+      const user = await onboardAndRemove('back6');
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/reinstate`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const entry = await ctx.prisma.auditLog.findFirst({
+        where: { targetId: user.id, action: 'USER_REINSTATED' },
+      });
+
+      expect(entry).not.toBeNull();
+      // Un-suspending and bringing somebody back from removal are events of
+      // very different weight, and the trail has to tell them apart.
+      expect(entry?.targetLabel).toContain('EMP-back6');
+    });
+
+    it('requires authentication', async () => {
+      const user = await onboardAndRemove('back7');
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${user.id}/reinstate`)
+        .expect(401);
+    });
+  });
+
 });
