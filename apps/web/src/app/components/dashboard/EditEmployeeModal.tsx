@@ -17,9 +17,15 @@ import type { UserRole } from "@/lib/store/auth-store";
 // department and no office, and until now there was no way to give them
 // one — users.controller.ts exposes only POST and GET.
 //
-// Flip this to true the moment PATCH /users/:id exists. The request
-// below is already written against it; nothing else needs changing.
-const EDIT_ENDPOINT_READY = false;
+// Flipped true on 25 Sep 2026: PATCH /users/:id now exists (#30). The request
+// below was written in advance against it and needed no changes, which is the
+// only reason this flag was worth having rather than leaving the form out.
+//
+// The constant stays rather than being deleted, because the same situation
+// recurs — a finished form waiting on an endpoint is a normal state in this
+// project, and a named flag with a hint is a better way to ship one than a
+// commented-out component.
+const EDIT_ENDPOINT_READY = true;
 const NO_ENDPOINT_HINT =
   "No endpoint updates a user yet — PATCH /users/:id doesn't exist.";
 

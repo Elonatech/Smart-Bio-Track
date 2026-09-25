@@ -3,26 +3,34 @@
  */
 import { EditEmployeeModal, type EditableEmployee } from './EditEmployeeModal';
 import { appClient } from '@/lib/api-client';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { UserRole } from '@smartbiotrack/types';
 
 /**
  * Editing someone, which includes changing their role.
  *
- * **This form cannot currently save.** `PATCH /users/:id` does not exist —
- * verified against the API's own controller, not taken from the comment — so
- * the Save button is disabled behind a flag and the request body below has
- * never been sent. The dropdown logic is live and worth testing regardless,
- * because it is what will be wrong first when the endpoint lands.
+ * **Saving went live on 25 Sep 2026** with `PATCH /users/:id` (#30). Before
+ * that this form was complete and disabled behind a flag, and the tests here
+ * pinned the disabled state deliberately so that flipping the flag would fail
+ * them. It did, which is what brought someone back to write the real ones.
  *
- * The role dropdown here is subtler than the one on the invite form. It is
- * the caller's creatable roles **plus whatever this person already is** —
- * because an HR Admin editing another HR Admin would otherwise be shown a
- * list that does not contain HR_ADMIN, and a select whose value is absent
- * from its options silently displays the first one instead. The admin opens
- * the form to change a department and the role field is quietly sitting on
- * "Team Lead", one careless save away from a real demotion.
+ * The role dropdown is the caller's creatable roles **plus whatever this
+ * person already is**, because a select whose value is absent from its options
+ * silently displays the first one instead — the admin opens the form to change
+ * a department and the role field is quietly sitting on something else, one
+ * save away from a real demotion.
+ *
+ * **Correction, 25 Sep 2026.** This block previously justified the union with
+ * "an HR Admin editing another HR Admin". That scenario cannot happen: the
+ * server's ROLE_AUTHORITY_MATRIX gates which users may be edited by their
+ * present role, and it holds the same contents as the browser's
+ * ROLE_CREATION_MATRIX — so anyone you may edit already holds a role you may
+ * assign, and the union adds nothing today.
+ *
+ * The tests below are kept, and so is the union, because the guarantee comes
+ * from two separately maintained tables happening to agree. If either is ever
+ * widened alone, this is what stops the dropdown misrepresenting a role.
  */
 
 jest.mock('@/lib/api-client', () => ({
@@ -81,8 +89,10 @@ beforeEach(() => {
 
 describe('the role dropdown', () => {
   it('always includes the role the person already holds', async () => {
-    // HR_ADMIN is not in HR_ADMIN's own creatable list, so without the union
-    // this select would have no option matching its value.
+    // Driven with an allowedRoles list that omits the current role. That
+    // combination is not reachable through the real matrices today (see the
+    // note at the top of this file) — it is the contract the component
+    // promises, tested directly rather than through a scenario.
     renderModal({ role: 'HR_ADMIN', allowedRoles: ['TEAM_LEAD', 'EMPLOYEE'] });
 
     const select = (await screen.findByLabelText('Role')) as HTMLSelectElement;
@@ -124,68 +134,123 @@ describe('the role dropdown', () => {
   });
 });
 
-describe('saving is deliberately disabled', () => {
+describe('saving', () => {
   /**
-   * `EDIT_ENDPOINT_READY` is false, and it is **not stale**. Checked against
-   * apps/api/src/users/users.controller.ts on 24 Sep 2026, which exposes
-   * POST /users, GET /users, PATCH /users/:id/status,
-   * POST /users/:id/resend-invitation and DELETE /users/:id.
-   * There is no PATCH /users/:id.
+   * Live since 25 Sep 2026. `PATCH /users/:id` now exists (#30) and
+   * `EDIT_ENDPOINT_READY` is true.
    *
-   * So this form is complete and cannot save. These tests pin that, rather
-   * than asserting a request the component is incapable of making — an
-   * earlier draft of this file did exactly that and failed.
-   *
-   * **When the endpoint lands**, flip the flag and this block fails. That is
-   * the intent: the tests below are the reminder that the request body,
-   * asserted in the final test here, was written in advance and has never
-   * been sent by anything.
+   * The block that used to sit here pinned the *disabled* state and was
+   * written to fail the moment the flag flipped. It did exactly that, which
+   * is what brought someone back to this file to write these.
    */
 
-  it('disables Save, so nothing is sent', async () => {
-    renderModal();
+  it('PATCHes the person, sending only what the API accepts', async () => {
+    const { onSaved, onClose } = renderModal();
     await screen.findByLabelText('Role');
 
-    const save = screen.getByRole('button', { name: 'Save changes' });
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
-    expect(save).toBeDisabled();
-    await userEvent.click(save);
-    expect(mockPatch).not.toHaveBeenCalled();
-  });
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    const [url, body] = mockPatch.mock.calls[0];
 
-  it('says why, instead of leaving a dead button', async () => {
-    // A disabled control with no explanation reads as a bug. This one tells
-    // the admin the form is finished and the server is not.
-    renderModal();
-    await screen.findByLabelText('Role');
-
-    expect(
-      screen.getByText(/Saving is disabled until the backend exposes an endpoint/i)
-    ).toBeInTheDocument();
-  });
-
-  it('names the missing endpoint on hover, for whoever has to build it', async () => {
-    renderModal();
-    await screen.findByLabelText('Role');
-
-    expect(screen.getByRole('button', { name: 'Save changes' })).toHaveAttribute(
-      'title',
-      expect.stringContaining('PATCH /users/:id')
+    expect(url).toBe('/users/u42');
+    // Email and employeeId are deliberately absent from the DTO — both are
+    // login identifiers, and changing either is a feature rather than a field.
+    expect(Object.keys(body).sort()).toEqual(
+      ['departmentId', 'name', 'officeId', 'role'].sort()
     );
+    expect(onSaved).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
   });
 
-  it('still lets the form be filled in and abandoned harmlessly', async () => {
-    // The fields work; only the save does not. Worth holding, because the
-    // moment the endpoint exists this form is expected to work as-is.
-    const { onSaved } = renderModal();
+  it('carries an edited name through', async () => {
+    renderModal();
     await screen.findByLabelText('Role');
 
     const name = screen.getByLabelText('Full name');
     await userEvent.clear(name);
     await userEvent.type(name, 'Bolanle Eze');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
-    expect(name).toHaveValue('Bolanle Eze');
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    expect(mockPatch.mock.calls[0][1].name).toBe('Bolanle Eze');
+  });
+
+  it('sends a changed role', async () => {
+    renderModal({ role: 'EMPLOYEE' });
+    await screen.findByLabelText('Role');
+
+    await userEvent.selectOptions(screen.getByLabelText('Role'), 'TEAM_LEAD');
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    expect(mockPatch.mock.calls[0][1].role).toBe('TEAM_LEAD');
+  });
+
+  it('sends undefined rather than "" when a select is left unset', async () => {
+    // "" is what an empty <select> gives. The API expects the field absent or
+    // explicitly null; an empty string fails the UUID check and reads to the
+    // admin as a broken form.
+    renderModal({ departmentId: null, officeId: null });
+    await screen.findByLabelText('Role');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+    const body = mockPatch.mock.calls[0][1];
+    expect(body.departmentId).toBeUndefined();
+    expect(body.officeId).toBeUndefined();
+  });
+
+  it('keeps the modal open and shows why when the save fails', async () => {
+    mockPatch.mockRejectedValueOnce(new Error('You cannot edit your own account.'));
+    const { onSaved, onClose } = renderModal();
+    await screen.findByLabelText('Role');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText('You cannot edit your own account.')).toBeInTheDocument();
+    expect(error).toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the role ceiling refusal as the server words it', async () => {
+    // An HR_ADMIN who somehow submits SUPER_ADMIN gets a 403 with a readable
+    // reason. The dropdown should not have offered it, so this is the second
+    // line rather than the first — but a silent failure here would look like
+    // the save button being broken.
+    mockPatch.mockRejectedValueOnce(
+      new Error('A HR_ADMIN may not assign the role SUPER_ADMIN')
+    );
+    renderModal();
+    await screen.findByLabelText('Role');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(
+      await screen.findByText('A HR_ADMIN may not assign the role SUPER_ADMIN')
+    ).toBeInTheDocument();
+  });
+
+  it('re-enables the button after a failure', async () => {
+    mockPatch.mockRejectedValueOnce(new Error('Network error'));
+    renderModal();
+    await screen.findByLabelText('Role');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await screen.findByText('Network error');
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+  });
+
+  it('no longer warns that saving is unavailable', async () => {
+    // The note that accompanied the disabled button. Leaving it visible beside
+    // a working save would be its own small lie.
+    renderModal();
+    await screen.findByLabelText('Role');
+
+    expect(screen.queryByText(/Saving is disabled/i)).not.toBeInTheDocument();
   });
 });
 

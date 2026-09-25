@@ -54,6 +54,8 @@ const ACTION_LABEL: Record<string, string> = {
   USER_SUSPENDED: "Person suspended",
   USER_RESTORED: "Person restored",
   USER_DELETED: "Person removed",
+  USER_UPDATED: "Details changed",
+  USER_REINSTATED: "Person reinstated",
   INVITATION_RESENT: "Invitation resent",
 };
 
