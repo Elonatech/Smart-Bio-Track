@@ -11,6 +11,7 @@ import type { UserListItemKey } from '@smartbiotrack/types';
 import { MailService } from '../mail/mail.service';
 import { CreateUserDto } from './dto/create-users.dto';
 import { ListUsersDto } from './dto/list-users.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 import {
   ACTIVATION_RESEND_COOLDOWN_SECONDS,
   ACTIVATION_TOKEN_TTL_DAYS,
@@ -75,6 +76,43 @@ const USER_LIST_SELECT = {
   officeId: true,
   createdAt: true,
 } satisfies Record<UserListItemKey, true>;
+
+/**
+ * A short, human description of what an update changed, for the audit label.
+ *
+ * The trail already records who acted and on whom. What it cannot reconstruct
+ * afterwards is *what was altered* — the row holds the post-change state, so a
+ * disputed promotion six months later has no record of what the role was
+ * before. This puts the before-and-after in the entry itself.
+ *
+ * Only genuinely changed fields appear: a PATCH that resends the same name is
+ * not a name change, and recording it as one would fill the trail with noise
+ * that an auditor has to read past.
+ */
+function describeUserChanges(
+  before: { name: string; role: UserRole; departmentId: string | null; officeId: string | null },
+  dto: UpdateUserDto,
+): string {
+  const parts: string[] = [];
+
+  if (dto.name !== undefined && dto.name !== before.name) {
+    parts.push(`name "${before.name}" to "${dto.name}"`);
+  }
+  if (dto.role !== undefined && dto.role !== before.role) {
+    parts.push(`role ${before.role} to ${dto.role}`);
+  }
+  if (dto.departmentId !== undefined && dto.departmentId !== before.departmentId) {
+    parts.push(dto.departmentId ? 'department reassigned' : 'department cleared');
+  }
+  if (dto.officeId !== undefined && dto.officeId !== before.officeId) {
+    parts.push(dto.officeId ? 'office reassigned' : 'office cleared');
+  }
+
+  // Reachable: a PATCH that resends every current value passes the
+  // "no changes supplied" check, because keys were supplied, and changes
+  // nothing. Better to say so than to leave the label trailing an em dash.
+  return parts.length > 0 ? parts.join(', ') : 'no effective change';
+}
 
 @Injectable()
 export class UsersService {
@@ -262,7 +300,7 @@ export class UsersService {
   private async findManageable(
     userId: string,
     caller: Caller,
-    action: 'suspend' | 'delete' | 'resend the invitation for',
+    action: 'suspend' | 'delete' | 'edit' | 'resend the invitation for',
   ) {
     // Suspending yourself locks you out on the next request, since JwtStrategy
     // rejects any user who is not ACTIVE — and nobody is left who can undo it
@@ -526,6 +564,263 @@ export class UsersService {
       email: updated.email,
       role: updated.role,
       status: updated.status,
+    };
+  }
+
+  /**
+   * Changes a staff record: name, role, department, office (#30).
+   *
+   * Until this existed there was **no way to alter a user after provisioning**.
+   * That was not merely inconvenient: the setup wizard collects name, email and
+   * role only, so everybody onboarded during setup had no department and no
+   * office and no route to being given one — and a TEAM_LEAD's entire data
+   * scope keys off `departmentId`, while an office is what a geo-fenced
+   * clock-in is measured against.
+   *
+   * Reuses `findManageable`, which carries the organization scope, the deleted
+   * filter, the self-target refusal and the authority ceiling. Nothing here
+   * re-implements any of those.
+   */
+  async update(
+    userId: string,
+    dto: UpdateUserDto,
+    caller: Caller,
+    ipAddress?: string,
+  ) {
+    const user = await this.findManageable(userId, caller, 'edit');
+
+    // A role change is a second authority question, and the ceiling has to
+    // apply to the *destination* as well as the target. Without this an
+    // HR_ADMIN — who may edit a TEAM_LEAD — could set that person's role to
+    // SUPER_ADMIN and then be administered by someone they just promoted.
+    // Exactly the escalation ROLE_AUTHORITY_MATRIX exists to stop at
+    // provisioning, arriving through a door that did not exist then.
+    if (dto.role !== undefined && dto.role !== user.role) {
+      if (!(ROLE_AUTHORITY_MATRIX[caller.role] ?? []).includes(dto.role)) {
+        throw new ForbiddenException(
+          `A ${caller.role} may not assign the role ${dto.role}`,
+        );
+      }
+    }
+
+    // Scoped to the caller's organization, same as provision: an admin must not
+    // be able to attach one of their staff to another tenant's department or
+    // office by guessing a UUID. Null is a deliberate clear and skips the check.
+    if (dto.departmentId) {
+      const department = await this.prisma.department.findFirst({
+        where: { id: dto.departmentId, organizationId: caller.organizationId },
+      });
+      if (!department) {
+        throw new BadRequestException('Invalid department ID');
+      }
+    }
+
+    if (dto.officeId) {
+      const office = await this.prisma.office.findFirst({
+        where: { id: dto.officeId, organizationId: caller.organizationId },
+      });
+      if (!office) {
+        throw new BadRequestException('Invalid office ID');
+      }
+    }
+
+    // Only the keys actually supplied. Spreading the whole DTO would write
+    // `undefined` over columns the caller never mentioned — and for the two
+    // nullable ones, `null` and "not supplied" are different instructions.
+    const data: Prisma.UserUpdateInput = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.role !== undefined) data.role = dto.role;
+    if (dto.departmentId !== undefined) {
+      data.department = dto.departmentId
+        ? { connect: { id: dto.departmentId } }
+        : { disconnect: true };
+    }
+    if (dto.officeId !== undefined) {
+      data.office = dto.officeId
+        ? { connect: { id: dto.officeId } }
+        : { disconnect: true };
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('No changes supplied.');
+    }
+
+    const changeSummary = describeUserChanges(user, dto);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.user.update({
+        where: { id: user.id },
+        data,
+      });
+
+      // A demotion has to end the sessions it demotes. The role is baked into
+      // the access token, and refresh tokens are a separate store that would
+      // go on minting new ones — so without this, somebody moved from HR_ADMIN
+      // to EMPLOYEE keeps administrative access for as long as their browser
+      // stays open, and can renew it for the life of the refresh token.
+      //
+      // Applied to any role change rather than only to demotions: deciding
+      // which direction is "safe" means ranking the roles, and that ranking
+      // would become a second place role authority is encoded.
+      if (dto.role !== undefined && dto.role !== user.role) {
+        await tx.refreshToken.updateMany({
+          where: { userId: user.id, revoked: false },
+          data: { revoked: true },
+        });
+      }
+
+      await this.auditService.record(
+        {
+          organizationId: caller.organizationId,
+          actor: caller,
+          action: 'USER_UPDATED',
+          targetType: 'User',
+          targetId: user.id,
+          // The label records what changed, not only who. "Who altered this
+          // record" is answerable from the actor alone; "what did they alter"
+          // is the question a disputed role change actually turns on, and the
+          // row would otherwise be silent about it.
+          targetLabel: `${user.name} (${user.employeeId}) — ${changeSummary}`,
+          ipAddress,
+        },
+        tx,
+      );
+
+      return result;
+    });
+
+    return {
+      id: updated.id,
+      employeeId: updated.employeeId,
+      name: updated.name,
+      email: updated.email,
+      role: updated.role,
+      status: updated.status,
+      departmentId: updated.departmentId,
+      officeId: updated.officeId,
+    };
+  }
+
+  /**
+   * Brings a removed employee back (#23).
+   *
+   * **SUPER_ADMIN only, and always as a fresh invitation.** Both halves were a
+   * management decision taken on 24 Sep 2026, not an engineering default, and
+   * both have a reason worth keeping:
+   *
+   * *Super admin only* — an accidental removal and a deliberate one look
+   * identical afterwards, so whoever may reinstate may also quietly undo a
+   * colleague's decision. Narrow is far easier to widen later than the reverse.
+   *
+   * *Fresh invitation* — the alternative is silently restoring a password and a
+   * permission set that may be a year stale. The person sets a new password and
+   * arrives as PENDING, which is what a returning employee actually is.
+   *
+   * This is deliberately **not** part of `toggleStatus`. That method is a
+   * two-way flip whose else-branch produces ACTIVE, so routing a DELETED user
+   * through it would hand them their old account back, old password included —
+   * see the note there.
+   */
+  async reinstate(userId: string, caller: Caller, ipAddress?: string) {
+    if (userId === caller.id) {
+      // Unreachable in practice — a DELETED caller cannot authenticate, since
+      // JwtStrategy rejects any status but ACTIVE. Kept because the guarantee
+      // that makes it unreachable lives in another file.
+      throw new BadRequestException('You cannot reinstate your own account.');
+    }
+
+    // Not findManageable: that method filters DELETED users out, which is
+    // exactly the set this one operates on.
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        organizationId: caller.organizationId,
+        status: UserStatus.DELETED,
+      },
+    });
+
+    if (!user) {
+      // Covers three cases on purpose — no such id, another tenant's user, and
+      // a user who is not actually removed. Distinguishing them would confirm
+      // that an id exists, and the caller's next action is the same regardless.
+      throw new NotFoundException('No removed user found with that ID');
+    }
+
+    if (caller.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only an organization super admin may reinstate a removed employee.',
+      );
+    }
+
+    const rawToken = generateToken();
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          status: UserStatus.PENDING,
+          deletedAt: null,
+          // The old credential does not survive the round trip. Leaving it in
+          // place would make this a "fresh invitation" the returning employee
+          // could ignore, signing in with a password set before they left.
+          passwordHash: null,
+          // Their lockout state went with them; starting a new account part of
+          // the way to locked would be a confusing welcome.
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+        },
+      });
+
+      await tx.activationToken.create({
+        data: {
+          tokenHash: hashToken(rawToken),
+          userId: user.id,
+          expiresAt: expiryInDays(ACTIVATION_TOKEN_TTL_DAYS),
+        },
+      });
+
+      await this.auditService.record(
+        {
+          organizationId: caller.organizationId,
+          actor: caller,
+          action: 'USER_REINSTATED',
+          targetType: 'User',
+          targetId: user.id,
+          targetLabel: `${user.name} (${user.employeeId})`,
+          ipAddress,
+        },
+        tx,
+      );
+    });
+
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: caller.organizationId },
+    });
+
+    try {
+      await this.mailService.sendActivationEmail(
+        user.email,
+        rawToken,
+        organization?.name ?? 'Your organization',
+      );
+    } catch {
+      // Same reasoning as provision: the row and its token are committed, and
+      // rolling back would leave the admin looking at an error and a user who
+      // is neither removed nor restored. The account sits PENDING until the
+      // invitation is re-sent, which is a path that already exists.
+      throw new InternalServerErrorException(
+        `${user.name} was reinstated, but the invitation email could not be sent. Re-send it from their profile.`,
+      );
+    }
+
+    return {
+      id: user.id,
+      employeeId: user.employeeId,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: UserStatus.PENDING,
+      message: `${user.name} has been reinstated. An invitation is on its way to ${user.email}.`,
     };
   }
 
