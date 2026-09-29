@@ -1199,4 +1199,85 @@ describe('UsersService', () => {
     });
   });
 
+  /**
+   * Listing removed staff (#31).
+   *
+   * The reinstate endpoint (#23) was unreachable through the product until
+   * this existed: `findAll` filtered DELETED rows out unconditionally, so no
+   * screen could show somebody in order to bring them back.
+   */
+  describe('findAll with includeRemoved', () => {
+    const listQuery = (over: Partial<ListUsersDto> = {}): ListUsersDto =>
+      ({ page: 1, limit: 25, ...over }) as ListUsersDto;
+
+    beforeEach(() => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+    });
+
+    /** The `where` the page query actually ran with. */
+    const findManyArgs = () =>
+      mockPrisma.user.findMany.mock.calls[0][0] as {
+        where: Record<string, unknown>;
+      };
+
+    it('excludes removed staff by default', async () => {
+      await service.findAll(callerWithRole('SUPER_ADMIN'), listQuery());
+
+      expect(findManyArgs().where).toMatchObject({
+        status: { not: 'DELETED' },
+      });
+    });
+
+    it('lifts the filter for a SUPER_ADMIN who asks', async () => {
+      await service.findAll(
+        callerWithRole('SUPER_ADMIN'),
+        listQuery({ includeRemoved: true }),
+      );
+
+      // The organization scope stays. Only the status filter lifts — a
+      // version that dropped both would list every tenant's removed staff.
+      expect(findManyArgs().where).toMatchObject({ organizationId: orgId });
+      expect(findManyArgs().where).not.toHaveProperty('status');
+    });
+
+    it('refuses an HR_ADMIN rather than ignoring the flag', async () => {
+      // The important half. Silently dropping the filter would show an HR
+      // admin a list that is not the one they asked for, with no way to tell —
+      // they would conclude nobody has ever been removed. A 403 is an answer.
+      await expect(
+        service.findAll(callerWithRole('HR_ADMIN'), listQuery({ includeRemoved: true })),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(mockPrisma.user.findMany).not.toHaveBeenCalled();
+    });
+
+    it('still serves an HR_ADMIN who does not ask', async () => {
+      await service.findAll(callerWithRole('HR_ADMIN'), listQuery());
+
+      expect(mockPrisma.user.findMany).toHaveBeenCalled();
+    });
+
+    it('does not refuse a caller who passes the flag as false', async () => {
+      // `includeRemoved=false` is a request for the default. Rejecting it
+      // would make a UI that always sends the parameter impossible to write.
+      await service.findAll(
+        callerWithRole('HR_ADMIN'),
+        listQuery({ includeRemoved: false }),
+      );
+
+      expect(findManyArgs().where).toMatchObject({ status: { not: 'DELETED' } });
+    });
+
+    it('keeps the department scope for a TEAM_LEAD', async () => {
+      // Belt and braces: a TEAM_LEAD is refused the flag above, but if that
+      // check were ever relaxed the department narrowing must not be.
+      const lead = { ...callerWithRole('EMPLOYEE'), role: 'TEAM_LEAD' as const, departmentId: 'dept-1' };
+
+      await service.findAll(lead, listQuery());
+
+      expect(findManyArgs().where).toMatchObject({ departmentId: 'dept-1' });
+    });
+  });
+
 });
