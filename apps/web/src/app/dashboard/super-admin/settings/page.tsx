@@ -5,6 +5,7 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { Toggle } from "@/app/components/dashboard/Toggle";
 import { useToast } from "@/app/components/Toast";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
  
 
 const REQUIRED_SIGNALS = [
@@ -47,6 +48,7 @@ export default function SuperAdminSettingsPage() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <SampleDataBanner describes="settings" />
       {/* Trust score thresholds */}
       <div className="bg-surface border border-neutral/20 rounded-xl p-5">
         <h2 className="text-base font-semibold text-heading">Trust score thresholds</h2>

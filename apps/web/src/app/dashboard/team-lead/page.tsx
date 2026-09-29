@@ -12,6 +12,7 @@ import {
 import { useAuthStore } from "@/lib/store/auth-store";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 // The Team Lead's root page. Their overview IS the team roster for
 // today — there's no separate "dashboard" worth showing above it, which
@@ -142,6 +143,7 @@ export default function TeamLeadDashboardPage() {
 
   return (
     <div>
+      <SampleDataBanner describes="attendance figures" />
       <TodayStatusCard />
 
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">

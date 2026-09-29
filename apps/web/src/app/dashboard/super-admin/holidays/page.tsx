@@ -10,6 +10,7 @@ import {
   type Holiday,
 } from "@/app/components/dashboard/HolidayModal";
 import { ConfirmDialog } from "@/app/components/dashboard/ConfirmDialog";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 // repeatsAnnually is false for the moveable feasts — Eid follows the
 // lunar calendar and Good Friday moves with Easter, so neither can be
@@ -80,6 +81,7 @@ export default function SuperAdminHolidaysPage() {
 
   return (
     <div className="">
+      <SampleDataBanner describes="holidays" />
       <div className="bg-surface border border-neutral/20 rounded-xl overflow-hidden p-5">
         <div className="flex justify-end">
           <button

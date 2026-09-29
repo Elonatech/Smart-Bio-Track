@@ -11,6 +11,7 @@ import {
   WorkRuleFormModal,
   type WorkRule,
 } from "@/app/components/dashboard/WorkRuleFormModal";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 const INITIAL_RULES: WorkRule[] = [
   {
@@ -88,6 +89,7 @@ export default function SuperAdminWorkRulesPage() {
 
   return (
     <div>
+      <SampleDataBanner describes="work rules" />
       <div className="flex justify-end mb-6">
         <button
           type="button"

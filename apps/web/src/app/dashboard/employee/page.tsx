@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 // The EMPLOYEE role's own dashboard root. Until this file existed,
 // anyone logging in as an EMPLOYEE was redirected to /dashboard/employee
@@ -208,6 +209,7 @@ export default function EmployeeDashboardPage() {
 
   return (
     <div>
+      <SampleDataBanner describes="attendance records" />
       {/* Row 1 — today's status (wide) + the three punch readouts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">

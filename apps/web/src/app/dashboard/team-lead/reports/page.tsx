@@ -7,6 +7,7 @@ import { DataTable } from "@/app/components/dashboard/DataTable";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { useToast } from "@/app/components/Toast";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 
 
@@ -166,6 +167,7 @@ export default function TeamLeadReportsPage() {
 
   return (
     <div>
+      <SampleDataBanner describes="reports" />
       <div className="bg-surface border border-neutral/20 rounded-xl p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

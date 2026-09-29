@@ -6,6 +6,7 @@ import { downloadCsv } from "@/lib/csv";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { useToast } from "@/app/components/Toast";
 import { DataTable } from "@/app/components/dashboard/DataTable";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 // Payroll hand-off for HR. UI only — there's no Attendance model in
 // prisma/schema.prisma and no payroll endpoint, so the rows are example
@@ -147,6 +148,7 @@ export default function HRAdminPayrollPage() {
 
   return (
     <div>
+      <SampleDataBanner describes="payroll runs" />
       <div className="bg-surface border border-neutral/20 rounded-xl overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
           <div>

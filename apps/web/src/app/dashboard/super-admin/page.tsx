@@ -5,6 +5,7 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { SetupReminderBanner } from "@/app/components/dashboard/SetupReminderBanner";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 export default function SuperAdminDashboardPage() {
   const orgName = useAuthStore((state) => state.user?.organizationName) ?? "Your organization";
@@ -18,6 +19,7 @@ export default function SuperAdminDashboardPage() {
 
   return (
     <div>
+      <SampleDataBanner partial />
       {/* Only renders while the org has no offices — the way back into
           the setup wizard for anyone who skipped or abandoned it. */}
       <SetupReminderBanner />
