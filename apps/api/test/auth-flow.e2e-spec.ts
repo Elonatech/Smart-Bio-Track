@@ -1549,4 +1549,136 @@ describe('Auth flow and RBAC (integration)', () => {
     });
   });
 
+  /**
+   * Listing removed staff (#31) — the half that makes reinstatement reachable.
+   *
+   * Query parameters arrive as strings, which is why these run over HTTP and
+   * not only as unit tests: `?includeRemoved=true` is the string "true", and
+   * without the DTO transform every correct request is a 400.
+   */
+  describe('listing removed staff (#31)', () => {
+    it('omits removed employees by default', async () => {
+      await onboard('EMPLOYEE', 'hide1');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'hide1@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .delete(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const res = await request(httpServer(ctx))
+        .get('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const ids = res.body.data.items.map((u: { id: string }) => u.id);
+      expect(ids).not.toContain(user?.id);
+    });
+
+    it('includes them for a super admin who asks', async () => {
+      await onboard('EMPLOYEE', 'show1');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'show1@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .delete(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const res = await request(httpServer(ctx))
+        .get('/api/users?includeRemoved=true')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const row = res.body.data.items.find(
+        (u: { id: string }) => u.id === user?.id,
+      );
+      expect(row).toBeDefined();
+      // The browser renders this, so it has to arrive as the real status
+      // rather than being normalised away somewhere in between.
+      expect(row.status).toBe('DELETED');
+    });
+
+    it('accepts the string "true", which is all a query string can carry', async () => {
+      // Without the DTO's transform, @IsBoolean() rejects "true" and every
+      // correct request is a 400 — a failure that looks like the feature not
+      // existing.
+      await request(httpServer(ctx))
+        .get('/api/users?includeRemoved=true')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+    });
+
+    it('rejects a value that is neither true nor false', async () => {
+      // Coercing anything unrecognised to false would silently serve the
+      // default list to somebody who asked for something else.
+      await request(httpServer(ctx))
+        .get('/api/users?includeRemoved=yes')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(400);
+    });
+
+    it('refuses an HR_ADMIN rather than quietly dropping the filter', async () => {
+      const hrToken = await onboard('HR_ADMIN', 'hrlist');
+
+      await request(httpServer(ctx))
+        .get('/api/users?includeRemoved=true')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(403);
+    });
+
+    it('still serves an HR_ADMIN the ordinary list', async () => {
+      const hrToken = await onboard('HR_ADMIN', 'hrlist2');
+
+      await request(httpServer(ctx))
+        .get('/api/users')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .expect(200);
+    });
+
+    it('lets a super admin find and reinstate somebody in two calls', async () => {
+      // The whole point of #31, end to end: without the listing there is no
+      // way to discover the id that the reinstate endpoint needs.
+      await onboard('EMPLOYEE', 'roundtrip');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'roundtrip@acme.test' },
+      });
+
+      await request(httpServer(ctx))
+        .delete(`/api/users/${user?.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const list = await request(httpServer(ctx))
+        .get('/api/users?includeRemoved=true&q=roundtrip')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const found = list.body.data.items.find(
+        (u: { email: string }) => u.email === 'roundtrip@acme.test',
+      );
+      expect(found).toBeDefined();
+
+      await request(httpServer(ctx))
+        .post(`/api/users/${found.id}/reinstate`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // And they drop back out of the removed-only view, because they are
+      // no longer removed.
+      const after = await request(httpServer(ctx))
+        .get('/api/users')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      const stillThere = after.body.data.items.find(
+        (u: { email: string }) => u.email === 'roundtrip@acme.test',
+      );
+      expect(stillThere.status).toBe('PENDING');
+    });
+  });
+
 });

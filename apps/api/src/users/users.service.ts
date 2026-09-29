@@ -847,14 +847,25 @@ export class UsersService {
    * turns into a different filter is worse than no filter, because it looks
    * finished. Handle the null explicitly, or don't handle it at all.
    */
-  private visibleUsersWhere(caller: Caller): Prisma.UserWhereInput | null {
+  private visibleUsersWhere(
+    caller: Caller,
+    includeRemoved = false,
+  ): Prisma.UserWhereInput | null {
     // Deleted users are kept for the record, not for the staff list. Applied
     // here rather than in each branch below so a future role added to this
     // method inherits it instead of having to remember it.
-    const organizationScope = {
-      organizationId: caller.organizationId,
-      status: { not: UserStatus.DELETED },
-    };
+    //
+    // `includeRemoved` lifts it, and only a SUPER_ADMIN can set it — findAll
+    // refuses the request outright for anyone else, so by the time it reaches
+    // this method the permission question is already settled. The default is
+    // false so a caller that forgets the argument gets the safe behaviour
+    // rather than the permissive one.
+    const organizationScope: Prisma.UserWhereInput = includeRemoved
+      ? { organizationId: caller.organizationId }
+      : {
+          organizationId: caller.organizationId,
+          status: { not: UserStatus.DELETED },
+        };
 
     if (caller.role !== UserRole.TEAM_LEAD) {
       return organizationScope;
@@ -876,7 +887,21 @@ export class UsersService {
    * it.
    */
   async findAll(caller: Caller, query: ListUsersDto) {
-    const where = this.visibleUsersWhere(caller);
+    // Rejected rather than ignored. An HR admin who asks for removed staff and
+    // silently gets a list without them has no way to tell the filter was
+    // dropped — they would conclude nobody has ever been removed, which is a
+    // different and worse answer than "you may not ask that".
+    //
+    // SUPER_ADMIN matches who may reinstate (#23). Widening one without the
+    // other gives a role the ability to see removed staff and no ability to
+    // act on them, or the reverse.
+    if (query.includeRemoved && caller.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only an organization super admin may list removed employees.',
+      );
+    }
+
+    const where = this.visibleUsersWhere(caller, query.includeRemoved);
     const { page, limit } = query;
 
     // No department, nobody to supervise. Answered without a query rather
