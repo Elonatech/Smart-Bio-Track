@@ -17,11 +17,17 @@
 @theme {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
-  /* Brand + status palette */
+  /* Brand + status palette.
+     warning/alert are a shade darker than the original design handoff —
+     #b36300/#da0000 measured 4.46:1 and 4.40:1 against the error-box
+     tint (bg-alert/10, the most-reused pattern in the app: every form's
+     validation error), just under the 4.5:1 WCAG AA floor for normal
+     text. These clear 4.5:1 against both plain surfaces and the /10
+     tints, in both themes. */
   --color-primary: #33538a;
   --color-success: #10835c;
-  --color-warning: #b36300;
-  --color-alert: #da0000;
+  --color-warning: #9c5400;
+  --color-alert: #c80000;
   --color-info: #8b5cf6;
 
   /* Surfaces and text */
@@ -56,7 +62,9 @@ option {
   --color-primary: #5f86c8;
   --color-success: #139e6f;
   --color-warning: #d98b09;
-  --color-alert: #ea3e33;
+  /* #ea3e33 measured 4.28:1 against the dark surface — lightened to
+     clear 4.5:1 there and against the bg-alert/10 tint. */
+  --color-alert: #f25a4e;
   --color-info: #a78bfa;
 
   --color-background: #0b1220;
