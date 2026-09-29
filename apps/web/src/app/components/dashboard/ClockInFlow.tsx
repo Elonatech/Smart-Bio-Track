@@ -32,7 +32,6 @@ interface NearestOfficeResult {
   accuracyMeters: number;
 }
 
-
 const PENDING_TRUST_SIGNALS = [
   "User authentication (MFA)",
   "Registered device",
