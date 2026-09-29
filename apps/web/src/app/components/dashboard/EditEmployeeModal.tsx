@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,6 +8,7 @@ import { z } from "zod";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
+import { useModalA11y } from "@/lib/useModalA11y";
 import type { UserRole } from "@/lib/store/auth-store";
 
 // Editing an existing person: department, office, role, name.
@@ -71,6 +72,8 @@ export function EditEmployeeModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [departments, setDepartments] = useState<NamedOption[]>([]);
   const [offices, setOffices] = useState<NamedOption[]>([]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
 
   const {
     register,
@@ -135,10 +138,21 @@ export function EditEmployeeModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-employee-title"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+      >
         <div className="flex items-start justify-between gap-4 mb-1">
-          <h2 className="text-lg font-semibold text-heading">Edit employee</h2>
+          <h2 id="edit-employee-title" className="text-lg font-semibold text-heading">Edit employee</h2>
           <button
             type="button"
             onClick={onClose}

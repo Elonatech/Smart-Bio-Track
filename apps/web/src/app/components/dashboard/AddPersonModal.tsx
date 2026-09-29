@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, MailCheck } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,6 +8,7 @@ import { z } from "zod";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
+import { useModalA11y } from "@/lib/useModalA11y";
 import type { UserRole } from "@/lib/store/auth-store";
 
 // The single flow for adding ANYONE to the organization — employee,
@@ -112,6 +113,8 @@ export function AddPersonModal({
   const [invited, setInvited] = useState<ProvisionResponse | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [offices, setOffices] = useState<OfficeOption[]>([]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
 
   useEffect(() => {
     // Both dropdowns are optional fields, so a failure on either one
@@ -174,10 +177,21 @@ export function AddPersonModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-person-title"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+      >
         <div className="flex items-start justify-between mb-1">
-          <h2 className="text-lg font-semibold text-heading">
+          <h2 id="add-person-title" className="text-lg font-semibold text-heading">
             {invited ? "Invitation sent" : "Add person"}
           </h2>
           <button

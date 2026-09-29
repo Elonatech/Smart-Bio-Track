@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { X, AlertTriangle } from "lucide-react";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
+import { useModalA11y } from "@/lib/useModalA11y";
 import type { EditableEmployee } from "./EditEmployeeModal";
 
 interface DeleteEmployeeModalProps {
@@ -20,6 +21,8 @@ export function DeleteEmployeeModal({
   const toast = useToast();
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
 
   async function handleConfirm() {
     setError(null);
@@ -42,15 +45,26 @@ export function DeleteEmployeeModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-employee-title"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+      >
         <div className="flex items-start gap-4">
           <div className="shrink-0 h-10 w-10 rounded-full bg-alert/10 flex items-center justify-center">
             <AlertTriangle className="h-5 w-5 text-alert" strokeWidth={2} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
-              <h2 className="text-base font-semibold text-heading">
+              <h2 id="delete-employee-title" className="text-base font-semibold text-heading">
                 Remove {employee.name}?
               </h2>
               <button

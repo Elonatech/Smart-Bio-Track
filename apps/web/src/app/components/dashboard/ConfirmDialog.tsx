@@ -1,6 +1,8 @@
 "use client";
 
+import { useRef } from "react";
 import { AlertTriangle, X } from "lucide-react";
+import { useModalA11y } from "@/lib/useModalA11y";
 
 // A generic confirm step for destructive actions that don't need their
 // own modal.
@@ -31,16 +33,22 @@ export function ConfirmDialog({
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6"
+        className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start gap-4">
           <div className="shrink-0 h-10 w-10 rounded-full bg-alert/10 flex items-center justify-center">
@@ -49,7 +57,7 @@ export function ConfirmDialog({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
-              <h2 className="text-base font-semibold text-heading">{title}</h2>
+              <h2 id="confirm-dialog-title" className="text-base font-semibold text-heading">{title}</h2>
               <button
                 type="button"
                 onClick={onClose}

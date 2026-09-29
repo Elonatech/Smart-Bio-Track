@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useModalA11y } from "@/lib/useModalA11y";
 
 // UI only, same as HR's Leave Administration screen — there is no Leave
 // model in prisma/schema.prisma and no leave module in apps/api/src, so
@@ -46,6 +47,9 @@ interface LeaveRequestModalProps {
 
 export function LeaveRequestModal({ onClose, onSubmit }: LeaveRequestModalProps) {
   const [submitting, setSubmitting] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
+
   const {
     register,
     handleSubmit,
@@ -61,10 +65,21 @@ export function LeaveRequestModal({ onClose, onSubmit }: LeaveRequestModalProps)
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="leave-request-title"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+      >
         <div className="flex items-start justify-between mb-4">
-          <h2 className="text-lg font-semibold text-heading">Request leave</h2>
+          <h2 id="leave-request-title" className="text-lg font-semibold text-heading">Request leave</h2>
           <button
             type="button"
             onClick={onClose}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -8,6 +8,7 @@ import {
   CircleX,
   X,
 } from "lucide-react";
+import { useModalA11y } from "@/lib/useModalA11y";
 
 // Detail view for one flagged punch. UI only — there is no attendance
 // backend (no Punch model in prisma/schema.prisma, no module in
@@ -89,52 +90,7 @@ export function PunchReviewModal({
   // useless to whoever reads it later. Approve stays ungated.
   const hasNote = notes.trim().length > 0;
 
-  useEffect(() => {
-    // Remember where focus was so it can go back to the Review button
-    // when the modal closes — otherwise a keyboard user is dumped at
-    // the top of the document.
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
-
-    // The page behind shouldn't scroll while the modal is open.
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-        return;
-      }
-
-      if (event.key !== "Tab") return;
-
-      // Focus trap: collect what's actually focusable right now
-      // (disabled controls are excluded automatically) and wrap Tab
-      // around the ends so focus can't escape to the page behind.
-      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      );
-      if (!focusables || focusables.length === 0) return;
-
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = originalOverflow;
-      previouslyFocused?.focus();
-    };
-  }, [onClose]);
+  useModalA11y(panelRef, onClose);
 
   return (
     <div

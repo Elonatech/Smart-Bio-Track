@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useModalA11y } from "@/lib/useModalA11y";
 
 // NOTE: purely local state — there's no backend WorkRule model or API
 // yet (confirmed: no controller, service, or Prisma model exists).
@@ -37,6 +38,8 @@ interface WorkRuleFormModalProps {
 export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalProps) {
   const isEditing = Boolean(rule);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
 
   const {
     register,
@@ -62,10 +65,21 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="work-rule-form-title"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+      >
         <div className="flex items-start justify-between mb-4">
-          <h2 className="text-lg font-semibold text-heading">
+          <h2 id="work-rule-form-title" className="text-lg font-semibold text-heading">
             {isEditing ? "Edit time regulation" : "New time regulation"}
           </h2>
           <button
