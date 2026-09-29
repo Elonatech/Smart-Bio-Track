@@ -125,6 +125,19 @@ export default function SuperAdminSettingsPage() {
             </div>
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            toast.info(
+              "Required signals applied on this screen",
+              "Not saved to the server yet — organization settings have no backend model."
+            )
+          }
+          className="mt-4 rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90"
+        >
+          Save signals
+        </button>
       </div>
 
       {/* Security policy */}
@@ -145,6 +158,19 @@ export default function SuperAdminSettingsPage() {
             </div>
           ))}
         </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            toast.info(
+              "Security policy applied on this screen",
+              "Not saved to the server yet — organization settings have no backend model."
+            )
+          }
+          className="mt-4 rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90"
+        >
+          Save policy
+        </button>
       </div>
 
       {/* Data retention */}
@@ -186,6 +212,19 @@ export default function SuperAdminSettingsPage() {
           These settings apply to {orgName} only. Raw biometric data is never
           transmitted or stored.
         </p>
+
+        <button
+          type="button"
+          onClick={() =>
+            toast.info(
+              "Retention periods applied on this screen",
+              "Not saved to the server yet — organization settings have no backend model."
+            )
+          }
+          className="mt-4 rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90"
+        >
+          Save retention
+        </button>
       </div>
     </div>
   );
