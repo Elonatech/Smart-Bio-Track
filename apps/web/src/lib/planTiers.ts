@@ -16,7 +16,6 @@ export const PLAN_LABEL: Record<PlanTier, string> = {
   ENTERPRISE: "Enterprise",
 };
 
-
 export const CURRENT_PLAN: PlanTier = "STARTER";
 
 export function isPlanUnlocked(required: PlanTier, current: PlanTier): boolean {
