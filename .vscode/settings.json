@@ -1,0 +1,13 @@
+{
+  // This repo is a pnpm monorepo with NO tsconfig.json at the root —
+  // apps/web and apps/api each have their own. Opened at the root, the
+  // TS server has to walk up from each file to find the right one, and
+  // can fall back to an inferred project with no `paths` mapping. That
+  // shows up as "Cannot find module '@/lib/...'" on files that compile
+  // perfectly well with `npx tsc --noEmit`.
+  //
+  // Pinning the workspace TypeScript keeps the editor and the CLI on the
+  // same compiler and the same project resolution.
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true
+}

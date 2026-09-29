@@ -16,17 +16,72 @@ enum UserRole {
 }
 
 enum UserStatus {
+  PENDING
   ACTIVE
   SUSPENDED
+
+  /// Removed by an admin, but the row stays.
+  ///
+  /// This is an attendance and payroll product: a user's rows are the evidence
+  /// behind who was paid for which hours. Most jurisdictions require those
+  /// records kept for years after someone leaves, so a real DELETE — which
+  /// cascades their attendance away with them — destroys the one thing that
+  /// settles a dispute.
+  ///
+  /// Carried on UserStatus rather than a separate `deletedAt IS NULL` filter
+  /// because JwtStrategy already refuses anyone whose status is not ACTIVE.
+  /// That means a deleted user is locked out of every authenticated route the
+  /// moment this commits, with no new filter for a future endpoint to forget.
+  DELETED
 }
 
-model Department {
+model PendingOrganizationSignup {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  tokenHash    String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+}
+
+model Organization {
   id        String   @id @default(uuid())
-  name      String   @unique
+
+  /// The address the organization signed up with. Still unique — it is what
+  /// stops one inbox owning two organizations by accident.
+  email     String   @unique
+
+  /// Deliberately NOT unique.
+  ///
+  /// It was, which meant the first customer to register "Sterling Ltd" took
+  /// that name away from every other company of the same name, worldwide, with
+  /// no recourse for the second one but to invent a name they do not trade
+  /// under. Duplicate company names are ordinary — Companies House alone lists
+  /// many — and nothing here needs the name to be a key: organizations are
+  /// addressed by `id` everywhere, tenants never see each other, and sign-in is
+  /// by email or employee ID, never by organization name.
+  name      String
+  industry  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  users       User[]
+  departments Department[]
+  offices     Office[]
+  auditLogs   AuditLog[]
+}
+
+model Department {
+  id             String   @id @default(uuid())
+  name           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
   employees User[]
+
+  @@unique([organizationId, name])
 }
 
 model Office {
@@ -35,10 +90,14 @@ model Office {
   latitude             Float
   longitude            Float
   geofenceRadiusMeters Int      @default(100)
+  organizationId       String
+  organization         Organization @relation(fields: [organizationId], references: [id])
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   employees User[]
+
+  @@unique([organizationId, name])
 }
 
 model User {
@@ -46,9 +105,12 @@ model User {
   employeeId   String     @unique
   name         String
   email        String     @unique
-  passwordHash String
+  passwordHash String?
   role         UserRole   @default(EMPLOYEE)
-  status       UserStatus @default(ACTIVE)
+  status       UserStatus @default(PENDING)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
@@ -58,4 +120,200 @@ model User {
 
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  /// When the account was removed. Null for everyone else.
+  ///
+  /// `status` drives the behaviour; this records the date, which is what a
+  /// retention policy is actually written against ("destroy seven years after
+  /// leaving"). updatedAt cannot serve — any later edit overwrites it.
+  deletedAt    DateTime?
+
+  /// Consecutive failed sign-ins, reset to zero by any successful one.
+  ///
+  /// Counted per *account*, which is the unit that matters and the one IP
+  /// throttling cannot see: a thousand addresses each trying five passwords
+  /// against one account stays under every per-IP limit ever written.
+  failedLoginAttempts Int @default(0)
+
+  /// Set when the count crosses the threshold; sign-in is refused until it
+  /// passes.
+  ///
+  /// Deliberately a timestamp rather than a boolean `locked`. A lockout that
+  /// needs an administrator to clear it turns a wrong password typed five
+  /// times into a support ticket, and — worse — hands anyone who knows an
+  /// employee's email a way to keep them out of the system indefinitely.
+  /// Expiry makes the attack cost an attacker continuous effort and costs the
+  /// employee fifteen minutes.
+  lockedUntil DateTime?
+
+  refreshToken       RefreshToken[]
+  activationTokens   ActivationToken[]
+  passwordResetToken PasswordResetToken[]
+
+  /// Postgres indexes a primary key and a UNIQUE column automatically. It does
+  /// NOT index a foreign key. All three below were sequential scans of the
+  /// whole users table — invisible at 50 rows, and the first thing to fall over
+  /// at 100,000.
+  ///
+  /// organizationId: every admin's user list (UsersService.findAll).
+  ///
+  /// departmentId: a TEAM_LEAD's user list. No composite with organizationId is
+  /// needed — a department belongs to exactly one organization, so filtering on
+  /// it is already at least as selective as filtering on both.
+  ///
+  /// officeId: not read by any query today. It is here for deletes: removing an
+  /// Office makes Postgres check every User row for references, and without an
+  /// index that check is a full scan holding a lock. The same applies to
+  /// departmentId, which the index above also covers.
+  @@index([organizationId])
+  @@index([departmentId])
+  @@index([officeId])
+}
+
+/// Append-only record of who did what, and when.
+///
+/// For a product holding attendance and pay data this is not a feature, it is
+/// what makes the system defensible: when a former employee disputes their
+/// hours or an admin denies suspending someone, this table is the answer. There
+/// is deliberately no update or delete path anywhere in the code, and
+/// TokenCleanupService does not touch it — audit rows outlive the records they
+/// describe, and should be kept for as long as the payroll data they explain.
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  /// Null for actions the system takes on its own — a scheduled job, or the
+  /// automated punch flagging Phase 3 adds.
+  actorId        String?
+
+  /// The actor and target as they read AT THE TIME, not a join done later.
+  ///
+  /// This is the whole discipline of an audit trail. People get renamed,
+  /// change role, and leave; resolving names at read time would make a
+  /// three-year-old entry describe today's org chart rather than what actually
+  /// happened. Storing the label costs a few bytes and keeps the record true.
+  actorName      String
+  actorRole      UserRole?
+
+  /// e.g. USER_SUSPENDED. A string rather than a Prisma enum on purpose:
+  /// Phase 3 adds CLOCK_IN, PUNCH_APPROVED, DEVICE_REVOKED and more, and an
+  /// enum would mean a database migration for each one. The write side is
+  /// still type-safe — see AuditAction in audit.service.ts.
+  action         String
+
+  targetType     String?
+  targetId       String?
+  targetLabel    String?
+
+  /// Nullable because it is not always knowable — behind a proxy without
+  /// TRUST_PROXY_HOPS set, Express reports the proxy rather than the caller,
+  /// and a wrong address in an audit trail is worse than none.
+  ipAddress      String?
+
+  createdAt      DateTime @default(now())
+
+  /// Every read is "this organization's entries, newest first", which is
+  /// exactly what this composite serves.
+  @@index([organizationId, createdAt])
+}
+
+/// Issued when an admin provisions a user. The raw token is handed to the
+/// invitee; only its SHA-256 hash is stored here, so a leak of this table
+/// does not yield usable tokens.
+model ActivationToken {
+  id        String    @id @default(uuid())
+
+  /// Still unique — this is what completeRegistration looks a redeemed link up
+  /// by, and two users must never share one.
+  tokenHash String    @unique
+
+  /// Deliberately NOT unique.
+  ///
+  /// It was, which capped every user at one activation token for their entire
+  /// existence and made "re-send invitation" impossible to build — while
+  /// provision's own failure message already told admins to do exactly that.
+  /// An invitation that is lost, expires after 7 days, or lands in spam left
+  /// the account permanently stranded in PENDING with no way forward except
+  /// deleting and recreating the person.
+  ///
+  /// One row per invitation sent, so the history of who was invited and when
+  /// survives. Superseded tokens are retired by stamping usedAt rather than
+  /// deleted, which is the same single-use check completeRegistration already
+  /// applies.
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  /// Was implicit in the dropped @unique. Still needed: every lookup and the
+  /// delete cascade go through userId.
+  @@index([userId])
+}
+
+/// Stores only the SHA-256 hash of each refresh token, never the token itself,
+/// so a leak of this table yields nothing directly usable.
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Every token descended from one sign-in shares this id. Rotation carries it
+  /// forward, so a chain of tokens stays identifiable as one session.
+  ///
+  /// It exists for theft detection: when a token that was already rotated is
+  /// presented again, the safe response is to end that whole session, not just
+  /// refuse the one request — the holder has a token the rightful owner also
+  /// had, and there is no way to tell which of the two is asking. Revoking the
+  /// family logs both out and forces a real sign-in.
+  familyId  String
+
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+
+  /// Set only when `revoked` was caused by ROTATION — this token was spent
+  /// normally and replaced by its successor.
+  ///
+  /// The distinction is the whole mechanism. A token revoked with rotatedAt
+  /// still null was ended deliberately (sign-out, suspension, password reset)
+  /// and presenting it again is unremarkable. A token revoked WITH rotatedAt
+  /// was spent, so a second presentation is either the owner's other tab
+  /// racing within the grace window, or someone replaying a stolen copy. The
+  /// timestamp is what separates those two.
+  rotatedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  /// Unindexed, these two columns were sequential scans over a table that grows
+  /// with every rotation — `userId` for sign-out-everywhere and suspension,
+  /// `familyId` for the theft response above.
+  @@index([userId])
+  @@index([familyId])
+
+  /// For the cleanup sweep (TokenCleanupService), which selects expired rows
+  /// every six hours. This is much the largest of the token tables — one row
+  /// per refresh, so ~96 per active user per day — and without this the sweep
+  /// is a full scan of exactly the table it exists to keep small. The other
+  /// token tables are low-volume enough that a scan is cheaper than carrying
+  /// an index on every write.
+  @@index([expiresAt])
+}
+
+/// Issued by POST /auth/forgot-password. Same hashed-at-rest, single-use,
+/// time-limited design as ActivationToken.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  /// Read by forgotPassword, which retires any unused token for the user before
+  /// issuing a new one, and walked again by the cascade when a user is deleted.
+  @@index([userId])
 }

@@ -1,26 +1,70 @@
 @import "tailwindcss";
 
+/* Light theme is the default. Every colour here is a Tailwind v4 theme
+   token, which means it generates the full set of utilities for that
+   name — bg-success, text-success, border-success, fill-success,
+   stroke-success — and each of those resolves through var() at runtime.
+   That's what lets the .dark block below re-point a token and have
+   every utility using it follow, with no dark: variant needed on the
+   element itself. Never hardcode a hex in a component (e.g.
+   bg-[#1f3965]); it can't respond to the theme. */
+/* 
+   :root is the light default; the .dark block below flips it. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Brand + status palette */
+  --color-primary: #33538a;
+  --color-success: #10835c;
+  --color-warning: #b36300;
+  --color-alert: #da0000;
+  --color-info: #8b5cf6;
+
+  /* Surfaces and text */
+  --color-background: #f7f7f9;
+  --color-surface: #ffffff;
+  --color-heading: #111827;
+  --color-neutral: #6f7175;
+
+  /* The dashboard sidebar is its own dark slab in BOTH themes, so it
+     gets its own token rather than reusing surface. */
+  --color-sidebar: #1f3965;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Tailwind v4's dark-mode opt-in: any `dark:` utility only applies
+   when a `.dark` class exists on an ancestor (we put it on <html>,
+   see ThemeToggle.tsx). Without this line, `dark:` utilities would
+   instead follow the OS-level prefers-color-scheme, which we don't
+   want since we're giving users an explicit toggle. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+select,
+option {
+  background-color: var(--color-surface);
+  color: var(--color-heading);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.dark {
+  /* Repaints native select popups, date pickers and scrollbars for dark
+     mode — see the note on :root above. */
+  color-scheme: dark;
+
+  --color-primary: #5f86c8;
+  --color-success: #139e6f;
+  --color-warning: #d98b09;
+  --color-alert: #ea3e33;
+  --color-info: #a78bfa;
+
+  --color-background: #0b1220;
+  --color-surface: #131b2e;
+  --color-heading: #f3f4f6;
+  --color-neutral: #9ca3af;
+
+  /* Drops well below the dark surface so the sidebar still reads as a
+     separate slab rather than merging into the page. */
+  --color-sidebar: #101a2d;
 }

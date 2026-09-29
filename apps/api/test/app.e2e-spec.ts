@@ -1,29 +1,29 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
+import { createTestApp, httpServer, TestContext } from './helpers/test-app';
 
 describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+  let ctx: TestContext;
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    await app.init();
+  beforeAll(async () => {
+    ctx = await createTestApp();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  afterAll(async () => {
+    await ctx.close();
   });
 
-  afterEach(async () => {
-    await app.close();
+  it('GET /api returns the greeting inside the success envelope', () => {
+    return request(httpServer(ctx)).get('/api').expect(200).expect({
+      success: true,
+      message: 'Request successful.',
+      data: 'Hello World!',
+    });
+  });
+
+  it('GET /api/health/db reports a live database connection', async () => {
+    const res = await request(httpServer(ctx))
+      .get('/api/health/db')
+      .expect(200);
+    expect(res.body.success).toBe(true);
   });
 });

@@ -5,7 +5,7 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**"]
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**", "!.next/dev/**"]
     },
     "lint": {
       "dependsOn": ["^lint"]
@@ -15,9 +15,21 @@
     },
     "test": {
       "dependsOn": ["^test"],
-      "outputs": ["coverage/**"]
+      // No `outputs`. Turbo caches a task by its outputs, and neither app
+      // writes any — the run's value is the pass or fail, which is not a file.
+      // Declaring "coverage/**" made Turbo warn "no output files found" on
+      // every single run, which is the kind of noise that trains people to
+      // stop reading warnings. Add it back the day a suite is run with
+      // --coverage and the report is actually wanted.
+      "outputs": []
     },
     "dev": {
+      // Build the workspace packages first. They ship compiled JavaScript
+      // (`main: dist/index.js`) rather than raw TypeScript — deliberately, see
+      // packages/types/tsconfig.json — so without this a fresh clone or a new
+      // branch starts `next dev` against a dist/ that does not exist yet, and
+      // the failure reads as a missing module rather than a missing build step.
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     }
