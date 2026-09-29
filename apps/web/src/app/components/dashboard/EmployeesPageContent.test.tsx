@@ -305,4 +305,151 @@ describe('EmployeesPageContent', () => {
       expect(await screen.findByRole('heading', { name: 'Remove Bola Eze?' })).toBeInTheDocument();
     });
   });
+
+  describe('showing removed staff (#31)', () => {
+    // The toggle exists so a super admin can find somebody in order to
+    // reinstate them. Before it, the reinstate endpoint was reachable only by
+    // someone who already knew the user's UUID.
+
+    it('offers the toggle to a SUPER_ADMIN', async () => {
+      respondWith();
+      signInAs('SUPER_ADMIN');
+
+      renderWithProviders(<EmployeesPageContent />);
+      await loaded();
+
+      expect(screen.getByLabelText('Show removed')).toBeInTheDocument();
+    });
+
+    it.each(['HR_ADMIN', 'TEAM_LEAD', 'EMPLOYEE'] as const)(
+      'hides the toggle from %s',
+      async (role) => {
+        // The API answers 403 rather than silently dropping the filter, so a
+        // visible toggle for these roles would be a button that breaks the
+        // page. Hidden is the honest rendering of "you may not ask that".
+        respondWith();
+        signInAs(role);
+
+        renderWithProviders(<EmployeesPageContent />);
+        await loaded();
+
+        expect(screen.queryByLabelText('Show removed')).not.toBeInTheDocument();
+      }
+    );
+
+    it('omits the parameter entirely while the toggle is off', async () => {
+      // Not `includeRemoved: false`. The API rejects this parameter for
+      // non-super-admins, so sending it unconditionally would 403 the staff
+      // list for every HR admin.
+      respondWith();
+      signInAs('SUPER_ADMIN');
+
+      renderWithProviders(<EmployeesPageContent />);
+      await loaded();
+
+      expect(lastUsersQuery()).not.toHaveProperty('includeRemoved');
+    });
+
+    it('asks the server for removed staff once the toggle is on', async () => {
+      respondWith();
+      signInAs('SUPER_ADMIN');
+
+      renderWithProviders(<EmployeesPageContent />);
+      await loaded();
+
+      await userEvent.click(screen.getByLabelText('Show removed'));
+
+      await waitFor(() =>
+        expect(lastUsersQuery()).toMatchObject({ includeRemoved: true })
+      );
+    });
+
+    it('returns to page 1 when the toggle flips', async () => {
+      // Same reasoning as a new search: the result set changes size, and
+      // page 3 of the old one is an empty table in the new one.
+      respondWith({ items: [user()], total: 30, totalPages: 3 });
+      signInAs('SUPER_ADMIN');
+
+      renderWithProviders(<EmployeesPageContent />);
+      await loaded();
+
+      await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+      await waitFor(() => expect(lastUsersQuery()).toMatchObject({ page: 2 }));
+
+      await userEvent.click(screen.getByLabelText('Show removed'));
+
+      await waitFor(() =>
+        expect(lastUsersQuery()).toMatchObject({ page: 1, includeRemoved: true })
+      );
+    });
+  });
+
+  describe('a removed row', () => {
+    const removed = () =>
+      user({ id: 'u-gone', name: 'Gone Person', status: 'DELETED' });
+
+    beforeEach(() => signInAs('SUPER_ADMIN'));
+
+    it('reads as "Removed" rather than as the raw status', async () => {
+      respondWith({ items: [removed()] });
+
+      renderWithProviders(<EmployeesPageContent />);
+      await loaded('Gone Person');
+
+      expect(desktop().getByText('Removed')).toBeInTheDocument();
+      expect(desktop().queryByText('DELETED')).not.toBeInTheDocument();
+    });
+
+    it('offers Reinstate and nothing else', async () => {
+      // View, Edit and Remove all assume a live account. The detail modal
+      // offers suspend and a password reset, neither of which applies, and
+      // Remove would be a second delete.
+      respondWith({ items: [removed()] });
+
+      renderWithProviders(<EmployeesPageContent />);
+      await loaded('Gone Person');
+
+      const row = desktop().getByText('Gone Person').closest('tr') as HTMLElement;
+
+      expect(within(row).getByRole('button', { name: 'Reinstate' })).toBeInTheDocument();
+      expect(within(row).queryByRole('button', { name: 'View' })).not.toBeInTheDocument();
+      expect(within(row).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+      expect(within(row).queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
+    });
+
+    it('still offers the usual three to a live row beside it', async () => {
+      // The mixed list is the normal case once the toggle is on, and getting
+      // the condition inverted would be invisible in a list of one.
+      respondWith({
+        items: [removed(), user({ id: 'u-live', name: 'Live Person' })],
+        total: 2,
+      });
+
+      renderWithProviders(<EmployeesPageContent />);
+      await loaded('Live Person');
+
+      const live = desktop().getByText('Live Person').closest('tr') as HTMLElement;
+
+      expect(within(live).getByRole('button', { name: 'View' })).toBeInTheDocument();
+      expect(within(live).queryByRole('button', { name: 'Reinstate' })).not.toBeInTheDocument();
+    });
+
+    it('opens the reinstate modal for the row that was clicked', async () => {
+      respondWith({
+        items: [user({ id: 'u-live', name: 'Live Person' }), removed()],
+        total: 2,
+      });
+
+      renderWithProviders(<EmployeesPageContent />);
+      await loaded('Gone Person');
+
+      const row = desktop().getByText('Gone Person').closest('tr') as HTMLElement;
+      await userEvent.click(within(row).getByRole('button', { name: 'Reinstate' }));
+
+      expect(
+        await screen.findByRole('heading', { name: 'Reinstate Gone Person?' })
+      ).toBeInTheDocument();
+    });
+  });
+
 });
