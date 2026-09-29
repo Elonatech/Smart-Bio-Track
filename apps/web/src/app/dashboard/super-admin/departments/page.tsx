@@ -13,12 +13,49 @@ import {
 } from "@/app/components/dashboard/DepartmentFormModal";
 import { DeleteDepartmentModal } from "@/app/components/dashboard/DeleteDepartmentModal";
 
-// Only the fields needed to count heads per department. GET /users returns
-// the whole org, which is what makes the count possible client-side —
-// there is no /departments/:id/employees endpoint.
+// Only the fields needed to count heads per department. GET /users is what
+// makes the count possible client-side — there is no
+// /departments/:id/employees endpoint.
 interface UserRow {
   id: string;
   departmentId: string | null;
+}
+
+// GET /users is paginated (list-users.dto.ts caps `limit` at 100 —
+// MAX_PAGE_SIZE) — it used to return a bare array, and this page still
+// destructured it as one, so `users.filter` threw the moment the backend
+// added pagination ("users.filter is not a function").
+//
+// Unlike lib/notifications.ts's best-effort single page, headcounts here
+// are the entire point of the page, so undercounting past the first 100
+// employees would be a real, wrong number shown to an admin — this walks
+// every page rather than accepting that cap.
+interface UserPage {
+  items: UserRow[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+async function fetchAllUsers(): Promise<UserRow[]> {
+  const first = await appClient.get<UserPage>("/users", {
+    params: { page: 1, limit: 100 },
+  });
+  if (first.data.totalPages <= 1) {
+    return first.data.items;
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: first.data.totalPages - 1 }, (_, i) =>
+      appClient.get<UserPage>("/users", { params: { page: i + 2, limit: 100 } })
+    )
+  );
+
+  return [
+    ...first.data.items,
+    ...remainingPages.flatMap((res) => res.data.items),
+  ];
 }
 
 export default function SuperAdminDepartmentsPage() {
@@ -40,15 +77,15 @@ export default function SuperAdminDepartmentsPage() {
     setError(null);
     Promise.all([
       appClient.get<Department[]>("/departments"),
-      appClient.get<UserRow[]>("/users"),
+      fetchAllUsers(),
     ])
-      .then(([departmentsRes, usersRes]) => {
+      .then(([departmentsRes, allUsers]) => {
         // Sorted by name: the API returns creation order, which turns into
         // an arbitrary shuffle as soon as more than a handful exist.
         setDepartments(
           [...departmentsRes.data].sort((a, b) => a.name.localeCompare(b.name))
         );
-        setUsers(usersRes.data);
+        setUsers(allUsers);
       })
       .catch(() => setError("Couldn't load departments. Please try again."))
       .finally(() => setIsLoading(false));
