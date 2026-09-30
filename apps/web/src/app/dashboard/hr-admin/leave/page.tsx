@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { CircleCheck, CircleX, Clock } from "lucide-react";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 // Leave requests HR decides on. UI only — there's no Leave model in
 // prisma/schema.prisma and no leave module in apps/api/src, so these are
@@ -137,6 +138,7 @@ export default function HRAdminLeavePage() {
 
   return (
     <div>
+      <SampleDataBanner describes="leave requests" />
       <div className="flex flex-wrap gap-2 mb-6">
         {FILTERS.map((option) => (
           <button

@@ -3,7 +3,7 @@ import {
   type OnModuleDestroy,
   UnauthorizedException,
   BadRequestException,
-  InternalServerErrorException,
+  // InternalServerErrorException,
   ConflictException,
   UnprocessableEntityException,
   Logger,
@@ -140,7 +140,9 @@ export class AuthService implements OnModuleDestroy {
     };
 
     const [existingOrgByEmail, existingUserByEmail] = await Promise.all([
-      this.prisma.organization.findUnique({ where: { email: normalizedEmail } }),
+      this.prisma.organization.findUnique({
+        where: { email: normalizedEmail },
+      }),
       this.prisma.user.findUnique({ where: { email: normalizedEmail } }),
     ]);
 
@@ -300,7 +302,10 @@ export class AuthService implements OnModuleDestroy {
     // are separate tenants addressed by id and never see one another. See the
     // comment on Organization.name in schema.prisma.
 
-    const employeeId = await generateUniqueEmployeeId(this.prisma, 'SUPER_ADMIN');
+    const employeeId = await generateUniqueEmployeeId(
+      this.prisma,
+      'SUPER_ADMIN',
+    );
 
     let user: User;
 
@@ -754,12 +759,7 @@ export class AuthService implements OnModuleDestroy {
 
     // Same family: this is a continuation of the session that started at
     // sign-in, not a new one, and theft detection needs the chain intact.
-    return this.issueTokens(
-      user.id,
-      user.email,
-      user.role,
-      stored.familyId,
-    );
+    return this.issueTokens(user.id, user.email, user.role, stored.familyId);
   }
 
   /**

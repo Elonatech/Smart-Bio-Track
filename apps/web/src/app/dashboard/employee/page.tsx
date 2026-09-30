@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 
 
@@ -203,6 +204,7 @@ export default function EmployeeDashboardPage() {
 
   return (
     <div>
+      <SampleDataBanner describes="attendance records" />
       {/* Today's status, plus its own clock-in/out/working-hours readouts —
           TodayStatusCard already renders that trio internally (see its
           MiniStat grid), so a second, hardcoded copy used to sit beside it

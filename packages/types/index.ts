@@ -62,12 +62,20 @@ export const USER_STATUSES = [
 export type UserStatus = (typeof USER_STATUSES)[number];
 
 /**
- * The statuses a user can be in and still appear in a list.
+ * The statuses a user can be in and still have a working account.
  *
- * `DELETED` is excluded because `UsersService.findAll` filters those rows out
- * before they reach any client. This is a **narrowing for display**, not a
- * second source of truth: it is derived from `UserStatus` above, so a new
- * status cannot appear here without being a real one first.
+ * **No longer the list row's type** — see `UserListItem.status`, widened on
+ * 25 Sep 2026 so removed staff can be shown and reinstated (#31).
+ *
+ * Still used where DELETED genuinely cannot occur: `EmployeeDetailModal`, which
+ * offers suspend, resend and reset, none of which apply to somebody who has
+ * been removed. Keeping it there means adding a reinstate action to that modal
+ * would fail to compile until the type is reconsidered, which is the right
+ * order to do it in.
+ *
+ * A **narrowing for display**, not a second source of truth: derived from
+ * `UserStatus` above, so a new status cannot appear here without being a real
+ * one first.
  */
 export type VisibleUserStatus = Exclude<UserStatus, 'DELETED'>;
 
@@ -174,8 +182,21 @@ export type UserListItemKey = (typeof USER_LIST_ITEM_KEYS)[number];
  * API has always sent it — drift in the quiet direction, where the extra field
  * is simply ignored and nobody notices until somebody wants it.
  *
- * `status` is VisibleUserStatus rather than UserStatus because `findAll`
- * filters DELETED rows out before they reach any client.
+ * `status` is the **full** `UserStatus`, DELETED included, as of 25 Sep 2026
+ * (#31). It was `VisibleUserStatus` while `findAll` filtered removed rows out
+ * unconditionally; it now does so only by default, because reinstating someone
+ * (#23) requires a screen on which they appear.
+ *
+ * Widening this was the whole cost of #31 and is worth understanding before
+ * narrowing it back. The old type was a real guarantee — "a removed user never
+ * reaches a client" — enforced at compile time in both halves. That guarantee
+ * is now the server's alone: `includeRemoved` is SUPER_ADMIN-only and rejected
+ * for everybody else, and nothing in this type says so.
+ *
+ * So **any consumer that renders a row must handle DELETED**. `Record<UserStatus, …>`
+ * over this field is the way to stay honest: it will not compile if a case is
+ * missing, which is what caught the browser's status-colour map when this
+ * changed.
  */
 export interface UserListItem {
   id: string;
@@ -183,7 +204,7 @@ export interface UserListItem {
   name: string;
   email: string;
   role: UserRole;
-  status: VisibleUserStatus;
+  status: UserStatus;
   departmentId: string | null;
   officeId: string | null;
   createdAt: string;

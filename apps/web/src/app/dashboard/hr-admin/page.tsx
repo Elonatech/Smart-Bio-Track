@@ -12,6 +12,7 @@ import {
 import { useAuthStore } from "@/lib/store/auth-store";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 // HR Admin's overview. UI only — there is no attendance backend yet
 // (prisma/schema.prisma has just Organization / Department / Office /
@@ -91,6 +92,7 @@ export default function HRAdminDashboardPage() {
 
   return (
     <div>
+      <SampleDataBanner describes="attendance figures" />
       {/* Today's status — HR admins clock in like everyone else. */}
       <TodayStatusCard />
 

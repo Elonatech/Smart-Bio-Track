@@ -9,6 +9,7 @@ import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { SAMPLE_WORK_RULES } from "@/app/components/dashboard/workRuleSamples";
 import { SAMPLE_FLAGGED_PUNCHES } from "@/app/components/dashboard/flaggedPunchSamples";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 interface OfficeSummary {
   id: string;
@@ -111,6 +112,7 @@ export default function SuperAdminDashboardPage() {
 
   return (
     <div>
+      <SampleDataBanner partial />
       {/* Only renders while the org has no offices — the way back into
           the setup wizard for anyone who skipped or abandoned it. */}
       <SetupReminderBanner />

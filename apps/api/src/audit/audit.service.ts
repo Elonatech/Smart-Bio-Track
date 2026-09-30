@@ -17,6 +17,18 @@ export const AUDIT_ACTIONS = [
   'USER_RESTORED',
   'USER_DELETED',
   'INVITATION_RESENT',
+  // Details changed on an existing staff record — name, role, department or
+  // office (#30). Distinct from the status actions because it answers a
+  // different question: not "was this person switched off" but "was what the
+  // record says about them altered, and by whom". A role change recorded only
+  // as a generic update would be invisible in the one place it matters.
+  'USER_UPDATED',
+  // Brought back from DELETED (#23). Deliberately NOT reusing USER_RESTORED,
+  // which means un-suspended. Conflating them would leave the trail unable to
+  // distinguish "their access was switched back on" from "somebody who had
+  // been removed from the company was given an account again" — two events of
+  // very different weight, and the second is the one an auditor asks about.
+  'USER_REINSTATED',
   // The first entry no person performs. Written by the system when repeated
   // failed sign-ins lock an account (#9), which is precisely the kind of event
   // an administrator needs to see without anyone having thought to report it:

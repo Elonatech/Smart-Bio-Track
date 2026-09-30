@@ -3,6 +3,7 @@
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { FlaggedPunchList } from "@/app/components/dashboard/FlaggedPunchList";
 import { SAMPLE_FLAGGED_PUNCHES } from "@/app/components/dashboard/flaggedPunchSamples";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 // A Team Lead's slice of the same queue HR sees — their department only.
 //
@@ -25,6 +26,7 @@ export default function TeamLeadExceptionsPage() {
 
   return (
     <div>
+      <SampleDataBanner describes="flagged punches" />
       <FlaggedPunchList
         punches={punches}
         emptyMessage="Nothing pending. Every punch from your team cleared automatically."

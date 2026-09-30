@@ -12,6 +12,7 @@ import {
   type WorkRule,
 } from "@/app/components/dashboard/WorkRuleFormModal";
 import { SAMPLE_WORK_RULES } from "@/app/components/dashboard/workRuleSamples";
+import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 export default function SuperAdminTimeRegulationPage() {
   const toast = useToast();
@@ -56,6 +57,7 @@ export default function SuperAdminTimeRegulationPage() {
 
   return (
     <div>
+      <SampleDataBanner describes="work rules" />
       <div className="flex justify-end mb-6">
         <button
           type="button"

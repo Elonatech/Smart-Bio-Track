@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
-import type { Page, UserListItem, VisibleUserStatus } from "@smartbiotrack/types";
+import type { Page, UserListItem } from "@smartbiotrack/types";
 import { ROLE_CREATION_MATRIX, ROLE_LABEL } from "@/lib/roleCreationMatrix";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { DataTable } from "@/app/components/dashboard/DataTable";
@@ -15,6 +15,7 @@ import {
   EmployeeDetailModal,
   type EmployeeDetail,
 } from "@/app/components/dashboard/EmployeeDetailModal";
+import { ReinstateEmployeeModal } from "@/app/components/dashboard/ReinstateEmployeeModal";
 
 // Shared between dashboard/super-admin/employees/page.tsx and
 // dashboard/hr-admin/employees/page.tsx — same list, same two invite
@@ -56,11 +57,26 @@ function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
+/**
+ * Deliberately `Record<…["status"], …>` rather than a loose lookup.
+ *
+ * When the shared `UserListItem.status` widened to include DELETED (#31) this
+ * failed to compile, which is exactly what should have happened: a removed row
+ * would otherwise have rendered with `undefined` classes — an unstyled word in
+ * the middle of a styled column, easy to miss in review and obvious to a
+ * customer.
+ */
 const STATUS_STYLE: Record<EmployeeListItem["status"], string> = {
   ACTIVE: "bg-success/10 text-success",
   PENDING: "bg-warning/10 text-warning",
   SUSPENDED: "bg-alert/10 text-alert",
+  // Grey rather than red. Red is the alert colour and belongs to SUSPENDED,
+  // which is a state somebody is in; DELETED is a state they have left.
+  DELETED: "bg-neutral/15 text-neutral",
 };
+
+/** Removed staff are only listed when a super admin explicitly asks. */
+const REMOVED_LABEL = "Removed";
 
 export function EmployeesPageContent() {
   const currentRole = useAuthStore((state) => state.user?.role);
@@ -79,6 +95,13 @@ export function EmployeesPageContent() {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
+  // Only a SUPER_ADMIN may ask for removed staff — the API returns 403 for
+  // anyone else rather than quietly dropping the filter, so the toggle is
+  // hidden rather than shown-and-broken.
+  const canSeeRemoved = currentRole === "SUPER_ADMIN";
+  const [includeRemoved, setIncludeRemoved] = useState(false);
+  const [reinstatingEmployee, setReinstatingEmployee] =
+    useState<EmployeeListItem | null>(null);
   const [viewingEmployee, setViewingEmployee] = useState<EmployeeListItem | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<EmployeeListItem | null>(null);
   const [deletingEmployee, setDeletingEmployee] = useState<EmployeeListItem | null>(null);
@@ -93,9 +116,10 @@ export function EmployeesPageContent() {
 
   // A new search starts at the beginning. Without this, searching while on
   // page 7 asks for page 7 of a much shorter result and shows an empty table.
+  // Toggling removed staff changes the result size the same way.
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, includeRemoved]);
 
   // Departments and offices are small, unpaginated lookups used only to turn
   // ids into names. Fetched once rather than alongside every page of users,
@@ -122,6 +146,10 @@ export function EmployeesPageContent() {
           page,
           limit: PAGE_SIZE,
           ...(debouncedSearch ? { q: debouncedSearch } : {}),
+          // Omitted entirely when off, rather than sent as false. The API
+          // rejects this parameter for non-super-admins, and sending it on
+          // every request would 403 the staff list for every HR admin.
+          ...(includeRemoved ? { includeRemoved: true } : {}),
         },
       })
       .then((res) => {
@@ -131,7 +159,7 @@ export function EmployeesPageContent() {
       })
       .catch(() => setError("Couldn't load employees. Please try again."))
       .finally(() => setIsLoading(false));
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, includeRemoved]);
 
   useEffect(() => {
     fetchUsers();
@@ -172,6 +200,18 @@ export function EmployeesPageContent() {
           />
         </div>
 
+        {canSeeRemoved && (
+          <label className="inline-flex items-center gap-2 text-sm text-heading select-none">
+            <input
+              type="checkbox"
+              checked={includeRemoved}
+              onChange={(e) => setIncludeRemoved(e.target.checked)}
+              className="h-4 w-4 rounded border-neutral/40 text-primary focus:ring-primary"
+            />
+            Show removed
+          </label>
+        )}
+
         {canAddPeople && (
           <button
             type="button"
@@ -196,7 +236,9 @@ export function EmployeesPageContent() {
         <p className="text-sm text-neutral">
           {debouncedSearch
             ? "No employees match your search."
-            : "No employees yet."}
+            : includeRemoved
+              ? "No employees yet, removed or otherwise."
+              : "No employees yet."}
         </p>
       )}
 
@@ -284,7 +326,7 @@ export function EmployeesPageContent() {
                 <span
                   className={`inline-block rounded px-2 py-1 text-xs font-medium ${STATUS_STYLE[employee.status]}`}
                 >
-                  {employee.status}
+                  {employee.status === "DELETED" ? REMOVED_LABEL : employee.status}
                 </span>
               ),
             },
@@ -292,31 +334,47 @@ export function EmployeesPageContent() {
               key: "actions",
               header: "",
               align: "right",
-              render: (employee) => (
-                <div className="flex items-center justify-end gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setViewingEmployee(employee)}
-                    className="text-sm font-medium text-primary hover:underline"
-                  >
-                    View
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingEmployee(employee)}
-                    className="text-sm font-medium text-primary hover:underline"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeletingEmployee(employee)}
-                    className="text-sm font-medium text-alert hover:underline"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ),
+              // A removed person gets one action and not the other three.
+              // View, Edit and Remove all assume a live account: the detail
+              // modal offers suspend and password reset, neither of which
+              // applies, and Remove would be a second delete. Offering them
+              // greyed out would be kinder-looking and less honest.
+              render: (employee) =>
+                employee.status === "DELETED" ? (
+                  <div className="flex items-center justify-end gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setReinstatingEmployee(employee)}
+                      className="text-sm font-medium text-success hover:underline"
+                    >
+                      Reinstate
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-end gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setViewingEmployee(employee)}
+                      className="text-sm font-medium text-primary hover:underline"
+                    >
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingEmployee(employee)}
+                      className="text-sm font-medium text-primary hover:underline"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeletingEmployee(employee)}
+                      className="text-sm font-medium text-alert hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ),
             },
           ]}
         />
@@ -377,6 +435,14 @@ export function EmployeesPageContent() {
         />
       )}
 
+      {reinstatingEmployee && (
+        <ReinstateEmployeeModal
+          employee={reinstatingEmployee}
+          onClose={() => setReinstatingEmployee(null)}
+          onReinstated={fetchAll}
+        />
+      )}
+
       {deletingEmployee && (
         <DeleteEmployeeModal
           employee={deletingEmployee}
@@ -385,7 +451,11 @@ export function EmployeesPageContent() {
         />
       )}
 
-      {viewingEmployee && (
+      {/* `viewingEmployee` can only be set from a non-removed row above, and
+          EmployeeDetail.status is typed VisibleUserStatus, so this narrowing is
+          what makes that guarantee legible to the compiler rather than relying
+          on the button not being rendered. */}
+      {viewingEmployee && viewingEmployee.status !== "DELETED" && (
         <EmployeeDetailModal
           employee={{
             id: viewingEmployee.id,
