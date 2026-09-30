@@ -15,8 +15,15 @@ const SEED_ADMIN_EMPLOYEE_ID = 'SEED-ADMIN-001';
 
 async function main() {
   // 1. The organization is the tenant root — nothing else can exist without it.
+  //
+  // Keyed on email, not name. Organization.name stopped being unique in
+  // 20260915100000_drop_organization_name_unique (two real companies can share
+  // a name), so `where: { name }` is no longer a valid unique lookup and this
+  // upsert stopped compiling. Email is still unique — it is what stops one
+  // inbox owning two organizations — which makes it the right key for a
+  // re-runnable seed.
   const organization = await prisma.organization.upsert({
-    where: { name: SEED_ORG_NAME },
+    where: { email: SEED_ADMIN_EMAIL },
     update: {},
     create: {
       name: SEED_ORG_NAME,

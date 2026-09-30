@@ -44,7 +44,7 @@ async function bootstrap() {
   });
 
   // Prefix, validation, response envelope, exception filter. Shared with the
-  // integration tests so both exercise the same pipeline.
+  // integration tests so both exercise the same pipeline. 
   configureApp(app);
 
   // Swagger publishes the entire API surface: every route, every DTO field,
