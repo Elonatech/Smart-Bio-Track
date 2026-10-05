@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { LogIn, LogOut, Coffee, Timer } from "lucide-react";
 import { ClockInFlow } from "@/app/components/dashboard/ClockInFlow";
+import { formatRecordedTime } from "@/app/components/dashboard/clockInOutcome";
 import { useToast } from "@/app/components/Toast";
 import { useAuthStore } from "@/lib/store/auth-store";
 
@@ -31,8 +32,10 @@ function formatElapsed(totalSeconds: number): string {
   return [hours, minutes, seconds].map((n) => String(n).padStart(2, "0")).join(":");
 }
 
+// Stored times are UTC instants (toISOString); this shows them in the
+// viewer's own timezone with the zone named, same as the clock-in result.
 function formatClockTime(date: Date): string {
-  return `${date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} WAT`;
+  return formatRecordedTime(date.toISOString());
 }
 
 // Local-only persistence for the demo clock-in/break/clock-out loop above —
@@ -363,7 +366,7 @@ export function TodayStatusCard() {
       {isClockInOpen && (
         <ClockInFlow
           onClose={() => setIsClockInOpen(false)}
-          onConfirmed={() => setClockedInAt(new Date())}
+          onConfirmed={(outcome) => setClockedInAt(new Date(outcome.recordedAt))}
         />
       )}
     </div>
