@@ -162,14 +162,14 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
           to the bottom is the one-handed-reachable shape on a phone;
           centering the same panel there would put the close button and
           the confirm action at opposite, both-thumbs-required corners. */}
-      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl bg-surface border border-neutral/20 p-6 max-h-[85vh] overflow-y-auto">
+      <div className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl bg-surface border border-neutral/20 p-6 max-h-[85dvh] overflow-y-auto">
         <div className="flex items-start justify-between mb-1">
           <h2 className="text-lg font-semibold text-heading">Clock in</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-neutral hover:text-heading"
+            className="-mr-3 -mt-3 p-3 text-neutral hover:text-heading"
           >
             <X className="h-5 w-5" />
           </button>

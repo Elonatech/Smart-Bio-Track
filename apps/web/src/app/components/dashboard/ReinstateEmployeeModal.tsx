@@ -65,7 +65,7 @@ export function ReinstateEmployeeModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6">
+      <div className="w-full max-w-md max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6">
         <div className="flex items-start gap-4">
           <div className="shrink-0 h-10 w-10 rounded-full bg-success/10 flex items-center justify-center">
             <RotateCcw className="h-5 w-5 text-success" strokeWidth={2} />

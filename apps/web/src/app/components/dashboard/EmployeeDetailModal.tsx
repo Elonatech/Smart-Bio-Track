@@ -144,7 +144,7 @@ export function EmployeeDetailModal({
         aria-labelledby="employee-detail-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-md max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start justify-between mb-4">
           <h2 id="employee-detail-title" className="text-lg font-semibold text-heading">{employee.name}</h2>
@@ -158,7 +158,7 @@ export function EmployeeDetailModal({
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <p className="text-xs font-medium tracking-wide uppercase text-neutral">
               Employee ID

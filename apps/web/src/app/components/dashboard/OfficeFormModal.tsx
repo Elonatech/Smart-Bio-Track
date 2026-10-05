@@ -137,7 +137,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
         aria-labelledby="office-form-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start justify-between mb-1">
           <h2 id="office-form-title" className="cursor-pointer text-lg font-semibold text-heading">
@@ -197,7 +197,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="latitude" className="block text-sm font-medium text-heading mb-1">
                 Latitude

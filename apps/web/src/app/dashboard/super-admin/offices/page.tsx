@@ -132,9 +132,9 @@ export default function SuperAdminOfficesPage() {
                 </div>
               </div>
 
-              <div className="flex justify-between items-center p-4 ">
-                <div className=" ">
-                  <p className="text-sm font-semibold text-heading">
+              <div className="flex justify-between items-center gap-3 p-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-heading wrap-break-word">
                     {office.name}
                   </p>
                   <p className="text-xs text-neutral mb-3">
@@ -144,7 +144,7 @@ export default function SuperAdminOfficesPage() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 shrink-0">
                   <button
                     type="button"
                     onClick={() => setModalMode(office)}

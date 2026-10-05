@@ -188,7 +188,7 @@ export function AddPersonModal({
         aria-labelledby="add-person-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-xl max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start justify-between mb-1">
           <h2 id="add-person-title" className="text-lg font-semibold text-heading">
@@ -315,7 +315,7 @@ export function AddPersonModal({
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="email" className="block text-sm font-medium text-heading mb-1">
                     Work email
@@ -346,7 +346,7 @@ export function AddPersonModal({
               </div>
 
               {/* Department and Office are both real, persisted columns. */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="departmentId" className="block text-sm font-medium text-heading mb-1">
                     Department
@@ -388,7 +388,7 @@ export function AddPersonModal({
 
               {/* Job role and work rule are grouped together because
                   neither is persisted — see the note below the row. */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="jobRole" className="block text-sm font-medium text-heading mb-1">
                     Job title

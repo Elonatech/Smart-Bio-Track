@@ -83,13 +83,24 @@ export default function SuperAdminTimeRegulationPage() {
                 {rule.startTime} – {rule.endTime}, {rule.days}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setModalMode(rule)}
-              className="text-sm font-medium text-primary hover:underline shrink-0"
-            >
-              Edit
-            </button>
+            {/* The table's own actions column is hideOnMobile, so Delete has
+                to live here too or phones can edit a rule but never remove one. */}
+            <div className="flex items-center gap-4 shrink-0">
+              <button
+                type="button"
+                onClick={() => setModalMode(rule)}
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeletingRule(rule)}
+                className="text-sm font-medium text-alert hover:underline"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         )}
         columns={[
