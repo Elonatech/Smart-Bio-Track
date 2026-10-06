@@ -17,6 +17,8 @@ import {
   toAuthUser,
   type MeResponse,
 } from "@/lib/store/auth-store";
+import { INDUSTRIES } from "@/lib/industries";
+import { setOnboardingIndustryHint } from "@/lib/onboarding-hint";
 
 // STEP TWO of org signup. The link in the verification email points
 // here — NOT at /auth/verify-organization. See the URL built in
@@ -31,29 +33,12 @@ import {
 
 // Access token only — the refresh token arrives as an httpOnly cookie.
 interface VerifyOrganizationResponse {
+  // No refreshToken field: it arrives as the httpOnly sbt_refresh cookie,
+  // which the browser stores and replays on its own.
   accessToken: string;
 }
 
 // MeResponse and toAuthUser are shared — see auth-store.ts.
-
-// `industry` is a free-text column on Organization, but a fixed list
-// keeps the data groupable instead of collecting twelve spellings of
-// "fintech". "Other" is included so nobody is forced into a bad fit.
-const INDUSTRIES = [
-  "Financial Services",
-  "Technology & Software",
-  "Telecommunications",
-  "Oil & Gas",
-  "Manufacturing",
-  "Healthcare",
-  "Education",
-  "Retail & E-commerce",
-  "Logistics & Transport",
-  "Construction & Real Estate",
-  "Hospitality",
-  "Public Sector",
-  "Other",
-];
 
 function VerifyOrganizationForm() {
   const toast = useToast();
@@ -109,8 +94,15 @@ function VerifyOrganizationForm() {
       );
       registerUser(user, accessToken);
 
+      // The onboarding wizard's own "organization profile" step asks for
+      // industry again — this hands it across so that field starts
+      // prefilled instead of asking the same question twice in one
+      // continuous flow. organizationName doesn't need the same
+      // treatment: it's already on `user` above, via the auth store.
+      setOnboardingIndustryHint(values.industry);
+
       // A brand-new org lands in onboarding, not a dashboard that
-      // assumes offices and work rules already exist.
+      // assumes offices and time regulation already exist.
       router.push("/onboarding");
     } catch (error) {
       const message = extractErrorMessage(error);

@@ -75,6 +75,35 @@ describe('SampleDataBanner', () => {
  * second copy that #25 was about: it would be right today and wrong the first
  * time somebody adds a screen. This derives both sides from the files.
  */
+/** Components under src/app/components, by absolute path. */
+const COMPONENTS_DIR = join(__dirname, '..', '..', 'components');
+
+/**
+ * True when a page imports a component that talks to the server.
+ *
+ * Reads the imported file rather than guessing from its name. Only follows
+ * `@/app/components/...` imports one level deep, which is enough for this
+ * codebase's shape — pages delegate to a component, and that component does
+ * its own fetching. If a page ever delegates two levels down, this reports it
+ * as a placeholder, which fails loudly rather than passing silently.
+ */
+function delegatesToLiveComponent(source: string): boolean {
+  const imports = source.matchAll(/from ["']@\/app\/components\/([^"']+)["']/g);
+
+  for (const [, relative] of imports) {
+    const file = join(COMPONENTS_DIR, `${relative.replace(/^dashboard\//, 'dashboard/')}.tsx`);
+    try {
+      if (readFileSync(file, 'utf8').includes('appClient')) return true;
+    } catch {
+      // Not a file we can read (a barrel, a .ts, a path shape this does not
+      // handle). Treated as "not live", so the page is still required to
+      // carry the marker — the safe direction.
+    }
+  }
+
+  return false;
+}
+
 describe('every placeholder dashboard screen carries the marker', () => {
   const DASHBOARD = join(__dirname, '..', '..', 'dashboard');
 
@@ -103,18 +132,24 @@ describe('every placeholder dashboard screen carries the marker', () => {
     (_label, page) => {
       const p = page as { path: string; source: string };
 
-      // "Talks to the server" is the test for whether a screen is real. A page
-      // that delegates to a component doing the fetching counts as real — the
-      // import is the evidence, and those pages are a handful of lines long.
-      const callsApi = p.source.includes('appClient');
-      const delegates =
-        /import \{[^}]*(PageContent|EmployeesPageContent|ProfilePageContent)[^}]*\}/s.test(
-          p.source
-        );
+      // "Talks to the server" is the test for whether a screen is real,
+      // directly or through a component it delegates to.
+      //
+      // This used to decide "delegates" by matching component *names*
+      // containing "PageContent". That was wrong in both directions, and the
+      // pull on 30 Sep proved it: two new leave pages delegating to
+      // `MyLeaveRequestsList` were flagged — correctly, as it happens, since
+      // that component holds a hardcoded array — but only because the name
+      // did not match. A page delegating to a genuinely live component with
+      // any other name would have been a false positive.
+      //
+      // So it now follows the import and reads the component. A rule that
+      // happens to be right is not the same as a rule that is right.
+      const callsApi = p.source.includes('appClient') || delegatesToLiveComponent(p.source);
       const isRedirectOnly = p.source.includes('router.replace');
       const hasBanner = p.source.includes('SampleDataBanner');
 
-      if (callsApi || delegates || isRedirectOnly) return;
+      if (callsApi || isRedirectOnly) return;
 
       // Reached only by a page that fetches nothing, delegates to nobody and
       // redirects nowhere — which means it is showing invented numbers.

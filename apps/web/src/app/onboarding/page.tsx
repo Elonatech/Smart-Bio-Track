@@ -6,6 +6,7 @@ import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import { getDashboardPath } from "@/lib/roleRoutes";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { consumeOnboardingIndustryHint } from "@/lib/onboarding-hint";
 import { PartyPopper } from "lucide-react";
 import { StepProgress } from "@/app/components/onboarding/StepProgress";
 import { StepOrgProfile } from "@/app/components/onboarding/StepOrgProfile";
@@ -42,6 +43,7 @@ export default function OnboardingPage() {
   const toast = useToast();
   const router = useRouter();
   const userId = useAuthStore((state) => state.user?.id);
+  const organizationName = useAuthStore((state) => state.user?.organizationName);
   const hasRestored = useAuthStore((state) => state.hasRestored);
 
   // Gates both restoring and saving. Without it the save effect fires on
@@ -83,6 +85,8 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (!hasRestored) return;
 
+    let restoredFromSavedProgress = false;
+
     if (userId) {
       try {
         const raw = localStorage.getItem(getProgressKey(userId));
@@ -92,14 +96,41 @@ export default function OnboardingPage() {
           // Clamp: a saved step from an older build with a different
           // number of steps shouldn't strand someone on a blank screen.
           setCurrentStep(Math.min(Math.max(saved.currentStep ?? 1, 1), 6));
+          restoredFromSavedProgress = true;
         }
       } catch {
         // Corrupt or unreadable — start fresh rather than crash.
       }
     }
 
+    // First time reaching this wizard, not a resumed one (no saved
+    // progress at all): step 1 asks for the organization name and
+    // industry again even though verify-organization just collected
+    // both. Prefill them instead of asking twice.
+    //
+    // Gated on `!restoredFromSavedProgress` specifically — someone who
+    // left step 1 with different values and came back to "Continue
+    // setup" must see THEIR edit, not have it silently replaced by
+    // whatever they originally typed at signup.
+    if (!restoredFromSavedProgress) {
+      const industryHint = consumeOnboardingIndustryHint();
+      if (organizationName || industryHint) {
+        setPayload((prev) => ({
+          ...prev,
+          orgProfile: {
+            // Same fallback StepOrgProfile uses on its own — the only
+            // option today, so there's nothing to prefill it FROM yet.
+            timezone: "WAT",
+            organizationName: organizationName ?? "",
+            industry: industryHint ?? "",
+            ...prev.orgProfile,
+          },
+        }));
+      }
+    }
+
     setIsRestored(true);
-  }, [hasRestored, userId]);
+  }, [hasRestored, userId, organizationName]);
 
   // Save on every change, so progress survives a closed tab, not just an
   // in-app navigation.
@@ -231,6 +262,29 @@ export default function OnboardingPage() {
         await appClient.post("/departments", { name: department.name });
       }
 
+      // Re-read rather than collecting ids from the POST responses above:
+      // that loop skips departments which already existed, and those need
+      // ids too. One extra request buys a map covering both cases.
+      //
+      // Keyed on the trimmed, lowercased name because that is how the
+      // uniqueness check above compares them; the invite form stores names,
+      // not ids, since ids don't exist while the wizard is being filled in.
+      const departmentIdByName = new Map<string, string>();
+      try {
+        const { data } = await appClient.get<{ id: string; name: string }[]>(
+          "/departments"
+        );
+        for (const department of data) {
+          departmentIdByName.set(
+            department.name.trim().toLowerCase(),
+            department.id
+          );
+        }
+      } catch {
+        // Non-fatal: invites still go out, just without a department.
+        // Losing the whole setup over this would be worse.
+      }
+
       // Same endpoint the Add person modal uses. Each creates a PENDING
       // user, and provision() now emails them the activation link itself
       // (users.service.ts calls sendActivationEmail). Nothing comes back
@@ -243,6 +297,9 @@ export default function OnboardingPage() {
           name: invite.name,
           email: invite.email,
           role: invite.role,
+          departmentId: invite.department
+            ? departmentIdByName.get(invite.department.trim().toLowerCase())
+            : undefined,
         });
         invitedCount += 1;
       }
@@ -343,6 +400,9 @@ export default function OnboardingPage() {
         {currentStep === 5 && (
           <StepInviteTeam
             defaultValues={payload.inviteTeam}
+            departmentNames={
+              payload.departments?.departments.map((d) => d.name) ?? []
+            }
             onNext={(values: InviteTeamValues) =>
               handleStepComplete("inviteTeam", values)
             }

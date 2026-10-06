@@ -9,18 +9,13 @@ import {
   CircleX,
   FileText,
   Info,
-  LogIn,
-  LogOut,
-  Timer,
 } from "lucide-react";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
-// The EMPLOYEE role's own dashboard root. Until this file existed,
-// anyone logging in as an EMPLOYEE was redirected to /dashboard/employee
-// by roleRoutes.ts and hit a 404 — the folder was empty.
-//
+
+
 // There is no attendance backend yet: prisma/schema.prisma has only
 // Organization / Department / Office / User + the three token tables —
 // no Attendance, Punch or Shift model, and no matching module in
@@ -210,34 +205,15 @@ export default function EmployeeDashboardPage() {
   return (
     <div>
       <SampleDataBanner describes="attendance records" />
-      {/* Row 1 — today's status (wide) + the three punch readouts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <TodayStatusCard />
-        </div>
-
-        <div className="flex flex-col gap-4">
-          <PunchCard
-            icon={LogIn}
-            label="Clock-in time"
-            value="—"
-            tone="text-primary bg-primary/10"
-          />
-          <PunchCard
-            icon={LogOut}
-            label="Clock-out time"
-            value="—"
-            tone="text-primary bg-primary/10"
-          />
-          <PunchCard
-            icon={Timer}
-            label="Working hours today"
-            value="00:00"
-            hint="Break 00:00"
-            tone="text-success bg-success/15"
-          />
-        </div>
-      </div>
+      {/* Today's status, plus its own clock-in/out/working-hours readouts —
+          TodayStatusCard already renders that trio internally (see its
+          MiniStat grid), so a second, hardcoded copy used to sit beside it
+          here. That copy never actually moved: it was three literal
+          strings ("—", "—", "00:00"), so once you clocked in the real
+          numbers inside TodayStatusCard would update while this frozen
+          twin stayed blank forever. Removed rather than wired up — the
+          real numbers already exist one component over. */}
+      <TodayStatusCard />
 
       {/* One honest notice covering every figure on the page, rather than
           repeating a caveat inside each card. */}
@@ -395,41 +371,6 @@ export default function EmployeeDashboardPage() {
             );
           })}
         </div>
-      </div>
-    </div>
-  );
-}
-
-// The three small readouts stacked beside Today's status. Kept local to
-// this file — nothing else needs this shape yet.
-function PunchCard({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  icon: typeof LogIn;
-  label: string;
-  value: string;
-  hint?: string;
-  tone: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 bg-surface border border-neutral/20 p-4 rounded-xl">
-      <div
-        className={`flex items-center justify-center h-10 w-10 rounded-lg shrink-0 ${tone}`}
-      >
-        <Icon className="h-5 w-5" strokeWidth={1.75} />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold tracking-wide uppercase text-neutral">
-          {label}
-        </p>
-        <p className="text-[20px] font-semibold text-heading leading-tight tabular-nums">
-          {value}
-        </p>
-        {hint && <p className="text-[11px] text-neutral">{hint}</p>}
       </div>
     </div>
   );

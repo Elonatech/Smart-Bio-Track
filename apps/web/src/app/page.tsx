@@ -7,6 +7,7 @@ import { HowItWorks } from "./components/marketing/HowItWorks";
 import { TrustBanner } from "./components/marketing/TrustBanner";
 import { Testimonials } from "./components/marketing/Testimonials";
 import { Pricing } from "./components/marketing/Pricing";
+import { Newsletter } from "./components/marketing/Newsletter";
 import { Faq } from "./components/marketing/Faq";
 import { Footer } from "./components/marketing/Footer";
 
@@ -23,6 +24,7 @@ export default function Home() {
         <TrustBanner />
         <Testimonials />
         <Pricing />
+        <Newsletter />
         <Faq />
       </main>
       <Footer />

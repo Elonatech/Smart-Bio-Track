@@ -26,11 +26,27 @@ const COMPANY_SIZES = [
   "1,000+ employees",
 ];
 
+const INDUSTRIES = [
+  "Technology",
+  "Financial Services",
+  "Healthcare",
+  "Manufacturing",
+  "Retail & E-commerce",
+  "Education",
+  "Construction & Real Estate",
+  "Logistics & Transportation",
+  "Hospitality",
+  "Government & Public Sector",
+  "Other",
+];
+
 const demoSchema = z.object({
   name: z.string().min(2, { message: "Your name is required" }),
   email: z.string().email({ message: "Enter a valid work email" }),
   company: z.string().min(2, { message: "Company name is required" }),
   companySize: z.string().min(1, { message: "Pick a company size" }),
+  industry: z.string().min(1, { message: "Pick an industry" }),
+  position: z.string().optional(),
   // Optional, but validated when filled — a malformed number is worse
   // than none, because sales will try it and lose the lead.
   phone: z
@@ -55,7 +71,7 @@ export default function DemoPage() {
     formState: { errors },
   } = useForm<DemoFormValues>({
     resolver: zodResolver(demoSchema),
-    defaultValues: { companySize: COMPANY_SIZES[2] },
+    defaultValues: { companySize: COMPANY_SIZES[2], industry: INDUSTRIES[0] },
   });
 
   const onSubmit = (values: DemoFormValues) => {
@@ -68,7 +84,9 @@ export default function DemoPage() {
         "",
         "—",
         `Name: ${values.name}`,
+        `Position: ${values.position || "—"}`,
         `Company: ${values.company}`,
+        `Industry: ${values.industry}`,
         `Size: ${values.companySize}`,
         `Email: ${values.email}`,
         values.phone ? `Phone: ${values.phone}` : null,
@@ -253,6 +271,47 @@ export default function DemoPage() {
                           </option>
                         ))}
                       </select>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="industry"
+                        className="block text-sm font-medium text-heading mb-1"
+                      >
+                        Industry
+                      </label>
+                      <select
+                        id="industry"
+                        {...register("industry")}
+                        className={fieldClass}
+                      >
+                        {INDUSTRIES.map((industry) => (
+                          <option key={industry} value={industry}>
+                            {industry}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.industry && (
+                        <p className="mt-1 text-sm text-alert">
+                          {errors.industry.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="position"
+                        className="block text-sm font-medium text-heading mb-1"
+                      >
+                        Position <span className="text-neutral">(optional)</span>
+                      </label>
+                      <input
+                        id="position"
+                        type="text"
+                        placeholder="HR Manager"
+                        {...register("position")}
+                        className={fieldClass}
+                      />
                     </div>
                   </div>
 

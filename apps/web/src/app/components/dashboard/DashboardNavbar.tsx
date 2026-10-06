@@ -1,9 +1,10 @@
 "use client";
 
-import { Bell, Menu } from "lucide-react";
+import { Menu } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { ThemeToggle } from "@/app/components/ThemeToggle";
 import { usePageHeaderContext } from "./PageHeaderContext";
+import { NotificationPanel } from "./NotificationPanel";
 
 // See the note in Sidebar.tsx: this was the same map written out a fourth time.
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
@@ -55,18 +56,11 @@ export function DashboardNavbar({ onOpenMobileMenu }: DashboardNavbarProps) {
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
         <ThemeToggle />
 
-        {/* Notification count is a static placeholder — no
-            notifications backend/endpoint exists yet. */}
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="relative rounded-md p-2 text-neutral hover:bg-neutral/10"
-        >
-          <Bell className="h-5 w-5" strokeWidth={1.75} />
-          <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-alert text-white text-[10px] flex items-center justify-center">
-            2
-          </span>
-        </button>
+        {/* Composed client-side from what already exists (stale invites,
+            employees with no department, flagged punches) rather than
+            waiting on a dedicated notifications model/endpoint — see
+            lib/notifications.ts for what backs each role. */}
+        <NotificationPanel />
 
         {/* Hidden on phones. It's the widest thing in the bar and it's
             purely informational — the sidebar drawer already shows who's

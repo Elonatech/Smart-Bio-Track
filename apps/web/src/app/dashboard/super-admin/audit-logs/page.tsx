@@ -28,7 +28,6 @@ interface AuditLogEntry {
   targetId: string | null;
   /** How the target read at the time. Denormalised on the server on purpose. */
   targetLabel: string | null;
-  ipAddress: string | null;
 }
 
 interface AuditLogPage {
@@ -255,15 +254,6 @@ export default function SuperAdminAuditLogsPage() {
               header: "Target",
               render: (log) => (
                 <span className="text-neutral">{log.targetLabel ?? "—"}</span>
-              ),
-            },
-            {
-              key: "ipAddress",
-              header: "IP address",
-              render: (log) => (
-                <span className="text-neutral whitespace-nowrap">
-                  {log.ipAddress ?? "—"}
-                </span>
               ),
             },
           ]}

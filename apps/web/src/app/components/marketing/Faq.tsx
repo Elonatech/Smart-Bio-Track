@@ -25,52 +25,63 @@ const FAQS: FaqItem[] = [
   {
     question: "Can we use this across multiple office locations?",
     answer:
-      "Yes. Every office gets its own geo-fence and can have its own work rules and grace periods. Starter supports one office; Pro and above support multiple.",
+      "Yes. Every office gets its own geo-fence and can have its own time regulation and grace periods. Starter supports one office; Pro and above support multiple.",
   },
   {
     question: "How is pricing calculated?",
     answer:
-      "Pricing is per active employee, per month, billed to your organization. Suspended or removed employees stop counting toward your bill starting the next billing cycle.",
+      "Pricing is determined by your selected plan tier and billed monthly or annually—your choice. Annual billing includes a discount.",
   },
 ];
 
 export function Faq() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
+  const leftColumn = FAQS.filter((_, i) => i % 2 === 0);
+  const rightColumn = FAQS.filter((_, i) => i % 2 === 1);
+
+  const renderColumn = (items: typeof FAQS, startIndex: number) => (
+    <div>
+      {items.map((item, idx) => {
+        const index = startIndex + idx * 2;
+        const isOpen = index === openIndex;
+        return (
+          <div key={item.question}>
+            <button
+              type="button"
+              onClick={() => setOpenIndex(isOpen ? null : index)}
+              className="flex w-full items-center justify-between py-4 text-left border-b border-neutral/15"
+            >
+              <span className="text-sm font-medium text-heading">
+                {item.question}
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 text-neutral transition-transform ${
+                  isOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+            {isOpen && (
+              <div className="pt-2 pb-0 text-sm text-neutral">
+                {item.answer}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
-    <section className="bg-neutral/[0.03] py-20">
-      <div className="mx-auto max-w-3xl px-6">
+    <section className="bg-neutral/3 py-20">
+      <div className="mx-auto max-w-6xl px-6">
         <h2 className="text-3xl font-semibold text-heading">
           Frequently asked questions
         </h2>
 
-        <div className="mt-8 divide-y divide-neutral/15 rounded-xl border border-neutral/15 bg-surface">
-          {FAQS.map((item, index) => {
-            const isOpen = index === openIndex;
-            return (
-              <div key={item.question}>
-                <button
-                  type="button"
-                  onClick={() => setOpenIndex(isOpen ? null : index)}
-                  className="flex w-full items-center justify-between px-5 py-4 text-left"
-                >
-                  <span className="text-sm font-medium text-heading">
-                    {item.question}
-                  </span>
-                  <ChevronDown
-                    className={`h-4 w-4 shrink-0 text-neutral transition-transform ${
-                      isOpen ? "rotate-180" : ""
-                    }`}
-                  />
-                </button>
-                {isOpen && (
-                  <div className="px-5 pb-4 text-sm text-neutral">
-                    {item.answer}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 sm:gap-10">
+          <div>{renderColumn(leftColumn, 0)}</div>
+          <div>{renderColumn(rightColumn, 1)}</div>
         </div>
       </div>
     </section>

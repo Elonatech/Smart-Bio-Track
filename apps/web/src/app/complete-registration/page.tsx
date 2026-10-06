@@ -27,6 +27,8 @@ import { getDashboardPath } from "@/lib/roleRoutes";
 // ACTIVE and logs them in immediately, same response shape as login.
 // Access token only — the refresh token arrives as an httpOnly cookie.
 interface CompleteRegistrationResponse {
+  // No refreshToken field: it arrives as the httpOnly sbt_refresh cookie,
+  // which the browser stores and replays on its own.
   accessToken: string;
 }
 

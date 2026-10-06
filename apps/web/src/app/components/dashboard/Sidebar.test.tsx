@@ -90,7 +90,17 @@ describe('what each role is offered', () => {
     renderSidebar({ role: 'SUPER_ADMIN' });
 
     expect(screen.getByRole('link', { name: /audit logs/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /organization settings/i })).toBeInTheDocument();
+    // Organization Settings carries requiredPlan: "ENTERPRISE"
+    // (sidebarConfig.ts), and CURRENT_PLAN is hardcoded to "STARTER"
+    // (planTiers.ts) — there's no real plan on Organization yet, so this
+    // item is always locked today. A locked item is still OFFERED to a
+    // SUPER_ADMIN (it's crowned and clickable-to-an-upsell-toast, not
+    // hidden), so it's still in the sidebar's items — just rendered as a
+    // <button>, not a <Link>, since clicking it navigates nowhere. See
+    // Sidebar.tsx's isLocked branch.
+    expect(
+      screen.getByRole('button', { name: /organization settings/i })
+    ).toBeInTheDocument();
   });
 
   it('offers no audit trail to any other role', () => {

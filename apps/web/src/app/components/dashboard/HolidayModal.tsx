@@ -1,10 +1,12 @@
 "use client";
 
+import { useRef } from "react";
 import { X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Toggle } from "@/app/components/dashboard/Toggle";
+import { useModalA11y } from "@/lib/useModalA11y";
 
 const holidayFormSchema = z.object({
   name: z.string().min(2, { message: "Holiday name is required" }),
@@ -28,6 +30,9 @@ interface HolidayModalProps {
 }
 
 export function HolidayModal({ holiday, onClose, onSave }: HolidayModalProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
+
   const {
     register,
     handleSubmit,
@@ -56,10 +61,21 @@ export function HolidayModal({ holiday, onClose, onSave }: HolidayModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="holiday-modal-title"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+      >
         <div className="flex items-start justify-between gap-4 mb-1">
-          <h2 className="text-lg font-semibold text-heading">
+          <h2 id="holiday-modal-title" className="text-lg font-semibold text-heading">
             {holiday ? "Edit holiday" : "Add holiday"}
           </h2>
           <button

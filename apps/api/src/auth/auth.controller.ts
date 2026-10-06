@@ -119,7 +119,10 @@ export class AuthController {
     @Body() dto: VerifyOrganizationDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return this.issueSession(res, await this.authService.verifyOrganization(dto));
+    return this.issueSession(
+      res,
+      await this.authService.verifyOrganization(dto),
+    );
   }
 
   // Second half of the *employee-invite* provisioning flow — the invitee

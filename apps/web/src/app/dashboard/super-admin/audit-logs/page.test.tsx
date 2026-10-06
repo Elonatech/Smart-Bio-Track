@@ -84,26 +84,29 @@ describe('SuperAdminAuditLogsPage', () => {
     expect(lastQuery()).toEqual({ page: 1, limit: 25 });
   });
 
-  it('shows the actor, their role, the target and the IP address', async () => {
+  it('shows the actor, their role and the target', async () => {
     respondWith();
     renderWithProviders(<SuperAdminAuditLogsPage />);
     await loaded();
 
     // Every one of these is the answer to a question someone asks of a trail:
-    // who, in what capacity, to whom, from where.
+    // who, in what capacity, to whom. IP address is deliberately not one of
+    // them — the field exists on the API response (entry() above still
+    // includes it, matching what the server actually sends) but this page
+    // stopped rendering it; see the removal in this same session.
     expect(desktop().getByText('Ada Okafor (Org Super Admin)')).toBeInTheDocument();
     expect(desktop().getByText('Bola Eze (EMP-0042)')).toBeInTheDocument();
-    expect(desktop().getByText('102.89.33.14')).toBeInTheDocument();
+    expect(desktop().queryByText('102.89.33.14')).not.toBeInTheDocument();
   });
 
   it('renders a dash where a field is genuinely absent', async () => {
     // A blank cell and a missing value look the same and mean different
-    // things. "System" actions have no IP and no target.
-    respondWith({ items: [entry({ targetLabel: null, ipAddress: null })] });
+    // things. "System" actions have no target.
+    respondWith({ items: [entry({ targetLabel: null })] });
     renderWithProviders(<SuperAdminAuditLogsPage />);
     await loaded();
 
-    expect(desktop().getAllByText('—').length).toBeGreaterThanOrEqual(2);
+    expect(desktop().getAllByText('—').length).toBeGreaterThanOrEqual(1);
   });
 
   it('omits the role suffix rather than printing an empty bracket', async () => {

@@ -28,6 +28,8 @@ import Link from "next/link";
 // an httpOnly cookie the browser stores and this code cannot read — see
 // apps/api/src/auth/refresh-cookie.ts.
 interface LoginResponse {
+  // No refreshToken field: it arrives as the httpOnly sbt_refresh cookie,
+  // which the browser stores and replays on its own.
   accessToken: string;
 }
 
@@ -294,13 +296,18 @@ function LoginForm() {
             <div className="h-px flex-1 bg-neutral/20" />
           </div>
 
-          {/* Biometric login — from the spec, was missing from this
-              build. Not wired to real WebAuthn yet, just the UI entry
-              point; hook up actual biometric auth once the backend
-              supports it. */}
+          {/* Biometric login — from the spec, was missing from this build.
+              Disabled rather than removed, same convention as every other
+              backend-blocked control in the app (EDIT_ENDPOINT_READY,
+              DELETE_ENDPOINT_READY): a live-looking button with no onClick
+              silently did nothing when clicked, which reads as the app
+              being broken, not as the feature being unfinished. Wire this
+              up for real once WebAuthn support exists server-side. */}
           <button
             type="button"
-            className="w-full flex items-center justify-center gap-2 rounded-md border border-neutral/40 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
+            disabled
+            title="Not available yet — biometric sign-in has no backend support."
+            className="w-full flex items-center justify-center gap-2 rounded-md border border-neutral/40 py-2 text-sm font-medium text-heading opacity-50 cursor-not-allowed"
           >
             <Fingerprint className="h-4 w-4" strokeWidth={1.75} />
             Sign in with Face ID / Windows Hello

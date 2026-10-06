@@ -11,47 +11,15 @@ import {
   WorkRuleFormModal,
   type WorkRule,
 } from "@/app/components/dashboard/WorkRuleFormModal";
+import { SAMPLE_WORK_RULES } from "@/app/components/dashboard/workRuleSamples";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
-const INITIAL_RULES: WorkRule[] = [
-  {
-    id: "1",
-    name: "Standard Corporate",
-    startTime: "08:00",
-    endTime: "17:00",
-    days: "Mon–Fri",
-    gracePeriodMinutes: 15,
-    breakMinutes: 60,
-    overtimeAfterHours: 9,
-  },
-  {
-    id: "2",
-    name: "Night Shift (Ops)",
-    startTime: "20:00",
-    endTime: "05:00",
-    days: "Sun–Thu",
-    gracePeriodMinutes: 10,
-    breakMinutes: 45,
-    overtimeAfterHours: 9,
-  },
-  {
-    id: "3",
-    name: "Field Team",
-    startTime: "07:30",
-    endTime: "16:30",
-    days: "Mon–Sat",
-    gracePeriodMinutes: 20,
-    breakMinutes: 60,
-    overtimeAfterHours: 8,
-  },
-];
-
-export default function SuperAdminWorkRulesPage() {
+export default function SuperAdminTimeRegulationPage() {
   const toast = useToast();
   const orgName =
     useAuthStore((state) => state.user?.organizationName) ??
     "Your organization";
-  const [rules, setRules] = useState<WorkRule[]>(INITIAL_RULES);
+  const [rules, setRules] = useState<WorkRule[]>(SAMPLE_WORK_RULES);
   const [modalMode, setModalMode] = useState<"create" | WorkRule | null>(null);
   const [deletingRule, setDeletingRule] = useState<WorkRule | null>(null);
 
@@ -59,12 +27,12 @@ export default function SuperAdminWorkRulesPage() {
     setRules((prev) => prev.filter((existing) => existing.id !== rule.id));
     toast.success(
       `${rule.name} deleted successfully`,
-      "Removed from this screen only — work rules are not saved to the server yet."
+      "Removed from this screen only — time regulations are not saved to the server yet."
     );
   }
 
   usePageHeader(
-    "Work rules",
+    "Time Regulation",
     `${orgName} · applied per employee or department`
   );
 
@@ -72,7 +40,7 @@ export default function SuperAdminWorkRulesPage() {
     const isEdit = Boolean(modalMode && modalMode !== "create");
     toast.success(
       values.name + (isEdit ? " updated successfully" : " created successfully"),
-      "Applied on this screen only — work rules are not saved to the server yet."
+      "Applied on this screen only — time regulations are not saved to the server yet."
     );
 
     if (modalMode && modalMode !== "create") {
@@ -97,14 +65,14 @@ export default function SuperAdminWorkRulesPage() {
           className="inline-flex items-center gap-2 bg-primary text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" strokeWidth={2} />
-          New work rule
+          New time regulation
         </button>
       </div>
 
       <DataTable
         rows={rules}
         getRowKey={(rule) => rule.id}
-        emptyMessage="No work rules yet."
+        emptyMessage="No time regulations yet."
         renderCardHeader={(rule) => (
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -201,7 +169,7 @@ export default function SuperAdminWorkRulesPage() {
         <ConfirmDialog
           title={`Delete ${deletingRule.name}?`}
           description="Employees assigned to this rule will have no shift window, grace period or overtime threshold until they are moved to another one."
-          note="Removed from this screen only — work rules are not saved to the server yet."
+          note="Removed from this screen only — time regulations are not saved to the server yet."
           confirmLabel="Delete rule"
           onConfirm={() => handleDelete(deletingRule)}
           onClose={() => setDeletingRule(null)}

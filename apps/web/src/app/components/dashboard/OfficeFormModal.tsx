@@ -1,17 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
+import { useModalA11y } from "@/lib/useModalA11y";
+
+// ssr:false, not just a static import: Leaflet touches `window` at
+// module-evaluation time, which breaks the moment ANY page importing this
+// modal (even indirectly) gets server-prerendered — this specific modal
+// only avoided that by luck (its parent page happens to be fully
+// client-rendered), so it follows the same pattern as StepOffice.tsx
+// rather than relying on that staying true.
+const GeofenceMapPicker = dynamic(
+  () =>
+    import("@/app/components/dashboard/GeofenceMapPicker").then(
+      (mod) => mod.GeofenceMapPicker
+    ),
+  { ssr: false }
+);
 
 const officeFormSchema = z.object({
   name: z.string().min(3, { message: "Name must be at least 3 characters" }),
-  latitude: z.number(),
-  longitude: z.number(),
+  // Unbounded until the map picker existed, an invalid number just sat in a
+  // text box with no visible consequence. Now that the map actually pans
+  // to whatever is typed, "324" silently passed validation and rendered a
+  // blank, nowhere view — the bounds below are what real latitude/longitude
+  // values can ever be, not an arbitrary tightening.
+  latitude: z
+    .number()
+    .min(-90, { message: "Latitude must be between -90 and 90" })
+    .max(90, { message: "Latitude must be between -90 and 90" }),
+  longitude: z
+    .number()
+    .min(-180, { message: "Longitude must be between -180 and 180" })
+    .max(180, { message: "Longitude must be between -180 and 180" }),
   geofenceRadiusMeters: z.number().min(1).max(100000),
 });
 
@@ -36,11 +63,14 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
   const isEditing = Boolean(office);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
 
   const {
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<OfficeFormValues>({
     resolver: zodResolver(officeFormSchema),
@@ -53,7 +83,16 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
   });
 
   const radius = watch("geofenceRadiusMeters");
-  const name = watch("name");
+  const latitude = watch("latitude");
+  const longitude = watch("longitude");
+
+  function handleMapPositionChange(lat: number, lng: number) {
+    // shouldValidate re-runs the number() checks immediately — without it,
+    // dragging the pin to a valid position after an earlier invalid manual
+    // edit would leave a stale error message showing under the field.
+    setValue("latitude", lat, { shouldValidate: true, shouldDirty: true });
+    setValue("longitude", lng, { shouldValidate: true, shouldDirty: true });
+  }
 
   const onSubmit = async (values: OfficeFormValues) => {
     setServerError(null);
@@ -87,10 +126,21 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="office-form-title"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+      >
         <div className="flex items-start justify-between mb-1">
-          <h2 className="cursor-pointer text-lg font-semibold text-heading">
+          <h2 id="office-form-title" className="cursor-pointer text-lg font-semibold text-heading">
             {isEditing ? "Edit office" : "Add office"}
           </h2>
           <button
@@ -129,6 +179,24 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
             )}
           </div>
 
+          {/* Map first, exact coordinates second: dragging a pin roughly
+              into place is how almost anyone will set this, typing decimal
+              GPS coordinates by hand is the exception — someone correcting
+              a value they already know precisely, or without a mouse. */}
+          <div>
+            <p className="text-sm font-medium text-heading mb-1">Location</p>
+            <GeofenceMapPicker
+              latitude={latitude}
+              longitude={longitude}
+              radiusMeters={radius}
+              onPositionChange={handleMapPositionChange}
+            />
+            <p className="mt-1 text-xs text-neutral">
+              Drag the pin or click anywhere on the map — the coordinates
+              below update to match.
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="latitude" className="block text-sm font-medium text-heading mb-1">
@@ -138,6 +206,8 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
                 id="latitude"
                 type="number"
                 step="any"
+                min={-90}
+                max={90}
                 {...register("latitude", { valueAsNumber: true })}
                 className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
@@ -153,30 +223,14 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
                 id="longitude"
                 type="number"
                 step="any"
+                min={-180}
+                max={180}
                 {...register("longitude", { valueAsNumber: true })}
                 className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
               {errors.longitude && (
                 <p className="mt-1 text-sm text-alert">{errors.longitude.message}</p>
               )}
-            </div>
-          </div>
-
-          {/* Same placeholder-map pattern as the onboarding wizard's
-              office step — no real map library chosen yet. */}
-          <div className="relative h-32 rounded-lg bg-neutral/5 border border-neutral/20 overflow-hidden">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="h-16 w-16 rounded-full border-2 border-primary/40 bg-primary/5 flex items-center justify-center">
-                <span className="h-6 w-6 rounded-full bg-success" />
-              </div>
-            </div>
-            <div className="absolute bottom-2 left-2 right-2 bg-surface/95 rounded-md px-2 py-1.5 shadow-sm">
-              <p className="text-xs font-medium text-heading truncate">
-                {name || "New office"}
-              </p>
-              <p className="text-[11px] text-neutral">
-                Geo-fence radius {radius} m
-              </p>
             </div>
           </div>
 

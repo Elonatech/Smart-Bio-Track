@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { X, MailCheck } from "lucide-react";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import type { UserRole } from "@/lib/store/auth-store";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
+import { useModalA11y } from "@/lib/useModalA11y";
 import type { VisibleUserStatus } from "@smartbiotrack/types";
 
 export interface EmployeeDetail {
@@ -37,6 +38,8 @@ export function EmployeeDetailModal({
   const [isSendingReset, setIsSendingReset] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
   const [isTogglingStatus, setIsTogglingStatus] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
 
   // PATCH /users/:id/status is a toggle, not a one-way suspend, so the
   // button has to read the current status to say what it will do.
@@ -130,10 +133,21 @@ export function EmployeeDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="employee-detail-title"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+      >
         <div className="flex items-start justify-between mb-4">
-          <h2 className="text-lg font-semibold text-heading">{employee.name}</h2>
+          <h2 id="employee-detail-title" className="text-lg font-semibold text-heading">{employee.name}</h2>
           <button
             type="button"
             onClick={onClose}

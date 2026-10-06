@@ -16,6 +16,9 @@ import {
 interface FlaggedPunchListProps {
   punches: FlaggedPunch[];
   emptyMessage: string;
+  // Forwarded to PunchReviewModal — false for a Team Lead, who can only
+  // recommend a decision, not make one. Defaults to true (HR Admin).
+  canApprove?: boolean;
 }
 
 // "Emeka Nwachukwu" -> "EN". Falls back to a single initial for
@@ -40,6 +43,7 @@ function getScoreTone(score: number): string {
 export function FlaggedPunchList({
   punches,
   emptyMessage,
+  canApprove = true,
 }: FlaggedPunchListProps) {
   const [selectedPunch, setSelectedPunch] = useState<FlaggedPunch | null>(null);
 
@@ -109,6 +113,7 @@ export function FlaggedPunchList({
         <PunchReviewModal
           punch={selectedPunch}
           onClose={() => setSelectedPunch(null)}
+          canApprove={canApprove}
         />
       )}
     </>

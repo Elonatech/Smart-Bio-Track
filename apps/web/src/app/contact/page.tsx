@@ -24,6 +24,8 @@ const TOPICS = [
 const contactSchema = z.object({
   name: z.string().min(2, { message: "Your name is required" }),
   email: z.string().email({ message: "Enter a valid email address" }),
+  company: z.string().min(2, { message: "Company name is required" }),
+  position: z.string().optional(),
   topic: z.string().min(1, { message: "Pick a topic" }),
   message: z
     .string()
@@ -79,7 +81,17 @@ export default function ContactPage() {
       `${topic.label} — ${values.name}`
     );
     const body = encodeURIComponent(
-      `${values.message}\n\n—\n${values.name}\n${values.email}`
+      [
+        values.message,
+        "",
+        "—",
+        values.name,
+        values.company,
+        values.position || null,
+        values.email,
+      ]
+        .filter(Boolean)
+        .join("\n")
     );
 
     window.location.href = `mailto:${topic.email}?subject=${subject}&body=${body}`;
@@ -220,6 +232,45 @@ export default function ContactPage() {
                         {errors.email.message}
                       </p>
                     )}
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="company"
+                        className="block text-sm font-medium text-heading mb-1"
+                      >
+                        Company name
+                      </label>
+                      <input
+                        id="company"
+                        type="text"
+                        placeholder="Meridian Group"
+                        {...register("company")}
+                        className="w-full rounded-md border border-neutral/40 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                      {errors.company && (
+                        <p className="mt-1 text-sm text-alert">
+                          {errors.company.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="position"
+                        className="block text-sm font-medium text-heading mb-1"
+                      >
+                        Position <span className="text-neutral">(optional)</span>
+                      </label>
+                      <input
+                        id="position"
+                        type="text"
+                        placeholder="HR Manager"
+                        {...register("position")}
+                        className="w-full rounded-md border border-neutral/40 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
                   </div>
 
                   <div>

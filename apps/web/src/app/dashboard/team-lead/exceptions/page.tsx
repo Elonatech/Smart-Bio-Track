@@ -30,6 +30,7 @@ export default function TeamLeadExceptionsPage() {
       <FlaggedPunchList
         punches={punches}
         emptyMessage="Nothing pending. Every punch from your team cleared automatically."
+        canApprove={false}
       />
     </div>
   );

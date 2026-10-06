@@ -103,7 +103,7 @@ export function FeatureSlider() {
 
         <div className="absolute inset-0 bg-linear-to-t from-black/70 via-black/20 to-transparent" />
 
-        <div className="relative mx-auto flex h-full max-w-7xl items-end px-6 sm:px-10 lg:px-16 pb-16">
+        <div className="relative mx-auto flex h-full max-w-7xl items-end px-6 sm:px-10 lg:px-16 pb-20 sm:pb-16">
           <div className="max-w-lg text-white">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur">
               Core feature {index + 1} of {SLIDES.length}
@@ -119,7 +119,7 @@ export function FeatureSlider() {
           type="button"
           onClick={() => goTo(index - 1)}
           aria-label="Previous feature"
-          className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/20 p-2 text-white backdrop-blur hover:bg-white/30 transition-colors"
+          className="absolute left-4 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/20 p-2 text-white backdrop-blur transition-colors hover:bg-white/30 sm:block"
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -127,24 +127,47 @@ export function FeatureSlider() {
           type="button"
           onClick={() => goTo(index + 1)}
           aria-label="Next feature"
-          className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/20 p-2 text-white backdrop-blur hover:bg-white/30 transition-colors"
+          className="absolute right-4 top-1/2 hidden -translate-y-1/2 rounded-full bg-white/20 p-2 text-white backdrop-blur transition-colors hover:bg-white/30 sm:block"
         >
           <ChevronRight className="h-5 w-5" />
         </button>
 
-        {/* Dot indicators */}
-        <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 gap-2">
-          {SLIDES.map((s, i) => (
-            <button
-              key={s.title}
-              type="button"
-              onClick={() => goTo(i)}
-              aria-label={`Go to slide ${i + 1}`}
-              className={`h-1.5 rounded-full transition-all ${
-                i === index ? "w-6 bg-white" : "w-1.5 bg-white/40"
-              }`}
-            />
-          ))}
+        {/* One control row: dots always, flanked by arrows on mobile where
+            the side buttons are hidden. Keeping them on the same line as
+            the dots puts every slider control in one place, close under
+            the caption, rather than floating over the image. */}
+        <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-4">
+          <button
+            type="button"
+            onClick={() => goTo(index - 1)}
+            aria-label="Previous feature"
+            className="rounded-full bg-white/20 p-1.5 text-white backdrop-blur transition-colors hover:bg-white/30 sm:hidden"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+
+          <div className="flex items-center gap-2">
+            {SLIDES.map((s, i) => (
+              <button
+                key={s.title}
+                type="button"
+                onClick={() => goTo(i)}
+                aria-label={`Go to slide ${i + 1}`}
+                className={`h-1.5 rounded-full transition-all ${
+                  i === index ? "w-6 bg-white" : "w-1.5 bg-white/40"
+                }`}
+              />
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => goTo(index + 1)}
+            aria-label="Next feature"
+            className="rounded-full bg-white/20 p-1.5 text-white backdrop-blur transition-colors hover:bg-white/30 sm:hidden"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </section>

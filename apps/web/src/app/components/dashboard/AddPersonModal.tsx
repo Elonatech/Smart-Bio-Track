@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, MailCheck } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,6 +8,7 @@ import { z } from "zod";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
+import { useModalA11y } from "@/lib/useModalA11y";
 import type { UserRole } from "@/lib/store/auth-store";
 
 // The single flow for adding ANYONE to the organization — employee,
@@ -37,16 +38,30 @@ import type { UserRole } from "@/lib/store/auth-store";
 // the server can safely mint it. CreateUserDto still accepts one if sent,
 // for orgs migrating from an existing HR system; this form doesn't offer
 // that.
-const addPersonSchema = z.object({
-  role: z.string().min(1, { message: "Role is required" }),
-  name: z.string().min(2, { message: "Name is required" }),
-  email: z.string().email({ message: "Enter a valid email address" }),
-  phoneNumber: z.string().optional(),
-  departmentId: z.string().optional(),
-  officeId: z.string().optional(),
-  jobRole: z.string().optional(),
-  workRule: z.string().optional(),
-});
+const addPersonSchema = z
+  .object({
+    role: z.string().min(1, { message: "Role is required" }),
+    name: z.string().min(2, { message: "Name is required" }),
+    email: z.string().email({ message: "Enter a valid email address" }),
+    phoneNumber: z.string().optional(),
+    departmentId: z.string().optional(),
+    officeId: z.string().optional(),
+    jobRole: z.string().optional(),
+    workRule: z.string().optional(),
+    salary: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    // Same rule the onboarding invite step enforces: a Team Lead's whole
+    // dashboard is scoped to one department, and with no PATCH /users/:id
+    // an omission here cannot be fixed from the dashboard afterwards.
+    if (values.role === "TEAM_LEAD" && !values.departmentId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["departmentId"],
+        message: "A Team Lead must be assigned a department",
+      });
+    }
+  });
 
 type AddPersonFormValues = z.infer<typeof addPersonSchema>;
 
@@ -80,7 +95,7 @@ interface AddPersonModalProps {
   onInvited: () => void; // parent refetches the employee list after this fires
 }
 
-// Static placeholders — mirrors the same seeded rows Work Rules shows,
+// Static placeholders — mirrors the same seeded rows Time Regulation shows,
 // since there's no backend WorkRule model to fetch real ones from.
 const WORK_RULE_OPTIONS = ["Standard Corporate", "Night Shift (Ops)", "Field Team"];
 
@@ -98,6 +113,8 @@ export function AddPersonModal({
   const [invited, setInvited] = useState<ProvisionResponse | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [offices, setOffices] = useState<OfficeOption[]>([]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose);
 
   useEffect(() => {
     // Both dropdowns are optional fields, so a failure on either one
@@ -160,10 +177,21 @@ export function AddPersonModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-person-title"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+      >
         <div className="flex items-start justify-between mb-1">
-          <h2 className="text-lg font-semibold text-heading">
+          <h2 id="add-person-title" className="text-lg font-semibold text-heading">
             {invited ? "Invitation sent" : "Add person"}
           </h2>
           <button
@@ -397,9 +425,23 @@ export function AddPersonModal({
                 </div>
               </div>
 
+              <div>
+                <label htmlFor="salary" className="block text-sm font-medium text-heading mb-1">
+                  Salary <span className="text-neutral">(optional)</span>
+                </label>
+                <input
+                  id="salary"
+                  type="text"
+                  placeholder="e.g. ₦350,000/month"
+                  {...register("salary")}
+                  className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
               <p className="text-xs text-neutral border-t border-neutral/20 pt-3">
-                Phone number, job title, and assigned work rule aren&apos;t
-                saved yet — backend support for these is still pending.
+                Phone number, job title, salary, and assigned work rule
+                aren&apos;t saved yet — backend support for these is still
+                pending.
               </p>
 
               <div className="flex items-center justify-end gap-3 pt-2">

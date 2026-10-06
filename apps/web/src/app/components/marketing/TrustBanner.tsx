@@ -29,10 +29,10 @@ export function TrustBanner() {
           {POINTS.map((point) => (
             <div
               key={point}
-              className="flex items-start gap-3 rounded-lg bg-white/10 px-4 py-3"
+              className="flex items-start gap-3 rounded-lg bg-black px-4 py-3"
             >
               <span className="mt-0.5 text-white">✓</span>
-              <span className="text-sm text-white/90">{point}</span>
+              <span className="text-sm text-white">{point}</span>
             </div>
           ))}
         </div>

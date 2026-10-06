@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -8,6 +8,7 @@ import {
   CircleX,
   X,
 } from "lucide-react";
+import { useModalA11y } from "@/lib/useModalA11y";
 
 // Detail view for one flagged punch. UI only — there is no attendance
 // backend (no Punch model in prisma/schema.prisma, no module in
@@ -63,9 +64,18 @@ const SIGNAL_META: Record<
 interface PunchReviewModalProps {
   punch: FlaggedPunch;
   onClose: () => void;
+  // A Team Lead can only flag their call for HR to act on — final
+  // approve/reject stays with HR, who sees every department and is the
+  // one the audit trail holds accountable for the decision. Defaults to
+  // true so HR's Review Queue (the common case) needs no extra prop.
+  canApprove?: boolean;
 }
 
-export function PunchReviewModal({ punch, onClose }: PunchReviewModalProps) {
+export function PunchReviewModal({
+  punch,
+  onClose,
+  canApprove = true,
+}: PunchReviewModalProps) {
   const [notes, setNotes] = useState("");
   const [showPassed, setShowPassed] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -80,52 +90,7 @@ export function PunchReviewModal({ punch, onClose }: PunchReviewModalProps) {
   // useless to whoever reads it later. Approve stays ungated.
   const hasNote = notes.trim().length > 0;
 
-  useEffect(() => {
-    // Remember where focus was so it can go back to the Review button
-    // when the modal closes — otherwise a keyboard user is dumped at
-    // the top of the document.
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
-
-    // The page behind shouldn't scroll while the modal is open.
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-        return;
-      }
-
-      if (event.key !== "Tab") return;
-
-      // Focus trap: collect what's actually focusable right now
-      // (disabled controls are excluded automatically) and wrap Tab
-      // around the ends so focus can't escape to the page behind.
-      const focusables = panelRef.current?.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      );
-      if (!focusables || focusables.length === 0) return;
-
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = originalOverflow;
-      previouslyFocused?.focus();
-    };
-  }, [onClose]);
+  useModalA11y(panelRef, onClose);
 
   return (
     <div
@@ -265,7 +230,7 @@ export function PunchReviewModal({ punch, onClose }: PunchReviewModalProps) {
             }
             className="rounded-md bg-alert text-white px-4 py-2.5 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Reject
+            {canApprove ? "Reject" : "Recommend rejection"}
           </button>
 
           <button
@@ -274,8 +239,14 @@ export function PunchReviewModal({ punch, onClose }: PunchReviewModalProps) {
             title={DECISIONS_ENABLED ? undefined : NO_ENDPOINT_HINT}
             className="rounded-md bg-primary text-white px-4 py-2.5 text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
           >
-            Approve
+            {canApprove ? "Approve" : "Recommend for approval"}
           </button>
+
+          {!canApprove && (
+            <p className="basis-full text-[12px] text-neutral text-right mt-1">
+              Your recommendation is sent to HR, who makes the final call.
+            </p>
+          )}
         </div>
       </div>
     </div>
