@@ -189,7 +189,7 @@ describe('which link is highlighted', () => {
     signedInAs('SUPER_ADMIN');
     renderSidebar({ path: '/dashboard/super-admin/offices/new' });
 
-    expect(screen.getByRole('link', { name: /offices/i }).className).toContain(ACTIVE);
+    expect(screen.getByRole('link', { name: /branches/i }).className).toContain(ACTIVE);
   });
 
   it('highlights exactly one item at a time', () => {

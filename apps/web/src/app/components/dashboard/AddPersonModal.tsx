@@ -48,7 +48,6 @@ const addPersonSchema = z
     officeId: z.string().optional(),
     jobRole: z.string().optional(),
     workRule: z.string().optional(),
-    salary: z.string().optional(),
   })
   .superRefine((values, ctx) => {
     // Same rule the onboarding invite step enforces: a Team Lead's whole
@@ -366,14 +365,14 @@ export function AddPersonModal({
                 </div>
                 <div>
                   <label htmlFor="officeId" className="block text-sm font-medium text-heading mb-1">
-                    Office
+                    Branch
                   </label>
                   <select
                     id="officeId"
                     {...register("officeId")}
                     className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   >
-                    <option value="">No office</option>
+                    <option value="">No branch</option>
                     {offices.map((office) => (
                       <option key={office.id} value={office.id}>
                         {office.name}
@@ -425,21 +424,8 @@ export function AddPersonModal({
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="salary" className="block text-sm font-medium text-heading mb-1">
-                  Salary <span className="text-neutral">(optional)</span>
-                </label>
-                <input
-                  id="salary"
-                  type="text"
-                  placeholder="e.g. ₦350,000/month"
-                  {...register("salary")}
-                  className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
-
               <p className="text-xs text-neutral border-t border-neutral/20 pt-3">
-                Phone number, job title, salary, and assigned work rule
+                Phone number, job title, and assigned work rule
                 aren&apos;t saved yet — backend support for these is still
                 pending.
               </p>

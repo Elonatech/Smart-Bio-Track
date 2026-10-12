@@ -18,8 +18,7 @@ const RECORDED_AT = "2026-08-10T08:12:00.000Z";
  * read as a failure (the time IS counted) and rejected must not read as
  * recorded.
  */
-
-function renderResult(outcome: Parameters<typeof ClockInResult>[0]["outcome"]) {
+ function renderResult(outcome: Parameters<typeof ClockInResult>[0]["outcome"]) {
   const onDone = jest.fn();
   const onRetry = jest.fn();
   render(
@@ -30,12 +29,12 @@ function renderResult(outcome: Parameters<typeof ClockInResult>[0]["outcome"]) {
     />,
   );
   return { onDone, onRetry };
-}
+} 
 
 describe("ClockInResult", () => {
   it("approved: confirms the time and offers no retry", () => {
     renderResult({ status: "approved", recordedAt: RECORDED_AT });
-
+ 
     expect(screen.getByText("You're clocked in")).toBeInTheDocument();
     // The exact clock reading depends on the machine's timezone (see the
     // formatRecordedTime tests below); what matters here is that a time

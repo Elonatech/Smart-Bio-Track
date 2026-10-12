@@ -32,7 +32,7 @@ const GETTING_STARTED_ITEMS = [
   },
   {
     icon: Building2,
-    title: "Add another office",
+    title: "Add another branch",
     description:
       "Create additional geo-fences for your branches, warehouses and field sites.",
     href: "/dashboard/super-admin/offices",
@@ -64,7 +64,7 @@ function OnboardingWelcomeContent() {
           Welcome to SmartBioTrack, {orgName}!
         </h1>
         <p className="text-white/80 max-w-xl mx-auto">
-          Your organization, first office geo-fence and time regulation are
+          Your organization, first branch geo-fence and time regulation are
           configured. Here are three things worth doing before your team&apos;s
           first clock-in.
         </p>

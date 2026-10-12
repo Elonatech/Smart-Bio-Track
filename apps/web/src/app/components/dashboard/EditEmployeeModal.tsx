@@ -249,14 +249,14 @@ export function EditEmployeeModal({
                 htmlFor="edit-officeId"
                 className="block text-sm font-medium text-heading mb-1"
               >
-                Office
+                Branch
               </label>
               <select
                 id="edit-officeId"
                 {...register("officeId")}
                 className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                <option value="">No office</option>
+                <option value="">No branch</option>
                 {offices.map((office) => (
                   <option key={office.id} value={office.id}>
                     {office.name}

@@ -158,26 +158,33 @@ export function EmployeeDetailModal({
           </button>
         </div>
 
+        {/* min-w-0 on each cell and wrap-break-word on each value: a grid
+            column will not shrink below its widest unbreakable text, so a
+            long email (stephanie.onyekwelibe@elonatech.com.ng) used to push
+            the column past the modal's edge and add a horizontal scrollbar.
+            Widening the modal only moves that point out to the next longer
+            address; letting the value wrap removes it. Applied to every cell,
+            since a long department name does the same thing. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-medium tracking-wide uppercase text-neutral">
               Employee ID
             </p>
-            <p className="text-sm text-heading mt-0.5">{employee.employeeId}</p>
+            <p className="text-sm text-heading mt-0.5 wrap-break-word">{employee.employeeId}</p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-medium tracking-wide uppercase text-neutral">Email</p>
-            <p className="text-sm text-heading mt-0.5">{employee.email}</p>
+            <p className="text-sm text-heading mt-0.5 wrap-break-word">{employee.email}</p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-medium tracking-wide uppercase text-neutral">
               Department
             </p>
-            <p className="text-sm text-heading mt-0.5">{employee.departmentName ?? "—"}</p>
+            <p className="text-sm text-heading mt-0.5 wrap-break-word">{employee.departmentName ?? "—"}</p>
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-xs font-medium tracking-wide uppercase text-neutral">Role</p>
-            <p className="text-sm text-heading mt-0.5">{ROLE_LABEL[employee.role]}</p>
+            <p className="text-sm text-heading mt-0.5 wrap-break-word">{ROLE_LABEL[employee.role]}</p>
           </div>
         </div>
 

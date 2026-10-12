@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
+  Camera,
   CircleCheck,
   KeyRound,
   MailCheck,
@@ -14,6 +15,12 @@ import { useToast } from "@/app/components/Toast";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 import { Toggle } from "@/app/components/dashboard/Toggle";
+import { UserAvatar } from "@/app/components/dashboard/UserAvatar";
+import {
+  AVATAR_ACCEPTED_TYPES,
+  useAvatarStore,
+  useAvatarUrl,
+} from "@/lib/store/avatar-store";
 
 // Shared by every role's /profile route — an HR Admin has a password and
 // registered devices exactly like an Employee does, so there's one
@@ -26,7 +33,8 @@ import { Toggle } from "@/app/components/dashboard/Toggle";
 //   ABSENT — employeeId / office exist as columns but aren't in the
 //            /auth/me payload, and GET /users is restricted to admin
 //            roles, so an employee can't look themselves up either.
-//   ABSENT — phone and job title have no column on the User model.
+//   ABSENT — phone, job title and profile picture have no column on the
+//            User model (the picture is a preview held in memory).
 //   ABSENT — there is no PATCH /users, so nothing on this page can be
 //            saved; no change-password route; no Device model; no
 //            notification-preference model.
@@ -149,6 +157,13 @@ export function ProfilePageContent() {
           </p>
         )}
 
+        {profile && (
+          <ProfilePhoto
+            userId={profile.id}
+            nameOrEmail={profile.name ?? profile.email}
+          />
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
           <ReadOnlyField label="Full name" value={profile?.name} />
           <ReadOnlyField label="Employee ID" value={undefined} />
@@ -178,7 +193,7 @@ export function ProfilePageContent() {
           />
 
           <ReadOnlyField label="Job title" value={undefined} />
-          <ReadOnlyField label="Office" value={undefined} />
+          <ReadOnlyField label="Branch" value={undefined} />
 
           <div>
             <p className="block text-sm font-medium text-heading mb-1">
@@ -374,6 +389,75 @@ export function ProfilePageContent() {
           No raw biometric images are stored on our servers — verification
           happens at the device/OS level.
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Picture picker. Preview only: there's no avatar column or upload endpoint,
+// so the image is held in memory (lib/store/avatar-store.ts) and the note
+// below says it disappears on refresh.
+function ProfilePhoto({
+  userId,
+  nameOrEmail,
+}: {
+  userId: string;
+  nameOrEmail: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const setFromFile = useAvatarStore((state) => state.setFromFile);
+  const clear = useAvatarStore((state) => state.clear);
+  const hasPhoto = useAvatarUrl(userId) !== null;
+  const [error, setError] = useState<string | null>(null);
+
+  function handleChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Reset so picking the same file again still fires onChange.
+    event.target.value = "";
+    if (!file) return;
+    setError(setFromFile(userId, file));
+  }
+
+  return (
+    <div className="mt-5 flex flex-wrap items-center gap-4">
+      <UserAvatar userId={userId} nameOrEmail={nameOrEmail} size="lg" />
+      <div className="min-w-0">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="inline-flex items-center gap-2 rounded-md border border-neutral/30 px-3 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
+          >
+            <Camera className="h-4 w-4" strokeWidth={1.75} />
+            {hasPhoto ? "Change photo" : "Upload photo"}
+          </button>
+          {hasPhoto && (
+            <button
+              type="button"
+              onClick={() => {
+                clear();
+                setError(null);
+              }}
+              className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-alert hover:bg-alert/10"
+            >
+              <Trash2 className="h-4 w-4" strokeWidth={1.75} />
+              Remove
+            </button>
+          )}
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={AVATAR_ACCEPTED_TYPES.join(",")}
+          onChange={handleChange}
+          className="hidden"
+          aria-label="Choose a profile photo"
+        />
+        <p className="mt-2 text-[12px] text-neutral">
+          JPG, PNG or WebP, up to 2 MB. Preview only — it isn&apos;t saved
+          yet and disappears when you refresh.
+        </p>
+        {error && <p className="mt-1 text-sm text-alert">{error}</p>}
       </div>
     </div>
   );

@@ -123,7 +123,7 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
           .catch(() => {
             setLocation({
               status: "denied",
-              message: "Could not load your organization's offices. Try again.",
+              message: "Could not load your organization's branches. Try again.",
             });
           });
       },
@@ -156,9 +156,9 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
     if (location.status === "denied")
       return "Resolve the location error above first.";
     if (location.status === "no-offices")
-      return "No offices are configured for your organization yet.";
+      return "No branches are configured for your organization yet.";
     if (!isWithinFence)
-      return "You need to be inside an office's geo-fence to clock in.";
+      return "You need to be inside a branch's geo-fence to clock in.";
     return null;
   })();
 
@@ -275,7 +275,7 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
                   )}
                   {location.status === "no-offices" && (
                     <p className="text-xs text-alert mt-0.5">
-                      No offices are configured for your organization yet.
+                      No branches are configured for your organization yet.
                     </p>
                   )}
                   {location.status === "resolved" && (

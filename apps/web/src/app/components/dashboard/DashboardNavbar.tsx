@@ -1,21 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { Menu } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { getDashboardPath } from "@/lib/roleRoutes";
 import { ThemeToggle } from "@/app/components/ThemeToggle";
 import { usePageHeaderContext } from "./PageHeaderContext";
 import { NotificationPanel } from "./NotificationPanel";
+import { UserAvatar } from "./UserAvatar";
 
 // See the note in Sidebar.tsx: this was the same map written out a fourth time.
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
-
-function getInitials(nameOrEmail: string): string {
-  const parts = nameOrEmail.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-  return nameOrEmail.slice(0, 2).toUpperCase();
-}
 
 interface DashboardNavbarProps {
   // Opens the sidebar drawer on mobile/tablet — undefined/no-op on
@@ -62,14 +57,16 @@ export function DashboardNavbar({ onOpenMobileMenu }: DashboardNavbarProps) {
             lib/notifications.ts for what backs each role. */}
         <NotificationPanel />
 
-        {/* Hidden on phones. It's the widest thing in the bar and it's
-            purely informational — the sidebar drawer already shows who's
-            signed in — so the page title gets the space instead. */}
-        <div className="hidden sm:flex items-center gap-2 rounded-md p-1 border border-neutral/20">
-          <span className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">
-            {getInitials(user.name ?? user.email)}
-          </span>
-          <div className="min-w-0">
+        {/* Links to the profile page, where the picture is changed. On
+            phones only the avatar shows — the name and role are the widest
+            thing in the bar, so the page title gets that space instead. */}
+        <Link
+          href={`${getDashboardPath(user.role)}/profile`}
+          aria-label="Your profile"
+          className="flex items-center gap-2 rounded-md sm:p-1 sm:border border-neutral/20 hover:bg-neutral/10"
+        >
+          <UserAvatar userId={user.id} nameOrEmail={user.name ?? user.email} />
+          <div className="hidden sm:block min-w-0">
             <p className="text-sm font-medium text-heading truncate">
               {user.name ?? user.email}
             </p>
@@ -77,7 +74,7 @@ export function DashboardNavbar({ onOpenMobileMenu }: DashboardNavbarProps) {
               {ROLE_LABEL[user.role] ?? user.role}
             </p>
           </div>
-        </div>
+        </Link>
       </div>
     </header>
   );

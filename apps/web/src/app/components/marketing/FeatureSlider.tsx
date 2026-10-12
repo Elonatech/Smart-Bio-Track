@@ -30,7 +30,7 @@ const SLIDES: Slide[] = [
   {
     title: "Geo-Fenced Check-In",
     description:
-      "A clock-in only counts when someone is physically inside the approved office radius — no clocking in from home for a colleague.",
+      "A clock-in only counts when someone is physically inside the approved branch radius — no clocking in from home for a colleague.",
     image: "/Images/hero-geofence-LGnaEq3q.jpg",
   },
   {

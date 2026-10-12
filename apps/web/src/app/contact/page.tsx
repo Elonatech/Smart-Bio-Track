@@ -15,7 +15,6 @@ const SUPPORT_EMAIL = "support@elonatech.com.ng";
 
 const TOPICS = [
   { value: "sales", label: "Sales enquiry", email: SALES_EMAIL },
-  { value: "demo", label: "Book a demo", email: SALES_EMAIL },
   { value: "support", label: "Support question", email: SUPPORT_EMAIL },
   { value: "partnership", label: "Partnership", email: SALES_EMAIL },
   { value: "press", label: "Press", email: SALES_EMAIL },
@@ -326,9 +325,9 @@ export default function ContactPage() {
                     Send message
                   </button>
 
-                  <p className="text-xs text-neutral text-center">
+                  {/* <p className="text-xs text-neutral text-center">
                     Opens in your email app so you keep a copy of what you sent.
-                  </p>
+                  </p> */}
                 </form>
               )}
             </div>

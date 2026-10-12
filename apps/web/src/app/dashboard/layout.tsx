@@ -61,7 +61,7 @@ export default function DashboardLayout({
               rather than crashing on a missing lookup. */}
             <Sidebar
               items={(role && SIDEBAR_ITEMS[role]) ?? []}
-              isMobileOpen={isMobileOpen}
+              isMobileOpen={isMobileOpen} 
               onCloseMobile={() => setIsMobileOpen(false)}
               isCollapsed={isCollapsed}
               onToggleCollapse={toggleCollapse}

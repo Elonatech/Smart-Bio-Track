@@ -96,14 +96,14 @@ export default function SuperAdminDashboardPage() {
 
   // offices === null means "hasn't loaded yet", not "confirmed zero" — an
   // earlier version of this collapsed both to an empty array and showed
-  // "No offices yet" for a moment before the real count arrived, which is
+  // "No branches yet" for a moment before the real count arrived, which is
   // a false claim, not just a loading flicker.
   const officeNames = offices?.map((o) => o.name) ?? [];
   const officeSubtitle =
     offices === null
       ? ""
       : officeNames.length === 0
-        ? "No offices yet"
+        ? "No branches yet"
         : officeNames.length <= 2
           ? officeNames.join(", ")
           : `${officeNames.slice(0, 2).join(", ")} +${officeNames.length - 2} more`;
@@ -143,7 +143,7 @@ export default function SuperAdminDashboardPage() {
           </div>
           <div className="flex flex-col items-start">
             <p className="text-xs font-semibold tracking-wide uppercase text-neutral">
-              Offices & geo-fences
+              Branches & geo-fences
             </p>
             <p className="mt-1 text-[24px] font-semibold text-heading">
               {offices?.length ?? "—"}

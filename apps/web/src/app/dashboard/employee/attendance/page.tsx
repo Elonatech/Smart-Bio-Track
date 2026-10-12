@@ -60,7 +60,7 @@ const INITIAL_DAYS: AttendanceDay[] = [
     clockIn: "08:39",
     clockOut: "16:02",
     totalHours: "7h 23m",
-    office: "Abuja Office",
+    office: "Abuja Branch",
     status: "FLAGGED",
     trustScore: 58,
   },
@@ -135,7 +135,7 @@ export default function EmployeeAttendancePage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by date or office"
+            placeholder="Search by date or branch"
             className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
@@ -203,7 +203,7 @@ export default function EmployeeAttendancePage() {
           },
           {
             key: "office",
-            header: "Office",
+            header: "Branch",
             render: (day) => <span className="text-neutral">{day.office}</span>,
           },
           {
