@@ -438,6 +438,48 @@ describe('Auth flow and RBAC (integration)', () => {
       expect(entry?.targetLabel).toContain(user!.name);
     });
 
+    it('records the IP but never serves it (#32)', async () => {
+      // Two halves of one decision, and they pull in opposite directions, so
+      // both are asserted here rather than trusting the select.
+      //
+      // Recorded, because "thirty failed sign-ins from one address" is what a
+      // security investigation asks and #9's lockout entries are where it
+      // gets asked. Not served, because the screen stopped showing IPs on
+      // 30 Sep 2026 for privacy — and a field hidden in the UI while still
+      // shipped over the wire is the appearance of privacy, not privacy.
+      const emp = await onboard('EMPLOYEE', 'auditip');
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: 'auditip@acme.test' },
+      });
+      void emp;
+
+      await request(httpServer(ctx))
+        .patch(`/api/users/${user!.id}/status`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      // Still written.
+      const stored = await ctx.prisma.auditLog.findFirst({
+        where: { targetId: user!.id, action: 'USER_SUSPENDED' },
+        select: { ipAddress: true },
+      });
+      expect(stored).not.toBeNull();
+      expect(stored).toHaveProperty('ipAddress');
+
+      // Never sent. Asserted against the raw response body rather than a
+      // parsed field, so re-adding `ipAddress: true` to the select fails here
+      // however the value is shaped or named downstream.
+      const res = await request(httpServer(ctx))
+        .get('/api/audit-logs')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(res.body.data.items.length).toBeGreaterThan(0);
+      for (const item of res.body.data.items) {
+        expect(item).not.toHaveProperty('ipAddress');
+      }
+    });
+
     it('rolls the action back if the audit write fails', async () => {
       // The property the whole design rests on. Recording happens inside the
       // action's transaction, so there is no path that performs a suspension

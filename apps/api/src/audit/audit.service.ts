@@ -147,7 +147,24 @@ export class AuditService {
           targetType: true,
           targetId: true,
           targetLabel: true,
-          ipAddress: true,
+          // `ipAddress` is deliberately NOT selected (#32).
+          //
+          // It is still recorded on every entry — the column stays on the
+          // model and `record()` still writes it — because "thirty failed
+          // sign-ins from one address" is a question a security
+          // investigation needs answerable, and #9's lockout entries are
+          // where it gets asked.
+          //
+          // It is not *served*. The audit screen stopped displaying the IP on
+          // 30 Sep 2026 for privacy, and leaving it in this select meant the
+          // value still reached every super admin's browser and sat in their
+          // network tab — the screen clean, the payload not. Hiding a field
+          // in the UI while shipping it over the wire is not privacy, it is
+          // the appearance of it.
+          //
+          // Reachable by a direct database query when somebody genuinely
+          // needs it. See the log's load-bearing section before adding it
+          // back here.
         },
       }),
       this.prisma.auditLog.count({ where }),
