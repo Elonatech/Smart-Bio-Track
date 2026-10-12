@@ -61,7 +61,7 @@ function renderModal(office?: typeof EXISTING) {
   return { onClose, onSaved };
 }
 
-const save = () => userEvent.click(screen.getByRole('button', { name: 'Save office' }));
+const save = () => userEvent.click(screen.getByRole('button', { name: 'Save branch' }));
 
 async function setField(label: RegExp, value: string) {
   const input = screen.getByLabelText(label);
@@ -78,7 +78,7 @@ describe('creating an office', () => {
   it('POSTs the name, coordinates and radius', async () => {
     const { onSaved, onClose } = renderModal();
 
-    await setField(/office name/i, 'Abuja Branch');
+    await setField(/branch name/i, 'Abuja Branch');
     await save();
 
     await waitFor(() => expect(mockPost).toHaveBeenCalled());
@@ -102,7 +102,7 @@ describe('creating an office', () => {
     // expects a number.
     renderModal();
 
-    await setField(/office name/i, 'Abuja Branch');
+    await setField(/branch name/i, 'Abuja Branch');
     await setField(/latitude/i, '9.0579');
     await save();
 
@@ -124,7 +124,7 @@ describe('editing an office', () => {
   it('PUTs to the office being edited, not POSTing a duplicate', async () => {
     const { onSaved } = renderModal(EXISTING);
 
-    await setField(/office name/i, 'Lagos Head Office');
+    await setField(/branch name/i, 'Lagos Head Office');
     await save();
 
     await waitFor(() => expect(mockPut).toHaveBeenCalled());
@@ -138,7 +138,7 @@ describe('editing an office', () => {
     // manager changing only the name moves the office to Lagos.
     renderModal({ ...EXISTING, latitude: 9.0579, longitude: 7.4951, geofenceRadiusMeters: 500 });
 
-    expect(screen.getByLabelText(/office name/i)).toHaveValue('Lagos HQ');
+    expect(screen.getByLabelText(/branch name/i)).toHaveValue('Lagos HQ');
     expect(screen.getByLabelText(/latitude/i)).toHaveValue(9.0579);
     expect(screen.getByLabelText(/longitude/i)).toHaveValue(7.4951);
   });
@@ -155,7 +155,7 @@ describe('the coordinate bounds', () => {
   ])('refuses an out-of-range %s (%s)', async (_field, label, value) => {
     renderModal();
 
-    await setField(/office name/i, 'Somewhere');
+    await setField(/branch name/i, 'Somewhere');
     await setField(label, value);
     await save();
 
@@ -168,7 +168,7 @@ describe('the coordinate bounds', () => {
     // off-by-one that only a test finds.
     renderModal();
 
-    await setField(/office name/i, 'Edge Case');
+    await setField(/branch name/i, 'Edge Case');
     await setField(/latitude/i, '-90');
     await setField(/longitude/i, '180');
     await save();
@@ -222,7 +222,7 @@ describe('validation and failure', () => {
   it('refuses a name shorter than three characters', async () => {
     renderModal();
 
-    await setField(/office name/i, 'HQ');
+    await setField(/branch name/i, 'HQ');
     await save();
 
     expect(await screen.findByText('Name must be at least 3 characters')).toBeInTheDocument();
@@ -233,7 +233,7 @@ describe('validation and failure', () => {
     mockPost.mockRejectedValueOnce(new Error('An office with this name already exists'));
     const { onSaved, onClose } = renderModal();
 
-    await setField(/office name/i, 'Lagos HQ');
+    await setField(/branch name/i, 'Lagos HQ');
     await save();
 
     expect(
