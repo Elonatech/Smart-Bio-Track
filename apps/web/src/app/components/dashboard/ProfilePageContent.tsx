@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   Camera,
   CircleCheck,
+  Info,
   KeyRound,
   MailCheck,
   RefreshCw,
@@ -35,13 +36,12 @@ import {
 //            roles, so an employee can't look themselves up either.
 //   ABSENT — phone, job title and profile picture have no column on the
 //            User model (the picture is a preview held in memory).
-//   ABSENT — there is no PATCH /users, so nothing on this page can be
-//            saved; no change-password route; no Device model; no
-//            notification-preference model.
+//   ABSENT — self-service editing. PATCH /users/:id exists but is admin-only
+//            and refuses to edit the caller's own record, so the identity
+//            fields are read-only and point to HR. Also no change-password
+//            route, no Device model, no notification-preference model.
 // Everything unbacked is rendered but disabled and labelled, so the page
 // shows the intended product without pretending anything persists.
-
-const NO_SAVE_ENDPOINT = "No endpoint saves profile changes yet.";
 
 interface DeviceRow {
   id: string;
@@ -82,9 +82,6 @@ export function ProfilePageContent() {
   const [profile, setProfile] = useState<AuthUser | null>(storedUser);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [email, setEmail] = useState(storedUser?.email ?? "");
-  const [phone, setPhone] = useState("");
-
   const [notifications, setNotifications] = useState<Record<string, boolean>>(
     () =>
       Object.fromEntries(
@@ -105,7 +102,6 @@ export function ProfilePageContent() {
       .then(({ data }) => {
         if (!isActive) return;
         setProfile(data);
-        setEmail(data.email);
       })
       .catch((error) => {
         // Non-fatal: the stored copy is still on screen.
@@ -168,23 +164,12 @@ export function ProfilePageContent() {
           <ReadOnlyField label="Full name" value={profile?.name} />
           <ReadOnlyField label="Employee ID" value={undefined} />
 
-          <EditableField
-            id="profile-email"
-            label="Email"
-            type="email"
-            value={email}
-            onChange={setEmail}
-          />
-          <EditableField
-            id="profile-phone"
-            label="Phone"
-            type="tel"
-            value={phone}
-            onChange={setPhone}
-            placeholder="+234 803 412 7788"
-          />
+          {/* Read-only: email is the login identifier, and PATCH /users/:id
+              deliberately never changes it. Phone has no column at all. */}
+          <ReadOnlyField label="Email" value={profile?.email} />
+          <ReadOnlyField label="Phone" value={undefined} />
 
-          <ReadOnlyField label="Department" value={undefined} />
+          <ReadOnlyField label="Department" value={profile?.departmentName} />
           {/* The SYSTEM role — permissions and which dashboard they land
               on. Distinct from job title below, which is descriptive. */}
           <ReadOnlyField
@@ -209,19 +194,16 @@ export function ProfilePageContent() {
           </div>
         </div>
 
-        <button
-          type="button"
-          disabled
-          title={NO_SAVE_ENDPOINT}
-          className="mt-5 rounded-md bg-primary text-white px-4 py-2.5 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Save changes
-        </button>
-        <p className="mt-2 text-[12px] text-neutral">
-          Employee ID, department, office and job title aren&apos;t returned to
-          you yet, and there&apos;s no endpoint to save edits — both land with
-          the profile API.
-        </p>
+        {/* No Save button: PATCH /users/:id is admin-only and refuses
+            self-edits by design, so there is nothing for one to call. */}
+        <div className="mt-5 flex items-start gap-2 rounded-md bg-neutral/5 border border-neutral/20 px-3 py-2.5 text-[13px] text-neutral">
+          <Info className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={1.75} />
+          <p>
+            Your details are managed by HR. Ask an admin to change your name,
+            department or branch. Employee ID, branch and job title
+            aren&apos;t returned to you yet.
+          </p>
+        </div>
       </div>
 
       {/* ---- Right: security and preferences ---- */}
@@ -483,41 +465,6 @@ function ReadOnlyField({
       >
         {value || "Not available yet"}
       </div>
-    </div>
-  );
-}
-
-function EditableField({
-  id,
-  label,
-  type,
-  value,
-  onChange,
-  placeholder,
-}: {
-  id: string;
-  label: string;
-  type: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <div>
-      <label
-        htmlFor={id}
-        className="block text-sm font-medium text-heading mb-1"
-      >
-        {label}
-      </label>
-      <input
-        id={id}
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-md border border-neutral/40 bg-surface px-3 py-2 text-sm text-heading focus:outline-none focus:ring-2 focus:ring-primary"
-      />
     </div>
   );
 }

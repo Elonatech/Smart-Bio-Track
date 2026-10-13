@@ -7,6 +7,7 @@ import { MailCheck, Mail, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { PasswordInput } from "@/app/components/PasswordInput";
 import { PasswordRequirements } from "@/app/components/PasswordRequirements";
+import { ResendVerificationButton } from "@/app/components/ResendVerificationButton";
 import { registerSchema, type RegisterFormValues } from "@/lib/validation/auth";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
@@ -139,10 +140,11 @@ export default function RegisterPage() {
                 The link expires in a few days. Nothing is created until you
                 open it — no organization exists yet.
               </p>
+              <ResendVerificationButton email={sentToEmail} />
               <button
                 type="button"
                 onClick={() => setSentToEmail(null)}
-                className="mt-6 text-sm font-medium text-primary hover:underline"
+                className="mt-3 text-sm font-medium text-primary hover:underline"
               >
                 Use a different email
               </button>
