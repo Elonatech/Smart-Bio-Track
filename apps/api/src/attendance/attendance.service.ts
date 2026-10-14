@@ -1,389 +1,403 @@
 import {
-  Injectable,
-  ConflictException,
   BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
+import { Prisma, PunchType, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { PunchType, AttendanceStatus, WorkRule } from '@prisma/client';
-import { QueryAttendanceHistoryDto } from './dto/query-attendance-history.dto';
+import { AuditService, type AuditAction } from '../audit/audit.service';
+import {
+  refusalFor,
+  stateFromPunches,
+  type AttendanceState,
+} from './attendance-state';
+import { computeDaySummary, type RuleSnapshot } from './day-summary';
+import {
+  fromDbDate,
+  localMoment,
+  toDbDate,
+  type LocalDate,
+} from './attendance-time';
+import type { PunchLocationDto } from './dto/punch-location.dto';
+import type { QueryAttendanceHistoryDto } from './dto/query-attendance-history.dto';
 
-type AttendanceState =
-  | 'CLOCKED-IN'
-  | 'CLOCKED-OUT'
-  | 'ON-BREAK'
-  | 'NOT-CLOCKED-IN';
+/**
+ * Clock-in, clock-out and breaks (FR-002–FR-005), and the employee's own view
+ * of today and their history (FR-008).
+ *
+ * Built on Emmanuel's original module (routes, state checks, the "no rule
+ * means not late" principle) and rebuilt for the Phase 3 design rules in
+ * docs/phase-notes/phase-3-attendance-plan.md §4:
+ *
+ *  1. Server time only — taken after the lock, inside the transaction.
+ *  2. The state check and the write happen under a row lock in ONE
+ *     transaction, so two fast taps cannot both clock in.
+ *  3. Punches are append-only (the database enforces it; nothing here tries).
+ *  4. The summary is recomputed from the day's punches on every punch.
+ *  5. The arithmetic lives in computeDaySummary, a pure function.
+ *  6. Every query is scoped to the caller's organisation.
+ *  7. Every punch is audited in the same transaction.
+ *
+ * Phase 4 adds the trust checks (biometrics, device, geo-fence enforcement)
+ * in front of `punch`; nothing here pretends to do them.
+ */
+
+export interface AttendanceCaller {
+  id: string;
+  name: string;
+  role: UserRole;
+  organizationId: string;
+}
+
+const AUDIT_ACTION: Record<PunchType, AuditAction> = {
+  CLOCK_IN: 'CLOCK_IN',
+  CLOCK_OUT: 'CLOCK_OUT',
+  BREAK_START: 'BREAK_START',
+  BREAK_END: 'BREAK_END',
+};
+
+/**
+ * What the API returns for a punch. Location is recorded but not echoed back
+ * — the caller already knows where they are, and the field exists for Phase
+ * 4's checks and the audit trail, not for display.
+ */
+const PUNCH_SELECT = {
+  id: true,
+  type: true,
+  occurredAt: true,
+} satisfies Prisma.PunchEventSelect;
+
+const SUMMARY_SELECT = {
+  workDate: true,
+  status: true,
+  firstClockIn: true,
+  lastClockOut: true,
+  workedMinutes: true,
+  breakMinutes: true,
+  overtimeMinutes: true,
+  isLate: true,
+  lateMinutes: true,
+  isIncomplete: true,
+  scheduledStartMinutes: true,
+  scheduledEndMinutes: true,
+  gracePeriodMinutes: true,
+} satisfies Prisma.AttendanceSummarySelect;
+
+const RULE_SELECT = {
+  id: true,
+  workingDays: true,
+  startMinutes: true,
+  endMinutes: true,
+  gracePeriodMinutes: true,
+  overtimeAfterMinutes: true,
+} satisfies Prisma.WorkRuleSelect;
+
+/** History is a screen, not an export — payroll ranges are Phase 5. */
+const MAX_HISTORY_DAYS = 93;
+const DEFAULT_HISTORY_DAYS = 30;
+
+/**
+ * Generous on purpose. The transaction is six short queries (~1.2 s at the
+ * ~200 ms per query this office sees to Neon), and Prisma's 5 s default has
+ * already timed out once on a bad-network day in Phase 2. A lock held a few
+ * seconds longer is cheap; a punch refused because the network was slow is
+ * an employee who cannot clock in.
+ */
+const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 15_000 };
 
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
-  async clockIn(userId: string) {
-    const state = await this.getCurrentAttendanceState(userId);
-
-    if (state === 'CLOCKED-IN' || state === 'ON-BREAK') {
-      throw new ConflictException(
-        'You are already clocked in or on a break. Please clock out before clocking in again.',
-      );
-    }
-    if (state === 'CLOCKED-OUT') {
-      throw new ConflictException(
-        'You have already clocked out for today. Please wait until tomorrow to clock in again.',
-      );
-    }
-
-    const punch = await this.prisma.punchEvent.create({
-      data: {
-        userId,
-        type: PunchType.CLOCK_IN,
-      },
-    });
-
-    await this.recalculateSummary(userId, punch.timestamp);
-
-    return punch;
+  clockIn(caller: AttendanceCaller, location?: PunchLocationDto, ip?: string) {
+    return this.punch(caller, PunchType.CLOCK_IN, location, ip);
   }
 
-  async clockOut(userId: string) {
-    const state = await this.getCurrentAttendanceState(userId);
-
-    if (state === 'NOT-CLOCKED-IN') {
-      throw new BadRequestException(
-        'You are not clocked in. Please clock in before clocking out.',
-      );
-    }
-    if (state === 'CLOCKED-OUT') {
-      throw new ConflictException(
-        'You have already clocked out for today. Please wait until tomorrow to clock in again.',
-      );
-    }
-    if (state === 'ON-BREAK') {
-      throw new BadRequestException(
-        'You are on a break. Please end your break before clocking out.',
-      );
-    }
-
-    const punch = await this.prisma.punchEvent.create({
-      data: {
-        userId,
-        type: PunchType.CLOCK_OUT,
-      },
-    });
-
-    await this.recalculateSummary(userId, punch.timestamp);
-
-    return punch;
+  clockOut(caller: AttendanceCaller, location?: PunchLocationDto, ip?: string) {
+    return this.punch(caller, PunchType.CLOCK_OUT, location, ip);
   }
 
-  async startBreak(userId: string) {
-    const state = await this.getCurrentAttendanceState(userId);
-
-    if (state !== 'CLOCKED-IN') {
-      throw new BadRequestException(
-        'You are not clocked in. Please clock in before starting a break.',
-      );
-    }
-
-    return this.prisma.punchEvent.create({
-      data: {
-        userId,
-        type: PunchType.BREAK_START,
-      },
-    });
+  startBreak(
+    caller: AttendanceCaller,
+    location?: PunchLocationDto,
+    ip?: string,
+  ) {
+    return this.punch(caller, PunchType.BREAK_START, location, ip);
   }
 
-  async endBreak(userId: string) {
-    const state = await this.getCurrentAttendanceState(userId);
-
-    if (state !== 'ON-BREAK') {
-      throw new BadRequestException(
-        'You are not on a break. Please start a break before ending it.',
-      );
-    }
-
-    const punch = await this.prisma.punchEvent.create({
-      data: {
-        userId,
-        type: PunchType.BREAK_END,
-      },
-    });
-
-    await this.recalculateSummary(userId, punch.timestamp);
-
-    return punch;
+  endBreak(caller: AttendanceCaller, location?: PunchLocationDto, ip?: string) {
+    return this.punch(caller, PunchType.BREAK_END, location, ip);
   }
 
-  async getTodayAttendance(userId: string) {
-    const { startOfDay, endOfDay } = this.getDayBounds(new Date());
+  /** Today, in the organisation's timezone: state, punches so far, summary. */
+  async today(caller: AttendanceCaller) {
+    const { timeZone } = await this.contextFor(caller);
+    const date = localMoment(new Date(), timeZone).date;
+    const workDate = toDbDate(date);
 
-    const [punchEvents, summary] = await Promise.all([
+    const [punches, summary] = await Promise.all([
       this.prisma.punchEvent.findMany({
         where: {
-          userId,
-          timestamp: {
-            gte: startOfDay,
-            lte: endOfDay,
-          },
+          organizationId: caller.organizationId,
+          userId: caller.id,
+          workDate,
         },
-        orderBy: { timestamp: 'asc' },
+        orderBy: { occurredAt: 'asc' },
+        select: PUNCH_SELECT,
       }),
-      this.prisma.attendanceSummary.findUnique({
+      this.prisma.attendanceSummary.findFirst({
         where: {
-          userId_date: {
-            userId,
-            date: startOfDay,
-          },
+          organizationId: caller.organizationId,
+          userId: caller.id,
+          workDate,
         },
+        select: SUMMARY_SELECT,
       }),
     ]);
+
     return {
-      state: this.deriveStateFromPunchEvents(punchEvents),
-      punchEvents,
-      summary,
+      workDate: date,
+      timeZone,
+      state: stateFromPunches(punches),
+      punches,
+      summary: summary && this.presentSummary(summary),
     };
   }
 
-  async getAttendanceHistory(userId: string, query: QueryAttendanceHistoryDto) {
-    const where: {
-      userId: string;
-      date?: {
-        gte?: Date;
-        lte?: Date;
-      };
-    } = { userId };
+  /** The caller's own daily summaries, newest first. */
+  async history(caller: AttendanceCaller, query: QueryAttendanceHistoryDto) {
+    const { timeZone } = await this.contextFor(caller);
+    const today = localMoment(new Date(), timeZone).date;
 
-    if (query.startDate || query.endDate) {
-      where.date = {};
-      if (query.startDate) where.date.gte = new Date(query.startDate);
-      if (query.endDate) where.date.lte = new Date(query.endDate);
-    }
-    return this.prisma.attendanceSummary.findMany({
-      where,
-      orderBy: { date: 'desc' },
-    });
-  }
+    const to = query.to ?? today;
+    const from = query.from ?? shiftDays(to, -(DEFAULT_HISTORY_DAYS - 1));
 
-  private async getCurrentAttendanceState(
-    userId: string,
-  ): Promise<AttendanceState> {
-    const { startOfDay, endOfDay } = this.getDayBounds(new Date());
-
-    const punchEvents = await this.prisma.punchEvent.findMany({
-      where: {
-        userId,
-        timestamp: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
-      },
-      orderBy: { timestamp: 'asc' },
-    });
-    return this.deriveStateFromPunchEvents(punchEvents);
-  }
-
-  private deriveStateFromPunchEvents(
-    punchEvents: { type: PunchType }[],
-  ): AttendanceState {
-    if (punchEvents.length === 0) {
-      return 'NOT-CLOCKED-IN';
-    }
-
-    const lastPunch = punchEvents[punchEvents.length - 1].type;
-
-    switch (lastPunch) {
-      case PunchType.CLOCK_IN:
-      case PunchType.BREAK_END:
-        return 'CLOCKED-IN';
-      case PunchType.BREAK_START:
-        return 'ON-BREAK';
-      case PunchType.CLOCK_OUT:
-        return 'CLOCKED-OUT';
-      default:
-        return 'NOT-CLOCKED-IN';
-    }
-  }
-
-  private getDayBounds(reference: Date) {
-    const startOfDay = new Date(reference);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(startOfDay);
-    endOfDay.setDate(endOfDay.getDate() + 1);
-    return { startOfDay, endOfDay };
-  }
-
-  private async resolveWorkRule(userId: string): Promise<WorkRule | null> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { departmentId: true, officeId: true },
-    });
-
-    if (!user) return null;
-
-    const { departmentId, officeId } = user;
-
-    // Priority 1: exact match on both office and department.
-    if (officeId && departmentId) {
-      const exactMatch = await this.prisma.workRule.findUnique({
-        where: { officeId_departmentId: { officeId, departmentId } },
-      });
-      if (exactMatch) return exactMatch;
-    }
-
-    // Priority 2: office-wide default (departmentId is null on the rule).
-    if (officeId) {
-      const officeWide = await this.prisma.workRule.findFirst({
-        where: { officeId, departmentId: null },
-      });
-      if (officeWide) return officeWide;
-    }
-
-    // Priority 3: department-wide default (officeId is null on the rule),
-    // for departments that apply the same hours regardless of office.
-    if (departmentId) {
-      const departmentWide = await this.prisma.workRule.findFirst({
-        where: { departmentId, officeId: null },
-      });
-      if (departmentWide) return departmentWide;
-    }
-
-    return null; // No applicable work rule found.
-  }
-
-  private parseTimeOnDate(reference: Date, hhmm: string): Date {
-    const [hours, minutes] = hhmm.split(':').map(Number);
-    const result = new Date(reference);
-    result.setHours(hours, minutes, 0, 0);
-    return result;
-  }
-
-  private evaluateLateness(
-    clockInTime: Date,
-    rule: WorkRule | null,
-  ): {
-    late: boolean;
-    message: string;
-    minutesLate: number;
-    ruleApplied: boolean;
-  } {
-    if (!rule) {
-      // No WorkRule configured for this employee's office/department yet.
-      // Don't fabricate a result — mark as not-late but flag that no
-      // rule was applied, so this is visible rather than silently wrong.
-      return {
-        late: false,
-        message: 'No work rule found for user',
-        minutesLate: 0,
-        ruleApplied: false,
-      };
-    } // No rule means no lateness.
-
-    const officialStart = this.parseTimeOnDate(clockInTime, rule.startTime);
-
-    const graceDeadline = new Date(
-      officialStart.getTime() + rule.gracePeriodMinutes * 60 * 1000,
-    );
-
-    if (clockInTime <= graceDeadline) {
-      return {
-        late: false,
-        message: 'On time',
-        minutesLate: 0,
-        ruleApplied: true,
-      };
-    }
-
-    const minutesLate = Math.round(
-      (clockInTime.getTime() - graceDeadline.getTime()) / (60 * 1000),
-    );
-    return { late: true, message: 'Late', minutesLate, ruleApplied: true };
-  }
-
-  private async upsertSummaryOnClockIn(userId: string, clockInTime: Date) {
-    const { startOfDay } = this.getDayBounds(clockInTime);
-    const workRule = await this.resolveWorkRule(userId);
-    const { late, minutesLate } = this.evaluateLateness(clockInTime, workRule);
-
-    await this.prisma.attendanceSummary.upsert({
-      where: { userId_date: { userId, date: startOfDay } },
-      create: {
-        userId,
-        date: startOfDay,
-        firstClockIn: clockInTime,
-        status: late ? AttendanceStatus.LATE : AttendanceStatus.PRESENT,
-        isLate: late,
-        minutesLate,
-      },
-      update: {
-        // Don't overwrite firstClockIn if it's already set (e.g. re-derivation).
-      },
-    });
-  }
-  private async recalculateSummary(userId: string, referenceTime: Date) {
-    const { startOfDay, endOfDay } = this.getDayBounds(referenceTime);
-
-    const punchEvents = await this.prisma.punchEvent.findMany({
-      where: {
-        userId,
-        timestamp: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
-      },
-      orderBy: { timestamp: 'asc' },
-    });
-
-    const { totalWorkingMinutes, totalBreakMinutes, lastClockOut } =
-      this.computeDurations(punchEvents);
-    await this.prisma.attendanceSummary.update({
-      where: { userId_date: { userId, date: startOfDay } },
-      data: {
-        totalWorkingMinutes,
-        totalBreakMinutes,
-        lastClockOut,
-      },
-    });
-  }
-
-  private computeDurations(
-    punchEvents: { type: PunchType; timestamp: Date }[],
-  ) {
-    let workStart: Date | null = null;
-    let breakStart: Date | null = null;
-    let totalWorkingMs = 0;
-    let totalBreakMs = 0;
-    let lastClockOut: Date | null = null;
-    for (const punch of punchEvents) {
-      switch (punch.type) {
-        case PunchType.CLOCK_IN:
-          workStart = punch.timestamp;
-          break;
-        case PunchType.BREAK_START:
-          if (workStart) {
-            totalBreakMs += punch.timestamp.getTime() - workStart.getTime();
-            workStart = null; // Reset workStart during break
-          }
-          breakStart = punch.timestamp;
-          break;
-        case PunchType.BREAK_END:
-          if (breakStart) {
-            totalBreakMs += punch.timestamp.getTime() - breakStart.getTime();
-            breakStart = null; // Reset breakStart after break ends
-          }
-          workStart = punch.timestamp; // Resume work after break
-          break;
-        case PunchType.CLOCK_OUT:
-          if (workStart) {
-            totalWorkingMs += punch.timestamp.getTime() - workStart.getTime();
-            workStart = null; // Reset workStart after clock out
-          }
-          lastClockOut = punch.timestamp;
-          break;
+    // The DTO's pattern accepts 2026-02-31; JavaScript would quietly read it
+    // as 3 March. Round-tripping catches any date that does not exist.
+    for (const d of [from, to]) {
+      if (shiftDays(d, 0) !== d) {
+        throw new BadRequestException(`${d} is not a real date.`);
       }
     }
+    if (from > to) {
+      throw new BadRequestException('"from" must not be after "to".');
+    }
+    if (daysBetween(from, to) + 1 > MAX_HISTORY_DAYS) {
+      throw new BadRequestException(
+        `History is limited to ${MAX_HISTORY_DAYS} days at a time.`,
+      );
+    }
+
+    const summaries = await this.prisma.attendanceSummary.findMany({
+      where: {
+        organizationId: caller.organizationId,
+        userId: caller.id,
+        workDate: { gte: toDbDate(from), lte: toDbDate(to) },
+      },
+      orderBy: { workDate: 'desc' },
+      select: SUMMARY_SELECT,
+    });
 
     return {
-      totalWorkingMinutes: Math.round(totalWorkingMs / (1000 * 60)),
-      totalBreakMinutes: Math.round(totalBreakMs / (1000 * 60)),
-      lastClockOut,
+      from,
+      to,
+      timeZone,
+      days: summaries.map((s) => this.presentSummary(s)),
     };
   }
+
+  // ─── the one write path ──────────────────────────────────────────────────
+
+  private async punch(
+    caller: AttendanceCaller,
+    type: PunchType,
+    location: PunchLocationDto | undefined,
+    ip: string | undefined,
+  ) {
+    // Read-only and slow-changing, so outside the lock: which timezone, which
+    // rule. Holding a row lock across these would only lengthen the window in
+    // which a second tap waits.
+    const { timeZone, rule } = await this.contextFor(caller);
+
+    return this.prisma.$transaction(async (tx) => {
+      // Lock this user's row for the rest of the transaction. A second punch
+      // from the same person — a double tap, two tabs — waits here until the
+      // first commits, then reads the punch the first one wrote. Without it,
+      // both read "not clocked in", both pass the check, and both insert
+      // (Phase 2 #9 lost updates the same way until it was made atomic).
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "User"
+        WHERE id = ${caller.id} AND "organizationId" = ${caller.organizationId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException('User not found');
+      }
+
+      // The clock is read AFTER the lock. Read before it, a request that
+      // waited behind another could record an earlier time than the punch it
+      // queued behind, and the day's punches would be out of order.
+      const now = new Date();
+      const date = localMoment(now, timeZone).date;
+      const workDate = toDbDate(date);
+
+      const [punches, isHoliday] = await Promise.all([
+        tx.punchEvent.findMany({
+          where: {
+            organizationId: caller.organizationId,
+            userId: caller.id,
+            workDate,
+          },
+          orderBy: { occurredAt: 'asc' },
+          select: { type: true, occurredAt: true },
+        }),
+        this.isHoliday(tx, caller.organizationId, date),
+      ]);
+
+      const refusal = refusalFor(stateFromPunches(punches), type);
+      if (refusal) {
+        throw new ConflictException(refusal);
+      }
+
+      const punch = await tx.punchEvent.create({
+        data: {
+          organizationId: caller.organizationId,
+          userId: caller.id,
+          type,
+          occurredAt: now,
+          workDate,
+          latitude: location?.latitude ?? null,
+          longitude: location?.longitude ?? null,
+          accuracyMeters: location?.accuracyMeters ?? null,
+        },
+        select: PUNCH_SELECT,
+      });
+
+      const dayPunches = [...punches, { type, occurredAt: now }];
+
+      // Never null here: every allowed punch sequence starts with a clock-in,
+      // and a day with a clock-in always produces a PRESENT summary.
+      const computed = computeDaySummary({
+        workDate: date,
+        timeZone,
+        punches: dayPunches,
+        rule,
+        isHoliday,
+        dayClosed: false,
+      })!;
+
+      const summary = await tx.attendanceSummary.upsert({
+        where: { userId_workDate: { userId: caller.id, workDate } },
+        create: {
+          ...computed,
+          organizationId: caller.organizationId,
+          userId: caller.id,
+          workDate,
+        },
+        update: computed,
+        select: SUMMARY_SELECT,
+      });
+
+      await this.audit.record(
+        {
+          organizationId: caller.organizationId,
+          actor: { id: caller.id, name: caller.name, role: caller.role },
+          action: AUDIT_ACTION[type],
+          targetType: 'PunchEvent',
+          targetId: punch.id,
+          targetLabel: caller.name,
+          ipAddress: ip,
+        },
+        tx,
+      );
+
+      return {
+        state: stateFromPunches(dayPunches) satisfies AttendanceState,
+        punch,
+        summary: this.presentSummary(summary),
+      };
+    }, TRANSACTION_OPTIONS);
+  }
+
+  // ─── helpers ─────────────────────────────────────────────────────────────
+
+  /**
+   * The organisation's timezone and the rule this person is judged against.
+   *
+   * Rule resolution (Phase 3 decision 2): the office's rule if it has one,
+   * otherwise the organisation's default, otherwise none — and with none,
+   * nobody is late. Department-specific rules, which Emmanuel's original
+   * design had, are an open question for M2.
+   */
+  private async contextFor(caller: AttendanceCaller): Promise<{
+    timeZone: string;
+    rule: RuleSnapshot | null;
+  }> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: caller.id, organizationId: caller.organizationId },
+      select: {
+        organization: { select: { timezone: true } },
+        office: { select: { workRule: { select: RULE_SELECT } } },
+      },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const rule =
+      user.office?.workRule ??
+      (await this.prisma.workRule.findFirst({
+        where: { organizationId: caller.organizationId, isDefault: true },
+        select: RULE_SELECT,
+      }));
+
+    return { timeZone: user.organization.timezone, rule };
+  }
+
+  /**
+   * Whether `date` is a holiday: an exact match, or an annual holiday on the
+   * same month and day in any year. Annual ones are few per organisation, so
+   * they are filtered here rather than with date arithmetic in SQL.
+   */
+  private async isHoliday(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    date: LocalDate,
+  ): Promise<boolean> {
+    const candidates = await tx.holiday.findMany({
+      where: {
+        organizationId,
+        OR: [{ date: toDbDate(date) }, { repeatsAnnually: true }],
+      },
+      select: { date: true, repeatsAnnually: true },
+    });
+
+    const monthDay = date.slice(5);
+    return candidates.some((h) => {
+      const d = fromDbDate(h.date);
+      return d === date || (h.repeatsAnnually && d.slice(5) === monthDay);
+    });
+  }
+
+  /** A `@db.Date` comes back as a Date at UTC midnight; send the plain date. */
+  private presentSummary<T extends { workDate: Date }>(summary: T) {
+    return { ...summary, workDate: fromDbDate(summary.workDate) };
+  }
+}
+
+function shiftDays(date: LocalDate, days: number): LocalDate {
+  const d = new Date(`${date}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysBetween(from: LocalDate, to: LocalDate): number {
+  return Math.round(
+    (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+      86_400_000,
+  );
 }
