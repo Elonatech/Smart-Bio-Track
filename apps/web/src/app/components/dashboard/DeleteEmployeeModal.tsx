@@ -77,7 +77,7 @@ export function DeleteEmployeeModal({
               </button>
             </div>
 
-            <p className="text-sm text-neutral mt-2">
+            <p className="text-sm text-neutral mt-2 wrap-break-word">
               They lose access immediately and can no longer sign in or clock
               in. {employee.email} · {employee.employeeId}
             </p>

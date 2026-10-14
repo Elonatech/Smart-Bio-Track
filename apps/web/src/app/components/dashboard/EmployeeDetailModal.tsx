@@ -207,7 +207,7 @@ export function EmployeeDetailModal({
                   className="h-5 w-5 shrink-0 text-success"
                   strokeWidth={1.75}
                 />
-                <p className="text-sm text-heading">
+                <p className="min-w-0 text-sm text-heading">
                   If{" "}
                   <span className="font-medium wrap-break-word">
                     {employee.email}

@@ -169,7 +169,7 @@ export function EditEmployeeModal({
           </button>
         </div>
 
-        <p className="text-sm text-neutral mb-5">
+        <p className="text-sm text-neutral mb-5 wrap-break-word">
           {employee.email} · {employee.employeeId}
         </p>
 

@@ -27,7 +27,7 @@ export function DashboardNavbar({ onOpenMobileMenu }: DashboardNavbarProps) {
 
   return (
     <header className="h-16 flex items-center justify-between gap-3 px-4 xl:px-9 border-b border-neutral/20 bg-surface">
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         <button
           type="button"
           onClick={onOpenMobileMenu}
@@ -36,10 +36,7 @@ export function DashboardNavbar({ onOpenMobileMenu }: DashboardNavbarProps) {
         >
           <Menu className="h-5 w-5" strokeWidth={1.75} />
         </button>
-        {/* One step smaller on phones so a title like "Organization
-            overview" fits instead of truncating to "Organization ove…".
-            The subtitle still truncates — it carries the org name and a
-            long date, and losing its tail costs nothing. */}
+        
         <div className="min-w-0">
           <h1 className="text-base sm:text-lg font-semibold text-heading truncate">
             {title}
@@ -48,7 +45,11 @@ export function DashboardNavbar({ onOpenMobileMenu }: DashboardNavbarProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+      {/* gap-1 on phones: the notification drawer's hidden fixed panels
+          still count as flex children here, so each gap is paid several
+          times — at gap-2 that cost "Organization overview" its last
+          few pixels once the avatar became visible on phones. */}
+      <div className="flex items-center gap-1 sm:gap-4 shrink-0">
         <ThemeToggle />
 
         {/* Composed client-side from what already exists (stale invites,

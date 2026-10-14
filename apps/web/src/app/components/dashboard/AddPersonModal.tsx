@@ -215,7 +215,9 @@ export function AddPersonModal({
                 className="h-5 w-5 shrink-0 text-success"
                 strokeWidth={1.75}
               />
-              <p className="text-sm text-heading">
+              {/* min-w-0: a flex item won't shrink below its longest word
+                  without it, so wrap-break-word on the email never fires. */}
+              <p className="min-w-0 text-sm text-heading">
                 An activation email has been sent to{" "}
                 <span className="font-medium wrap-break-word">{invited.email}</span>.
                 They set their own password from the link inside it.

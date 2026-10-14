@@ -49,7 +49,7 @@ export default function SuperAdminOfficesPage() {
   }, [fetchOffices]);
 
   usePageHeader(
-    "Our branches & geo-fences",
+    "Branches & geo-fences",
     `${orgName} · ${offices.length} ${offices.length === 1 ? "location" : "locations"}`
   );
 

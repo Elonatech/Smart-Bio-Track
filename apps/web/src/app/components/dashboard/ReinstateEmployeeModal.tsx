@@ -85,7 +85,7 @@ export function ReinstateEmployeeModal({
               </button>
             </div>
 
-            <p className="text-sm text-neutral mt-2">
+            <p className="text-sm text-neutral mt-2 wrap-break-word">
               {employee.email} · {employee.employeeId}
             </p>
 
