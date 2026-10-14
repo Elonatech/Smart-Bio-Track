@@ -63,10 +63,14 @@ function OnboardingWelcomeContent() {
         <h1 className="text-2xl sm:text-3xl font-semibold mb-3">
           Welcome to SmartBioTrack, {orgName}!
         </h1>
+        {/* Deliberately vague about WHAT was saved. Work rules aren't
+            stored anywhere yet (no WorkRule model), and any step can be
+            skipped, so naming "branch geo-fence and time regulation" here
+            was untrue for many orgs. Once work rules persist, this can list
+            what actually got saved. */}
         <p className="text-white/80 max-w-xl mx-auto">
-          Your organization, first branch geo-fence and time regulation are
-          configured. Here are three things worth doing before your team&apos;s
-          first clock-in.
+          Your organization is set up. Here are three things worth doing
+          before your team&apos;s first clock-in.
         </p>
       </div>
 
@@ -99,7 +103,7 @@ function OnboardingWelcomeContent() {
 
         <div className="flex items-center gap-2 mt-6 text-sm text-success">
           <CheckCircle2 className="h-4 w-4" strokeWidth={2} />
-          Setup complete — all times shown in West Africa Time (WAT).
+          Setup complete.
         </div>
 
         <button

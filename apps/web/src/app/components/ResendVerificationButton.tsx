@@ -17,7 +17,19 @@ import { useToast } from "@/app/components/Toast";
 
 const COOLDOWN_SECONDS = 60;
 
-export function ResendVerificationButton({ email }: { email: string }) {
+interface ResendVerificationButtonProps {
+  email: string;
+  /** Text before the button. The expired-link screen asks differently. */
+  prompt?: string;
+  /** For screens where the person types the email first. */
+  disabled?: boolean;
+}
+
+export function ResendVerificationButton({
+  email,
+  prompt = "Didn't get it?",
+  disabled = false,
+}: ResendVerificationButtonProps) {
   const toast = useToast();
   const [isSending, setIsSending] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -54,11 +66,11 @@ export function ResendVerificationButton({ email }: { email: string }) {
   return (
     <div className="mt-6">
       <p className="text-sm text-neutral">
-        Didn&apos;t get it?{" "}
+        {prompt}{" "}
         <button
           type="button"
           onClick={handleResend}
-          disabled={isSending || isCoolingDown}
+          disabled={disabled || isSending || isCoolingDown}
           className="font-medium text-primary hover:underline disabled:text-neutral disabled:no-underline disabled:cursor-not-allowed"
         >
           {isSending
