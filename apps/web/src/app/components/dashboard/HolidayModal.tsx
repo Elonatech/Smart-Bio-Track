@@ -72,7 +72,7 @@ export function HolidayModal({ holiday, onClose, onSave }: HolidayModalProps) {
         aria-labelledby="holiday-modal-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start justify-between gap-4 mb-1">
           <h2 id="holiday-modal-title" className="text-lg font-semibold text-heading">

@@ -76,7 +76,7 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
         aria-labelledby="work-rule-form-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start justify-between mb-4">
           <h2 id="work-rule-form-title" className="text-lg font-semibold text-heading">
@@ -150,7 +150,7 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
             )}
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label
                 htmlFor="gracePeriodMinutes"

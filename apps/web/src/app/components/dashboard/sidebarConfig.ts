@@ -39,7 +39,7 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
     { label: "Overview", href: SUPER_ADMIN_ROOT, icon: LayoutDashboard },
     { label: "Employees", href: `${SUPER_ADMIN_ROOT}/employees`, icon: Users },
     { label: "Departments", href: `${SUPER_ADMIN_ROOT}/departments`, icon: Network, requiredPlan: "CORE" },
-    { label: "Offices & Geo-Fences", href: `${SUPER_ADMIN_ROOT}/offices`, icon: Building2 },
+    { label: "Branches & Geo-Fences", href: `${SUPER_ADMIN_ROOT}/offices`, icon: Building2 },
     { label: "Time Regulation", href: `${SUPER_ADMIN_ROOT}/time-regulation`, icon: Clock },
     { label: "Holiday Calendar", href: `${SUPER_ADMIN_ROOT}/holidays`, icon: Calendar },
     { label: "Audit Logs", href: `${SUPER_ADMIN_ROOT}/audit-logs`, icon: ClipboardList },

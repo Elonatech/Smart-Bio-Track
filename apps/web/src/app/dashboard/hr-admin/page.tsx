@@ -131,7 +131,7 @@ export default function HRAdminDashboardPage() {
 
       {/* Row 2 — daily attendance + department breakdown */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-6">
-        <ChartCard title="Daily attendance" subtitle="This week, all offices">
+        <ChartCard title="Daily attendance" subtitle="This week, all branches">
           <div className="mt-6 flex gap-3">
             {/* Y axis. Rendered high-to-low so it reads top-down. */}
             <div className="flex flex-col justify-between h-56 w-9 shrink-0 text-right text-[11px] text-neutral tabular-nums">

@@ -9,13 +9,16 @@ interface PasswordInputProps {
   // Pass register("fieldName") straight through from the parent form —
   // this component doesn't know or care which field it's wired to.
   registration: UseFormRegisterReturn;
+  // Optional id of a list of requirements shown under the field, so a screen
+  // reader announces them with the input.
+  describedBy?: string;
 }
 
 // Shared show/hide password field for every auth form. Built once here
 // instead of copy-pasted per field (login's password, register's
 // password AND confirmPassword) so the toggle behavior — and any
 // future tweak to it — only needs to exist in one place.
-export function PasswordInput({ id, registration }: PasswordInputProps) {
+export function PasswordInput({ id, registration, describedBy }: PasswordInputProps) {
   const [isVisible, setIsVisible] = useState(false);
 
   return (
@@ -27,6 +30,7 @@ export function PasswordInput({ id, registration }: PasswordInputProps) {
       <input
         id={id}
         type={isVisible ? "text" : "password"}
+        aria-describedby={describedBy}
         {...registration}
         // pr-9 (not the usual pr-3) leaves room on the right for the
         // eye button below, so typed text never runs under it.

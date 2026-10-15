@@ -21,7 +21,7 @@ export const orgProfileSchema = z.object({
 export type OrgProfileValues = z.infer<typeof orgProfileSchema>;
 
 export const officeSchema = z.object({
-  officeName: z.string().min(2, { message: "Office name is required" }),
+  officeName: z.string().min(2, { message: "Branch name is required" }),
   address: z.string().min(5, { message: "Address is required" }),
   landmark: z.string().optional(),
   // Real latitude/longitude bounds, not an arbitrary restriction — see
@@ -83,11 +83,10 @@ export const inviteTeamSchema = z.object({
         // being filled in. onboarding/page.tsx maps name -> id after
         // POST /departments and before POST /users.
         department: z.string().optional(),
-        // UI-only, like Time Regulation: CreateUserDto and the User model
-        // have no salary column, so this is collected but never sent to
-        // POST /users. Kept as a string so the field accepts free-form
-        // input (currency symbols, "negotiable", etc.) without a parser.
-        salary: z.string().optional(),
+        // No salary here, on purpose. This product exports hours and leaves
+        // pay to the client's own payroll tool, and salary is sensitive
+        // personal data we have no reason to collect — it used to be asked
+        // for and then thrown away.
       })
       .superRefine((invite, ctx) => {
         // A Team Lead with no department is a broken account, not merely

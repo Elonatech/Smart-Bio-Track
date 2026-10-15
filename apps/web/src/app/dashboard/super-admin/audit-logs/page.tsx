@@ -263,7 +263,7 @@ export default function SuperAdminAuditLogsPage() {
       {/* Server-driven, so the counts describe the whole trail rather than
           what happens to be loaded. */}
       {!isLoading && total > 0 && (
-        <div className="flex items-center justify-between gap-3 mt-4 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm">
           <p className="text-neutral">
             Showing {firstShown}&ndash;{lastShown} of {total} entr
             {total === 1 ? "y" : "ies"}

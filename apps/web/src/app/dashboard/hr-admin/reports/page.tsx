@@ -43,7 +43,7 @@ const DEPARTMENT_ROWS: DepartmentRow[] = [
   },
   {
     department: "Operations",
-    office: "Abuja Office",
+    office: "Abuja Branch",
     presentPct: 94.7,
     latePct: 3.2,
     absentPct: 2.1,
@@ -59,7 +59,7 @@ const DEPARTMENT_ROWS: DepartmentRow[] = [
   },
   {
     department: "Customer Support",
-    office: "Abuja Office",
+    office: "Abuja Branch",
     presentPct: 90.3,
     latePct: 6.9,
     absentPct: 2.8,
@@ -72,7 +72,7 @@ const DEPARTMENT_ROWS: DepartmentRow[] = [
 // caller's organization. Only the attendance figures above are example
 // data. Sentinel value for "don't filter"; a real office name could
 // never collide with it because it isn't an office name.
-const ALL_OFFICES = "All offices";
+const ALL_OFFICES = "All branches";
 
 // Columns are declared once and drive the header, the body and the CSV
 // export, so a new column can't end up in the table but missing from the
@@ -113,7 +113,7 @@ export default function HRAdminReportsPage() {
         if (isActive) setOffices(res.data);
       })
       .catch(() => {
-        if (isActive) setOfficesError("Couldn't load your offices.");
+        if (isActive) setOfficesError("Couldn't load your branches.");
       });
     return () => {
       isActive = false;
@@ -159,7 +159,7 @@ export default function HRAdminReportsPage() {
     downloadCsv(`attendance-report-${fromDate}-to-${toDate}.csv`, [
       [
         "Department",
-        "Office",
+        "Branch",
         "Present %",
         "Late %",
         "Absent %",
@@ -202,7 +202,7 @@ export default function HRAdminReportsPage() {
             <select
               value={office}
               onChange={(event) => setOffice(event.target.value)}
-              aria-label="Filter by office"
+              aria-label="Filter by branch"
               className="rounded-md border border-neutral/40 px-3 py-2 text-sm text-heading bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value={ALL_OFFICES}>{ALL_OFFICES}</option>
@@ -224,7 +224,7 @@ export default function HRAdminReportsPage() {
               type="date"
               value={toDate}
               onChange={(event) => setToDate(event.target.value)}
-              aria-label="To date"
+              aria-label="To date" 
               className="rounded-md border border-neutral/40 px-3 py-2 text-sm text-heading bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
             />
 
@@ -233,7 +233,7 @@ export default function HRAdminReportsPage() {
               onClick={handleExportCsv}
               disabled={rows.length === 0}
               className="inline-flex items-center gap-2 rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            > 
               <Download className="h-4 w-4" strokeWidth={1.75} />
               Export CSV
             </button>
@@ -251,7 +251,7 @@ export default function HRAdminReportsPage() {
         )}
 
       </div>
-
+ 
       <div className="mt-4">
         <DataTable
           rows={rows}
@@ -260,8 +260,8 @@ export default function HRAdminReportsPage() {
             <>
               No attendance recorded at {office} in this range.
               <span className="block mt-1 text-[12px]">
-                The office list is live, but the figures above are still example
-                data and aren&apos;t linked to your real offices yet.
+                The branch list is live, but the figures above are still example
+                data and aren&apos;t linked to your real branches yet.
               </span>
             </>
           }

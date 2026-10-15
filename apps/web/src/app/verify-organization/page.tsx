@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Building2, ShieldCheck, User } from "lucide-react";
+import { Building2, Mail, ShieldCheck, User } from "lucide-react";
 import Link from "next/link";
 import {
   verifyOrganizationSchema,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/store/auth-store";
 import { INDUSTRIES } from "@/lib/industries";
 import { setOnboardingIndustryHint } from "@/lib/onboarding-hint";
+import { ResendVerificationButton } from "@/app/components/ResendVerificationButton";
 
 // STEP TWO of org signup. The link in the verification email points
 // here — NOT at /auth/verify-organization. See the URL built in
@@ -40,6 +41,11 @@ interface VerifyOrganizationResponse {
 
 // MeResponse and toAuthUser are shared — see auth-store.ts.
 
+// The API's wording for an unusable token (auth.service.ts,
+// verifyOrganization). Matched loosely so a small rewording doesn't
+// silently drop people back onto a form that can never succeed.
+const DEAD_LINK_MESSAGE = /invalid or expired/i;
+
 function VerifyOrganizationForm() {
   const toast = useToast();
   const router = useRouter();
@@ -51,6 +57,7 @@ function VerifyOrganizationForm() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [isLinkDead, setIsLinkDead] = useState(false);
 
   const {
     register,
@@ -106,6 +113,13 @@ function VerifyOrganizationForm() {
       router.push("/onboarding");
     } catch (error) {
       const message = extractErrorMessage(error);
+      // A dead link can only be discovered here — there's no endpoint to
+      // check a token before submitting. Swap the form for a way out
+      // rather than leaving a form that will fail on every retry.
+      if (DEAD_LINK_MESSAGE.test(message)) {
+        setIsLinkDead(true);
+        return;
+      }
       setServerError(message);
       toast.error("Could not create your organization", message);
     } finally {
@@ -118,24 +132,19 @@ function VerifyOrganizationForm() {
   // fail on submit.
   if (!token) {
     return (
-      <div className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 shadow-sm p-8 text-center">
-        <div className="h-12 w-12 rounded-xl bg-alert/10 text-alert flex items-center justify-center mx-auto mb-4">
-          <ShieldCheck className="h-6 w-6" strokeWidth={1.75} />
-        </div>
-        <h2 className="text-xl font-semibold text-heading mb-2">
-          This link is incomplete
-        </h2>
-        <p className="text-sm text-neutral mb-6">
-          Open the verification link from your email — it carries a one-time
-          token this page needs.
-        </p>
-        <Link
-          href="/auth/register"
-          className="inline-block rounded-md bg-primary text-white px-4 py-2.5 text-sm font-medium hover:bg-primary/90"
-        >
-          Start over
-        </Link>
-      </div>
+      <DeadLinkPanel
+        title="This link is incomplete"
+        body="Open the verification link from your email — it carries a one-time token this page needs. Or enter your email and we'll send a fresh one."
+      />
+    );
+  }
+
+  if (isLinkDead) {
+    return (
+      <DeadLinkPanel
+        title="This link has expired or was already used"
+        body="Verification links work once and only for a few days. Enter the email you signed up with and we'll send a fresh one."
+      />
     );
   }
 
@@ -244,6 +253,59 @@ function VerifyOrganizationForm() {
           {isSubmitting ? "Creating organization..." : "Create organization"}
         </button>
       </form>
+    </div>
+  );
+}
+
+// Shown when the link can't work — missing token, or the server said it's
+// expired/used. Offers a resend instead of only "Start over", which would
+// make them re-enter a password for a signup that already exists.
+function DeadLinkPanel({ title, body }: { title: string; body: string }) {
+  const [email, setEmail] = useState("");
+  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  return (
+    <div className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 shadow-sm p-8">
+      <div className="h-12 w-12 rounded-xl bg-alert/10 text-alert flex items-center justify-center mx-auto mb-4">
+        <ShieldCheck className="h-6 w-6" strokeWidth={1.75} />
+      </div>
+      <h2 className="text-xl font-semibold text-heading mb-2 text-center">
+        {title}
+      </h2>
+      <p className="text-sm text-neutral mb-5 text-center">{body}</p>
+
+      <label
+        htmlFor="resend-email"
+        className="block text-sm font-medium text-heading mb-1"
+      >
+        Work email
+      </label>
+      <div className="relative">
+        <Mail
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral"
+          strokeWidth={1.75}
+        />
+        <input
+          id="resend-email"
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+      </div>
+
+      <ResendVerificationButton
+        email={email.trim()}
+        prompt="Need a new link?"
+        disabled={!isEmailValid}
+      />
+
+      <p className="mt-4 text-sm text-neutral">
+        Never signed up?{" "}
+        <Link href="/auth/register" className="font-medium text-primary hover:underline">
+          Start over
+        </Link>
+      </p>
     </div>
   );
 }

@@ -12,61 +12,48 @@ import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 // prisma/schema.prisma and no payroll endpoint, so the rows are example
 // data. The CSV export is real and builds from what's on screen.
 //
+// HOURS, not pay — on purpose. This page used to show "deductions" and
+// "gross pay" too, which made it look like the product runs payroll. It
+// doesn't and shouldn't: turning hours into pay means each person's rate
+// plus tax, pension and other deductions, which is what the client's own
+// payroll software is for (and salary is sensitive data we have no reason
+// to store). What a payroll tool needs from us is clean, verified hours,
+// with overtime split by rate so it can apply its own pay rules.
+//
 // "Verified hours" is the point of this page: only punches that passed
-// the trust engine (or were approved in the Review Queue) count towards
-// pay, which is why it's a separate figure from raw clocked hours.
+// the trust engine (or were approved in the Review Queue) count, which is
+// why it's a separate figure from raw clocked hours.
+
+// The overtime rates a work rule can use (see StepWorkRules.tsx). The CSV
+// gets one column per rate so a payroll tool can pay each at its own rate.
+const OVERTIME_RATES = [1, 1.5, 2, 3] as const;
+type OvertimeRate = (typeof OVERTIME_RATES)[number];
 
 interface PayrollRow {
   employeeId: string;
   name: string;
-  verifiedHours: number;
-  overtimeHours: number;
-  deductions: number;
-  grossPay: number;
+  /** Everything worked and approved: regular plus overtime. */
+  totalHours: number;
+  /** Overtime hours, keyed by the rate they are paid at. Absent = none. */
+  overtime: Partial<Record<OvertimeRate, number>>;
 }
 
 const PAYROLL_ROWS: PayrollRow[] = [
-  {
-    employeeId: "EMP-1042",
-    name: "Chinedu Okafor",
-    verifiedHours: 168,
-    overtimeHours: 6,
-    deductions: 0,
-    grossPay: 640000,
-  },
-  {
-    employeeId: "EMP-1077",
-    name: "Aisha Bello",
-    verifiedHours: 162,
-    overtimeHours: 0,
-    deductions: 12000,
-    grossPay: 585000,
-  },
-  {
-    employeeId: "EMP-1103",
-    name: "Tunde Adeyemi",
-    verifiedHours: 171,
-    overtimeHours: 11,
-    deductions: 0,
-    grossPay: 712500,
-  },
-  {
-    employeeId: "EMP-1156",
-    name: "Ngozi Eze",
-    verifiedHours: 156,
-    overtimeHours: 0,
-    deductions: 24000,
-    grossPay: 498000,
-  },
-  {
-    employeeId: "EMP-1188",
-    name: "Ibrahim Musa",
-    verifiedHours: 168,
-    overtimeHours: 4,
-    deductions: 0,
-    grossPay: 604000,
-  },
+  { employeeId: "EMP-1042", name: "Chinedu Okafor", totalHours: 168, overtime: { 1.5: 4, 2: 2 } },
+  { employeeId: "EMP-1077", name: "Aisha Bello", totalHours: 162, overtime: {} },
+  { employeeId: "EMP-1103", name: "Tunde Adeyemi", totalHours: 171, overtime: { 1.5: 8, 2: 3 } },
+  { employeeId: "EMP-1156", name: "Ngozi Eze", totalHours: 156, overtime: {} },
+  { employeeId: "EMP-1188", name: "Ibrahim Musa", totalHours: 168, overtime: { 1.5: 4 } },
 ];
+
+const overtimeTotal = (row: PayrollRow) =>
+  OVERTIME_RATES.reduce((sum, rate) => sum + (row.overtime[rate] ?? 0), 0);
+const regularHours = (row: PayrollRow) => row.totalHours - overtimeTotal(row);
+// Only the CSV uses this: one column per rate, so a payroll tool that pays
+// overtime at different rates can tell them apart. The screen shows just the
+// overtime total — splitting it out there was clutter, since all of it is
+// paid either way.
+const rateLabel = (rate: OvertimeRate) => `x${rate.toFixed(1)}`;
 
 // Cycles an admin can hand off. Newest first — payroll is almost always
 // run for the cycle that just closed.
@@ -75,12 +62,6 @@ const CYCLES = [
   { value: "2026-07", label: "July 2026" },
   { value: "2026-06", label: "June 2026" },
 ];
-
-const naira = new Intl.NumberFormat("en-NG", {
-  style: "currency",
-  currency: "NGN",
-  maximumFractionDigits: 0,
-});
 
 export default function HRAdminPayrollPage() {
   const toast = useToast();
@@ -94,54 +75,55 @@ export default function HRAdminPayrollPage() {
     `${cycleLabel} cycle · only approved punches are included`
   );
 
-  // Every numeric column is totalled, not just gross pay — an admin
-  // reconciling against a payroll system needs the hours and deductions
-  // to tie out too, not only the money.
-  const totals = useMemo(
-    () =>
-      PAYROLL_ROWS.reduce(
-        (running, row) => ({
-          verifiedHours: running.verifiedHours + row.verifiedHours,
-          overtimeHours: running.overtimeHours + row.overtimeHours,
-          deductions: running.deductions + row.deductions,
-          grossPay: running.grossPay + row.grossPay,
-        }),
-        { verifiedHours: 0, overtimeHours: 0, deductions: 0, grossPay: 0 }
-      ),
-    []
-  );
+  // Every numeric column is totalled — an admin reconciling against a
+  // payroll system needs the hours to tie out column by column.
+  const totals = useMemo(() => {
+    const byRate = Object.fromEntries(
+      OVERTIME_RATES.map((rate) => [
+        rate,
+        PAYROLL_ROWS.reduce((sum, row) => sum + (row.overtime[rate] ?? 0), 0),
+      ])
+    ) as Record<OvertimeRate, number>;
+
+    return {
+      totalHours: PAYROLL_ROWS.reduce((sum, row) => sum + row.totalHours, 0),
+      regularHours: PAYROLL_ROWS.reduce((sum, row) => sum + regularHours(row), 0),
+      overtimeHours: PAYROLL_ROWS.reduce((sum, row) => sum + overtimeTotal(row), 0),
+      byRate,
+    };
+  }, []);
 
   function handleExport() {
-    // Raw numbers, not the formatted "₦640,000" on screen — a spread-
-    // sheet can sum 640000, but treats the formatted string as text.
-    downloadCsv(`payroll-${cycle}.csv`, [
+    // Raw numbers, not the "168h" on screen — a spreadsheet can sum 168
+    // but treats "168h" as text.
+    downloadCsv(`payroll-hours-${cycle}.csv`, [
       [
         "Employee ID",
         "Name",
-        "Verified hours",
+        "Total hours",
+        "Regular hours",
         "Overtime hours",
-        "Deductions (NGN)",
-        "Gross pay (NGN)",
+        ...OVERTIME_RATES.map((rate) => `Overtime ${rateLabel(rate)} (hours)`),
       ],
       ...PAYROLL_ROWS.map((row) => [
         row.employeeId,
         row.name,
-        row.verifiedHours,
-        row.overtimeHours,
-        row.deductions,
-        row.grossPay,
+        row.totalHours,
+        regularHours(row),
+        overtimeTotal(row),
+        ...OVERTIME_RATES.map((rate) => row.overtime[rate] ?? 0),
       ]),
       [
         "TOTAL",
         `${PAYROLL_ROWS.length} employees`,
-        totals.verifiedHours,
+        totals.totalHours,
+        totals.regularHours,
         totals.overtimeHours,
-        totals.deductions,
-        totals.grossPay,
+        ...OVERTIME_RATES.map((rate) => totals.byRate[rate]),
       ],
     ]);
     toast.success(
-      "Payroll exported successfully",
+      "Hours exported successfully",
       PAYROLL_ROWS.length + " employees saved as CSV for the " + cycleLabel + " cycle."
     );
   }
@@ -182,7 +164,7 @@ export default function HRAdminPayrollPage() {
               className="inline-flex items-center gap-2 rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-4 w-4" strokeWidth={1.75} />
-              Export payroll CSV
+              Export hours CSV
             </button>
           </div>
         </div>
@@ -212,24 +194,24 @@ export default function HRAdminPayrollPage() {
                 </span>
               </td>
               <td className="px-5 py-4 hidden lg:table-cell" />
-              <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
-                {totals.verifiedHours}h
+              <td className="px-5 py-4 font-semibold text-heading tabular-nums">
+                {totals.totalHours}h
               </td>
-              <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
+              <td className="px-5 py-4 font-semibold text-heading tabular-nums">
+                {totals.regularHours}h
+              </td>
+              <td className="px-5 py-4 font-semibold text-heading tabular-nums">
                 {totals.overtimeHours}h
-              </td>
-              <td className="px-5 py-4 text-right font-semibold text-alert tabular-nums">
-                {totals.deductions > 0 ? naira.format(totals.deductions) : "—"}
-              </td>
-              <td className="px-5 py-4 text-right font-semibold text-heading tabular-nums">
-                {naira.format(totals.grossPay)}
               </td>
             </tr>
           )}
           columns={[
+            // Five equal shares, so the gaps between columns are even
+            // instead of following however wide each column's content is.
             {
               key: "name",
               header: "Employee",
+              widthClass: "w-1/5",
               hideOnMobile: true,
               render: (row) => (
                 <span className="font-medium text-heading whitespace-nowrap">
@@ -240,6 +222,7 @@ export default function HRAdminPayrollPage() {
             {
               key: "employeeId",
               header: "ID",
+              widthClass: "w-1/5",
               hideOnMobile: true,
               render: (row) => (
                 <span className="text-neutral whitespace-nowrap">
@@ -248,52 +231,41 @@ export default function HRAdminPayrollPage() {
               ),
             },
             {
-              key: "verifiedHours",
-              header: "Verified hours",
-              align: "right",
+              key: "totalHours",
+              header: "Total hours",
+              widthClass: "w-1/5",
               render: (row) => (
                 <span className="text-heading tabular-nums">
-                  {row.verifiedHours}h
+                  {row.totalHours}h
                 </span>
               ),
             },
             {
-              key: "overtimeHours",
+              key: "regularHours",
+              header: "Regular",
+              widthClass: "w-1/5",
+              render: (row) => (
+                <span className="text-heading tabular-nums">
+                  {regularHours(row)}h
+                </span>
+              ),
+            },
+            {
+              key: "overtime",
               header: "Overtime",
-              align: "right",
-              render: (row) => (
-                <span
-                  className={`tabular-nums ${
-                    row.overtimeHours > 0 ? "text-heading" : "text-neutral"
-                  }`}
-                >
-                  {row.overtimeHours}h
-                </span>
-              ),
-            },
-            {
-              key: "deductions",
-              header: "Deductions",
-              align: "right",
-              render: (row) => (
-                <span
-                  className={`tabular-nums ${
-                    row.deductions > 0 ? "text-alert" : "text-neutral"
-                  }`}
-                >
-                  {row.deductions > 0 ? naira.format(row.deductions) : "—"}
-                </span>
-              ),
-            },
-            {
-              key: "grossPay",
-              header: "Gross pay",
-              align: "right",
-              render: (row) => (
-                <span className="font-medium text-heading tabular-nums">
-                  {naira.format(row.grossPay)}
-                </span>
-              ),
+              widthClass: "w-1/5",
+              render: (row) => {
+                const total = overtimeTotal(row);
+                return (
+                  <span
+                    className={`tabular-nums ${
+                      total > 0 ? "text-heading" : "text-neutral"
+                    }`}
+                  >
+                    {total}h
+                  </span>
+                );
+              },
             },
           ]}
         />

@@ -76,7 +76,7 @@ export function LeaveRequestModal({ onClose, onSubmit }: LeaveRequestModalProps)
         aria-labelledby="leave-request-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start justify-between mb-4">
           <h2 id="leave-request-title" className="text-lg font-semibold text-heading">Request leave</h2>
@@ -108,7 +108,7 @@ export function LeaveRequestModal({ onClose, onSubmit }: LeaveRequestModalProps)
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="startDate" className="block text-sm font-medium text-heading mb-1">
                 Start date

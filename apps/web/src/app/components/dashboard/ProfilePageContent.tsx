@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
+  Camera,
   CircleCheck,
+  Info,
   KeyRound,
   MailCheck,
   RefreshCw,
@@ -14,6 +16,12 @@ import { useToast } from "@/app/components/Toast";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
 import { useAuthStore, type AuthUser } from "@/lib/store/auth-store";
 import { Toggle } from "@/app/components/dashboard/Toggle";
+import { UserAvatar } from "@/app/components/dashboard/UserAvatar";
+import {
+  AVATAR_ACCEPTED_TYPES,
+  useAvatarStore,
+  useAvatarUrl,
+} from "@/lib/store/avatar-store";
 
 // Shared by every role's /profile route — an HR Admin has a password and
 // registered devices exactly like an Employee does, so there's one
@@ -26,14 +34,14 @@ import { Toggle } from "@/app/components/dashboard/Toggle";
 //   ABSENT — employeeId / office exist as columns but aren't in the
 //            /auth/me payload, and GET /users is restricted to admin
 //            roles, so an employee can't look themselves up either.
-//   ABSENT — phone and job title have no column on the User model.
-//   ABSENT — there is no PATCH /users, so nothing on this page can be
-//            saved; no change-password route; no Device model; no
-//            notification-preference model.
+//   ABSENT — phone, job title and profile picture have no column on the
+//            User model (the picture is a preview held in memory).
+//   ABSENT — self-service editing. PATCH /users/:id exists but is admin-only
+//            and refuses to edit the caller's own record, so the identity
+//            fields are read-only and point to HR. Also no change-password
+//            route, no Device model, no notification-preference model.
 // Everything unbacked is rendered but disabled and labelled, so the page
 // shows the intended product without pretending anything persists.
-
-const NO_SAVE_ENDPOINT = "No endpoint saves profile changes yet.";
 
 interface DeviceRow {
   id: string;
@@ -74,9 +82,6 @@ export function ProfilePageContent() {
   const [profile, setProfile] = useState<AuthUser | null>(storedUser);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [email, setEmail] = useState(storedUser?.email ?? "");
-  const [phone, setPhone] = useState("");
-
   const [notifications, setNotifications] = useState<Record<string, boolean>>(
     () =>
       Object.fromEntries(
@@ -97,7 +102,6 @@ export function ProfilePageContent() {
       .then(({ data }) => {
         if (!isActive) return;
         setProfile(data);
-        setEmail(data.email);
       })
       .catch((error) => {
         // Non-fatal: the stored copy is still on screen.
@@ -149,27 +153,23 @@ export function ProfilePageContent() {
           </p>
         )}
 
+        {profile && (
+          <ProfilePhoto
+            userId={profile.id}
+            nameOrEmail={profile.name ?? profile.email}
+          />
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
           <ReadOnlyField label="Full name" value={profile?.name} />
           <ReadOnlyField label="Employee ID" value={undefined} />
 
-          <EditableField
-            id="profile-email"
-            label="Email"
-            type="email"
-            value={email}
-            onChange={setEmail}
-          />
-          <EditableField
-            id="profile-phone"
-            label="Phone"
-            type="tel"
-            value={phone}
-            onChange={setPhone}
-            placeholder="+234 803 412 7788"
-          />
+          {/* Read-only: email is the login identifier, and PATCH /users/:id
+              deliberately never changes it. Phone has no column at all. */}
+          <ReadOnlyField label="Email" value={profile?.email} />
+          <ReadOnlyField label="Phone" value={undefined} />
 
-          <ReadOnlyField label="Department" value={undefined} />
+          <ReadOnlyField label="Department" value={profile?.departmentName} />
           {/* The SYSTEM role — permissions and which dashboard they land
               on. Distinct from job title below, which is descriptive. */}
           <ReadOnlyField
@@ -178,7 +178,7 @@ export function ProfilePageContent() {
           />
 
           <ReadOnlyField label="Job title" value={undefined} />
-          <ReadOnlyField label="Office" value={undefined} />
+          <ReadOnlyField label="Branch" value={undefined} />
 
           <div>
             <p className="block text-sm font-medium text-heading mb-1">
@@ -194,19 +194,16 @@ export function ProfilePageContent() {
           </div>
         </div>
 
-        <button
-          type="button"
-          disabled
-          title={NO_SAVE_ENDPOINT}
-          className="mt-5 rounded-md bg-primary text-white px-4 py-2.5 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Save changes
-        </button>
-        <p className="mt-2 text-[12px] text-neutral">
-          Employee ID, department, office and job title aren&apos;t returned to
-          you yet, and there&apos;s no endpoint to save edits — both land with
-          the profile API.
-        </p>
+        {/* No Save button: PATCH /users/:id is admin-only and refuses
+            self-edits by design, so there is nothing for one to call. */}
+        <div className="mt-5 flex items-start gap-2 rounded-md bg-neutral/5 border border-neutral/20 px-3 py-2.5 text-[13px] text-neutral">
+          <Info className="h-4 w-4 shrink-0 mt-0.5" strokeWidth={1.75} />
+          <p>
+            Your details are managed by HR. Ask an admin to change your name,
+            department or branch. Employee ID, branch and job title
+            aren&apos;t returned to you yet.
+          </p>
+        </div>
       </div>
 
       {/* ---- Right: security and preferences ---- */}
@@ -379,6 +376,75 @@ export function ProfilePageContent() {
   );
 }
 
+// Picture picker. Preview only: there's no avatar column or upload endpoint,
+// so the image is held in memory (lib/store/avatar-store.ts) and the note
+// below says it disappears on refresh.
+function ProfilePhoto({
+  userId,
+  nameOrEmail,
+}: {
+  userId: string;
+  nameOrEmail: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const setFromFile = useAvatarStore((state) => state.setFromFile);
+  const clear = useAvatarStore((state) => state.clear);
+  const hasPhoto = useAvatarUrl(userId) !== null;
+  const [error, setError] = useState<string | null>(null);
+
+  function handleChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Reset so picking the same file again still fires onChange.
+    event.target.value = "";
+    if (!file) return;
+    setError(setFromFile(userId, file));
+  }
+
+  return (
+    <div className="mt-5 flex flex-wrap items-center gap-4">
+      <UserAvatar userId={userId} nameOrEmail={nameOrEmail} size="lg" />
+      <div className="min-w-0">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="inline-flex items-center gap-2 rounded-md border border-neutral/30 px-3 py-2 text-sm font-medium text-heading hover:bg-neutral/10"
+          >
+            <Camera className="h-4 w-4" strokeWidth={1.75} />
+            {hasPhoto ? "Change photo" : "Upload photo"}
+          </button>
+          {hasPhoto && (
+            <button
+              type="button"
+              onClick={() => {
+                clear();
+                setError(null);
+              }}
+              className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-alert hover:bg-alert/10"
+            >
+              <Trash2 className="h-4 w-4" strokeWidth={1.75} />
+              Remove
+            </button>
+          )}
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={AVATAR_ACCEPTED_TYPES.join(",")}
+          onChange={handleChange}
+          className="hidden"
+          aria-label="Choose a profile photo"
+        />
+        <p className="mt-2 text-[12px] text-neutral">
+          JPG, PNG or WebP, up to 2 MB. Preview only — it isn&apos;t saved
+          yet and disappears when you refresh.
+        </p>
+        {error && <p className="mt-1 text-sm text-alert">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 // Anything the backend can't give us yet renders as a muted "Not
 // available yet" instead of an empty box, so a missing field never looks
 // like a rendering bug.
@@ -399,41 +465,6 @@ function ReadOnlyField({
       >
         {value || "Not available yet"}
       </div>
-    </div>
-  );
-}
-
-function EditableField({
-  id,
-  label,
-  type,
-  value,
-  onChange,
-  placeholder,
-}: {
-  id: string;
-  label: string;
-  type: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <div>
-      <label
-        htmlFor={id}
-        className="block text-sm font-medium text-heading mb-1"
-      >
-        {label}
-      </label>
-      <input
-        id={id}
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-md border border-neutral/40 bg-surface px-3 py-2 text-sm text-heading focus:outline-none focus:ring-2 focus:ring-primary"
-      />
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   type EmployeeDetail,
 } from "@/app/components/dashboard/EmployeeDetailModal";
 import { ReinstateEmployeeModal } from "@/app/components/dashboard/ReinstateEmployeeModal";
+import { getInitials } from "@/lib/initials";
 
 // Shared between dashboard/super-admin/employees/page.tsx and
 // dashboard/hr-admin/employees/page.tsx — same list, same two invite
@@ -49,12 +50,6 @@ interface Department {
 interface Office {
   id: string;
   name: string;
-}
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return name.slice(0, 2).toUpperCase();
 }
 
 /**
@@ -312,7 +307,7 @@ export function EmployeesPageContent() {
             },
             {
               key: "office",
-              header: "Office",
+              header: "Branch",
               render: (employee) => (
                 <span className="text-neutral">
                   {employee.officeId ? officeName[employee.officeId] ?? "—" : "—"}

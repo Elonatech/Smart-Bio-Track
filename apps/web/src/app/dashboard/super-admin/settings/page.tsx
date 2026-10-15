@@ -56,7 +56,7 @@ export default function SuperAdminSettingsPage() {
           Punches are auto-approved above the upper threshold and rejected below the lower one.
         </p>
 
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label htmlFor="autoApprove" className="block text-sm font-medium text-heading mb-1">
               Auto-approve at or above
@@ -179,7 +179,7 @@ export default function SuperAdminSettingsPage() {
       <div className="bg-surface border border-neutral/20 rounded-xl p-5">
         <h2 className="text-base font-semibold text-heading mb-4">Data retention</h2>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="auditRetention" className="block text-sm font-medium text-heading mb-1">
               Audit log retention (years)

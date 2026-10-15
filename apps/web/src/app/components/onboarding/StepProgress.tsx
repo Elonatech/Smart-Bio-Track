@@ -1,6 +1,6 @@
 const STEPS = [
   "Organization",
-  "First office",
+  "First branch",
   "Time Regulation",
   "Departments",
   "Invites",

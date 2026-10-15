@@ -117,7 +117,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
       const message = extractErrorMessage(error);
       setServerError(message);
       toast.error(
-        office ? "Could not update this office" : "Could not create this office",
+        office ? "Could not update this branch" : "Could not create this branch",
         message
       );
     } finally {
@@ -137,11 +137,11 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
         aria-labelledby="office-form-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start justify-between mb-1">
           <h2 id="office-form-title" className="cursor-pointer text-lg font-semibold text-heading">
-            {isEditing ? "Edit office" : "Add office"}
+            {isEditing ? "Edit branch" : "Add branch"}
           </h2>
           <button
             type="button"
@@ -153,7 +153,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
           </button>
         </div>
         <p className="text-sm text-neutral mb-4">
-          Set the office name and geo-fence radius. Coordinates default to
+          Set the branch name and geo-fence radius. Coordinates default to
           Lagos — adjust to the real location.
         </p>
 
@@ -166,7 +166,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-heading mb-1">
-              Office name
+              Branch name
             </label>
             <input
               id="name"
@@ -197,7 +197,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="latitude" className="block text-sm font-medium text-heading mb-1">
                 Latitude
@@ -269,7 +269,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
               disabled={isSubmitting}
               className="cursor-pointer rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
             >
-              {isSubmitting ? "Saving..." : "Save office"}
+              {isSubmitting ? "Saving..." : "Save branch"}
             </button>
           </div>
         </form>

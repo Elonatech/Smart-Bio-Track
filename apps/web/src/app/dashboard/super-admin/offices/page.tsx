@@ -40,7 +40,7 @@ export default function SuperAdminOfficesPage() {
     appClient
       .get<Office[]>("/offices")
       .then((res) => setOffices(res.data))
-      .catch(() => setError("Couldn't load offices. Please try again."))
+      .catch(() => setError("Couldn't load branches. Please try again."))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -49,7 +49,7 @@ export default function SuperAdminOfficesPage() {
   }, [fetchOffices]);
 
   usePageHeader(
-    "Our offices & geo-fences",
+    "Branches & geo-fences",
     `${orgName} · ${offices.length} ${offices.length === 1 ? "location" : "locations"}`
   );
 
@@ -62,11 +62,11 @@ export default function SuperAdminOfficesPage() {
           className="inline-flex items-center gap-2 bg-primary text-white text-sm font-semibold px-4 py-2.5 rounded-md hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" strokeWidth={2} />
-          Add office
+          Add branch
         </button>
       </div>
 
-      {isLoading && <p className="text-sm text-neutral">Loading offices...</p>}
+      {isLoading && <p className="text-sm text-neutral">Loading branches...</p>}
 
       {error && (
         <div className="mb-4 rounded-md bg-alert/10 border border-alert/30 text-alert text-sm px-3 py-2">
@@ -77,7 +77,7 @@ export default function SuperAdminOfficesPage() {
       {!isLoading && offices.length === 0 && (
         <div className="text-sm text-neutral">
           <p>
-            No offices yet — click &quot;Add office&quot; to create your first
+            No branches yet — click &quot;Add branch&quot; to create your first
             one.
           </p>
           {/* A permanent route back into the setup wizard, independent of
@@ -132,9 +132,9 @@ export default function SuperAdminOfficesPage() {
                 </div>
               </div>
 
-              <div className="flex justify-between items-center p-4 ">
-                <div className=" ">
-                  <p className="text-sm font-semibold text-heading">
+              <div className="flex justify-between items-center gap-3 p-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-heading wrap-break-word">
                     {office.name}
                   </p>
                   <p className="text-xs text-neutral mb-3">
@@ -144,7 +144,7 @@ export default function SuperAdminOfficesPage() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 shrink-0">
                   <button
                     type="button"
                     onClick={() => setModalMode(office)}

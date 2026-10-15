@@ -77,7 +77,7 @@ export function SetupReminderBanner() {
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium">Finish setting up your workspace</p>
         <p className="text-[12px] opacity-80">
-          You haven&apos;t added an office yet — nobody can clock in until you
+          You haven&apos;t added a branch yet — nobody can clock in until you
           do.
         </p>
       </div>

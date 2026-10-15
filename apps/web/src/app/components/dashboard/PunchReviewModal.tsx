@@ -106,7 +106,7 @@ export function PunchReviewModal({
         // Clicks inside must not bubble up to the backdrop's close
         // handler.
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-3xl max-h-[90vh] flex flex-col bg-surface rounded-xl border border-neutral/20 outline-none"
+        className="w-full max-w-3xl max-h-[90dvh] flex flex-col bg-surface rounded-xl border border-neutral/20 outline-none"
       >
         {/* Header — stays put while the body scrolls */}
         <div className="flex items-start justify-between gap-4 px-6 py-5 border-b border-neutral/20 shrink-0">

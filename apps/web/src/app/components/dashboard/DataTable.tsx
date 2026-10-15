@@ -8,6 +8,14 @@ export interface DataTableColumn<T> {
   header: string;
   render: (row: T) => ReactNode;
   align?: "left" | "right";
+  /**
+   * Optional Tailwind width class for the column, such as "w-1/5". Without
+   * one the browser sizes columns by their content, which leaves uneven gaps
+   * when a table's cells are short; giving every column a share makes the
+   * spacing even. Applied on the header, which is what sets the column's
+   * width for the whole table including any footer row.
+   */
+  widthClass?: string;
 
   hideOnMobile?: boolean;
 }
@@ -82,7 +90,7 @@ export function DataTable<T>({
                     key={column.key}
                     className={`px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral whitespace-nowrap ${
                       column.align === "right" ? "text-right" : "text-left"
-                    }`}
+                    } ${column.widthClass ?? ""}`}
                   >
                     {column.header}
                   </th>

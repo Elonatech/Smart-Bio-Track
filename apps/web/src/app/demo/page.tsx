@@ -9,21 +9,13 @@ import { Navbar } from "../components/marketing/Navbar";
 import { Footer } from "../components/marketing/Footer";
 import { useToast } from "@/app/components/Toast";
 
-// Same approach as /contact: no backend endpoint exists, so this drafts
-// a mailto rather than shipping a dead button. Swap `onSubmit` when a
-// real endpoint or form service lands.
-//
-// Kept separate from /contact deliberately. A demo request is a
-// qualified sales lead and needs company, size and phone; a support
-// question doesn't. Putting both in one form makes the common case
-// longer for everyone.
 const SALES_EMAIL = "sales@elonatech.com.ng";
 
 const COMPANY_SIZES = [
-  "1–50 employees",
-  "51–200 employees",
-  "201–1,000 employees",
-  "1,000+ employees",
+  "1–20 employees",
+  "21–50 employees",
+  "51–100 employees",
+  "100+ employees",
 ];
 
 const INDUSTRIES = [
@@ -37,6 +29,13 @@ const INDUSTRIES = [
   "Logistics & Transportation",
   "Hospitality",
   "Government & Public Sector",
+  "Non-profit",
+  "Real Estate",
+  "Telecommunications",
+  "Media & Entertainment",
+  "Energy & Utilities",
+  "Finance & Insurance",
+  "Consulting & Professional Services",
   "Other",
 ];
 
@@ -52,10 +51,9 @@ const demoSchema = z.object({
   phone: z
     .string()
     .optional()
-    .refine(
-      (value) => !value || /^\+?[\d\s()-]{7,20}$/.test(value),
-      { message: "Enter a valid phone number, e.g. +234 803 000 0000" }
-    ),
+    .refine((value) => !value || /^\+?[\d\s()-]{7,20}$/.test(value), {
+      message: "Enter a valid phone number, e.g. +234 803 000 0000",
+    }),
   message: z.string().optional(),
 });
 
@@ -75,9 +73,7 @@ export default function DemoPage() {
   });
 
   const onSubmit = (values: DemoFormValues) => {
-    const subject = encodeURIComponent(
-      `Demo request — ${values.company}`
-    );
+    const subject = encodeURIComponent(`Demo request — ${values.company}`);
     const body = encodeURIComponent(
       [
         values.message?.trim() || "Requesting a product demo.",
@@ -303,7 +299,8 @@ export default function DemoPage() {
                         htmlFor="position"
                         className="block text-sm font-medium text-heading mb-1"
                       >
-                        Position <span className="text-neutral">(optional)</span>
+                        Position{" "}
+                        <span className="text-neutral">(optional)</span>
                       </label>
                       <input
                         id="position"
@@ -351,7 +348,7 @@ export default function DemoPage() {
                     <textarea
                       id="message"
                       rows={5}
-                      placeholder="We run three offices in Lagos and Port Harcourt and need geo-fenced clock-in for field teams."
+                      placeholder="We run three branches in Lagos and Port Harcourt and need geo-fenced clock-in for field teams."
                       {...register("message")}
                       className={fieldClass}
                     />
@@ -364,9 +361,9 @@ export default function DemoPage() {
                     Request demo
                   </button>
 
-                  <p className="text-xs text-neutral text-center">
+                  {/* <p className="text-xs text-neutral text-center">
                     Opens in your email app so you keep a copy of what you sent.
-                  </p>
+                  </p> */}
                 </form>
               )}
             </div>

@@ -43,6 +43,29 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  // Makes the Render API look like part of this site in production.
+  //
+  // The refresh-token cookie is SameSite=Lax (apps/api/src/auth/
+  // refresh-cookie.ts), so the browser only sends it when the page and the
+  // API share a site. A *.vercel.app page calling a *.onrender.com API
+  // doesn't — the cookie never arrives, the first token refresh fails, and
+  // users are bounced to login mid-onboarding. Worked on localhost, broke
+  // on Vercel.
+  //
+  // With this, the browser calls /api/... on the Vercel domain and Vercel
+  // forwards it to Render behind the scenes. To the browser it's one site,
+  // so the cookie flows and no backend setting has to loosen.
+  //
+  // Needs two Vercel env vars:
+  //   API_PROXY_TARGET    = https://<your-api>.onrender.com   (no /api)
+  //   NEXT_PUBLIC_API_URL = /api
+  // Unset locally, so dev keeps calling localhost:4000 directly.
+  async rewrites() {
+    const target = process.env.API_PROXY_TARGET?.replace(/\/+$/, "");
+    if (!target) return [];
+    return [{ source: "/api/:path*", destination: `${target}/api/:path*` }];
+  },
 };
 
 export default nextConfig;

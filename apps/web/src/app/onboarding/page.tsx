@@ -307,10 +307,10 @@ export default function OnboardingPage() {
       toast.success(
         "Workspace set up successfully",
         invitedCount > 0
-          ? `Your office and departments are saved, and ${invitedCount} activation ${
+          ? `Your branch and departments are saved, and ${invitedCount} activation ${
               invitedCount === 1 ? "email has" : "emails have"
             } been sent.`
-          : "Your office and departments have been saved."
+          : "Your branch and departments have been saved."
       );
 
       goToWelcome();
@@ -445,7 +445,7 @@ export default function OnboardingPage() {
             </h2>
             <p className="text-sm text-neutral mb-6">
               {payload.orgProfile?.organizationName ?? "Your organization"} is
-              configured with 1 office, {payload.departments?.departments.length ?? 0}{" "}
+              configured with 1 branch, {payload.departments?.departments.length ?? 0}{" "}
               {payload.departments?.departments.length === 1 ? "department" : "departments"} and{" "}
               {payload.inviteTeam?.invites.length ?? 0} pending{" "}
               {payload.inviteTeam?.invites.length === 1 ? "invite" : "invites"}.

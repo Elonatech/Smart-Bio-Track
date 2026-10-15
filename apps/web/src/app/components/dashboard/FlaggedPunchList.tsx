@@ -6,6 +6,7 @@ import {
   PunchReviewModal,
   type FlaggedPunch,
 } from "@/app/components/dashboard/PunchReviewModal";
+import { getInitials } from "@/lib/initials";
 
 // The list of flagged punches plus its review modal, shared by HR's
 // Review Queue (whole organization) and a Team Lead's Pending Exceptions
@@ -23,15 +24,6 @@ interface FlaggedPunchListProps {
 
 // "Emeka Nwachukwu" -> "EN". Falls back to a single initial for
 // one-word names rather than producing an empty circle.
-function getInitials(fullName: string): string {
-  return fullName
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
-
 // Matches the bands the review modal's score bar draws: below 60 would
 // have been auto-rejected, 80 and above auto-approved.
 function getScoreTone(score: number): string {
