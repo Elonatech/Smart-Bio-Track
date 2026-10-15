@@ -42,6 +42,16 @@ export const AUDIT_ACTIONS = [
   'CLOCK_OUT',
   'BREAK_START',
   'BREAK_END',
+  // Configuration that decides how attendance is judged (Phase 3 M2). These
+  // matter in a dispute as much as the punches do: "was I late?" depends on
+  // what the rule said, and who changed it, and when.
+  'WORK_RULE_CREATED',
+  'WORK_RULE_UPDATED',
+  'WORK_RULE_DELETED',
+  'HOLIDAY_CREATED',
+  'HOLIDAY_UPDATED',
+  'HOLIDAY_DELETED',
+  'ORGANIZATION_UPDATED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

@@ -81,6 +81,31 @@ Sources: Roadmap Rev. 2 §4; PRTS v2.0 §9 (FR-002–FR-008), §12, §13, §A13.
    longitude and GPS accuracy (FR-010 needs them in Phase 4). The browser's
    geo-fence hint stays; the server does not reject on location until Phase 4.
 
+### Added 14–15 Oct 2026
+
+7. **Several sessions a day** (14 Oct). Clocking out and back in is allowed;
+   "first clock-in" and "last clock-out" mean what they say.
+8. **Night shifts stay refused** (15 Oct) — decision 5 confirmed. The setup
+   wizard's overtime example (`apps/web/src/lib/overtime.ts`) currently reads
+   20:00–06:00 as a 10-hour night shift; the wizard must reject an end before
+   the start instead, with the same message the API gives.
+9. **Department-specific rules deferred** (15 Oct). Emmanuel's idea, and a good
+   one; M2 ships company default + per-office. Adding it later is additive —
+   a `departmentId` on WorkRule and one more step in rule resolution.
+
+### Open — needs a decision before the wizard is wired
+
+**What does "overtime" mean?** The two halves disagree:
+
+- **Wizard** (`StepWorkRules`, `overtimeAfterHours`): overtime is time worked
+  *after a clock time*, derived from the end time — after 17:00.
+- **Server** (M1/M3, `overtimeAfterMinutes`): overtime is worked time *beyond
+  a length of day* — beyond 8 hours.
+
+They differ on real days: in at 10:00, out at 18:00 is 1 hour of overtime by
+the first and none by the second. It decides pay, so it is a team (and
+possibly management) decision, not a coding one.
+
 ---
 
 ## 4. Design rules — where attendance systems go wrong

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -56,6 +57,19 @@ export class OfficesService {
     organizationId: string,
   ) {
     await this.findOne(id, organizationId); // ensures it exists AND belongs to the caller's org
+
+    // The rule must be this organisation's too. The office check above says
+    // nothing about the rule id in the body, and a foreign key only proves the
+    // rule exists somewhere — in any tenant.
+    if (updateOfficeDto.workRuleId) {
+      const rule = await this.prisma.workRule.findFirst({
+        where: { id: updateOfficeDto.workRuleId, organizationId },
+        select: { id: true },
+      });
+      if (!rule) {
+        throw new BadRequestException('Invalid work rule ID');
+      }
+    }
 
     return this.prisma.office.update({
       where: { id },
