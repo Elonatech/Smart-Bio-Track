@@ -34,6 +34,24 @@ export const AUDIT_ACTIONS = [
   // an administrator needs to see without anyone having thought to report it:
   // one locked account is a forgotten password, thirty in an hour is an attack.
   'USER_LOCKED_OUT',
+  // Attendance (Phase 3). One action per punch type rather than a single
+  // PUNCH_RECORDED, so the trail can be filtered to "every clock-in this
+  // week" without reading inside a payload. targetType is PunchEvent and
+  // targetId the punch, so each entry points at the evidence it describes.
+  'CLOCK_IN',
+  'CLOCK_OUT',
+  'BREAK_START',
+  'BREAK_END',
+  // Configuration that decides how attendance is judged (Phase 3 M2). These
+  // matter in a dispute as much as the punches do: "was I late?" depends on
+  // what the rule said, and who changed it, and when.
+  'WORK_RULE_CREATED',
+  'WORK_RULE_UPDATED',
+  'WORK_RULE_DELETED',
+  'HOLIDAY_CREATED',
+  'HOLIDAY_UPDATED',
+  'HOLIDAY_DELETED',
+  'ORGANIZATION_UPDATED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -62,7 +80,9 @@ export interface AuditEntry {
  * and the `tx` handed to a `$transaction` callback.
  */
 type AuditWriter = {
-  auditLog: { create: (args: { data: Prisma.AuditLogUncheckedCreateInput }) => unknown };
+  auditLog: {
+    create: (args: { data: Prisma.AuditLogUncheckedCreateInput }) => unknown;
+  };
 };
 
 @Injectable()

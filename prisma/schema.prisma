@@ -62,6 +62,19 @@ model Organization {
   /// by email or employee ID, never by organization name.
   name      String
   industry  String?
+
+  /// IANA zone name, e.g. "Africa/Lagos". Phase 3 decision 1: one per
+  /// organisation, with a per-office override possible later.
+  ///
+  /// Every "which day is this?" question is answered in this zone, and nothing
+  /// else. Timestamps stay UTC; this only decides where midnight falls. Without
+  /// it, a 00:30 Lagos clock-in lands on the previous day's summary, and an
+  /// 08:05 arrival is judged against 08:00 UTC — an hour off.
+  ///
+  /// Not CHECK-constrained: Postgres cannot validate a zone name in a CHECK
+  /// (the lookup is not immutable). The API validates with Intl before writing.
+  timezone  String   @default("Africa/Lagos")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -69,6 +82,11 @@ model Organization {
   departments Department[]
   offices     Office[]
   auditLogs   AuditLog[]
+
+  workRules           WorkRule[]
+  holidays            Holiday[]
+  punchEvents         PunchEvent[]
+  attendanceSummaries AttendanceSummary[]
 }
 
 model Department {
@@ -92,12 +110,22 @@ model Office {
   geofenceRadiusMeters Int      @default(100)
   organizationId       String
   organization         Organization @relation(fields: [organizationId], references: [id])
+
+  /// The rule this office's staff are judged against. Null = the
+  /// organisation's default rule (Phase 3 decision 2).
+  ///
+  /// SetNull on delete, so removing a rule drops the office back to the
+  /// default rather than refusing the delete or leaving a dangling id.
+  workRuleId           String?
+  workRule             WorkRule? @relation(fields: [workRuleId], references: [id], onDelete: SetNull)
+
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
   employees User[]
 
   @@unique([organizationId, name])
+  @@index([workRuleId])
 }
 
 model User {
@@ -149,6 +177,9 @@ model User {
   refreshToken       RefreshToken[]
   activationTokens   ActivationToken[]
   passwordResetToken PasswordResetToken[]
+
+  punchEvents         PunchEvent[]
+  attendanceSummaries AttendanceSummary[]
 
   /// Postgres indexes a primary key and a UNIQUE column automatically. It does
   /// NOT index a foreign key. All three below were sequential scans of the
@@ -216,6 +247,220 @@ model AuditLog {
   /// Every read is "this organization's entries, newest first", which is
   /// exactly what this composite serves.
   @@index([organizationId, createdAt])
+}
+
+// ─── Phase 3: attendance ────────────────────────────────────────────────────
+//
+// Plan and the six decisions behind these models:
+// docs/phase-notes/phase-3-attendance-plan.md
+//
+// The shape in one line: PunchEvent is the evidence and never changes;
+// AttendanceSummary is arithmetic over it and can always be rebuilt; WorkRule
+// and Holiday are the inputs to that arithmetic.
+
+/// When people are expected to work. Several per organisation, exactly one of
+/// them the default (Phase 3 decision 2).
+///
+/// Times are minutes after local midnight in the organisation's timezone —
+/// 08:00 is 480. Integers rather than "08:00" strings so the database can
+/// enforce start < end and compare them, and so nothing parses a string in
+/// the middle of payroll arithmetic. The API converts at the edge.
+///
+/// **Exactly one default per organisation** is enforced by a partial unique
+/// index in the migration (`WHERE "isDefault"`). Prisma's schema language
+/// cannot express a partial index, so it lives only in SQL — do not "tidy" it
+/// away because it is missing here.
+model WorkRule {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name      String
+  isDefault Boolean @default(false)
+
+  /// ISO weekdays, 1 = Monday … 7 = Sunday. A day not listed is a rest day:
+  /// no lateness, and no absence if nobody clocks in.
+  workingDays Int[]
+
+  startMinutes Int
+  /// CHECK end > start in the migration — Phase 3 decision 5, no overnight
+  /// shifts in the MVP. Lifting that is a deliberate change, not a data edit.
+  endMinutes   Int
+
+  /// FR-006: lateness counts from the END of the grace period. Start 480,
+  /// grace 10, arrival 493 → 3 minutes late, not 13.
+  gracePeriodMinutes Int @default(0)
+
+  /// Worked minutes in a day beyond which the rest is overtime. Null = this
+  /// rule does not track overtime.
+  overtimeAfterMinutes Int?
+
+  /// Pay multiplier for overtime. Stored because onboarding already collects
+  /// it; nothing in Phase 3 uses it — payroll is Phase 5. Decimal, never Float:
+  /// it ends up multiplied into money.
+  overtimeMultiplier Decimal @default(1.5) @db.Decimal(4, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offices   Office[]
+  summaries AttendanceSummary[]
+
+  @@unique([organizationId, name])
+}
+
+enum HolidayType {
+  PUBLIC
+  COMPANY
+}
+
+/// A day nobody is expected to work. An organisation-wide calendar for now;
+/// per-office holidays can come with per-office timezones.
+model Holiday {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name String
+
+  /// A calendar date in the organisation's timezone — no time, no zone.
+  date DateTime @db.Date
+
+  type HolidayType @default(PUBLIC)
+
+  /// Matches the same month and day in every year (New Year's Day). False for
+  /// holidays that move (Eid, Easter), which have to be entered each year.
+  repeatsAnnually Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, date, name])
+  @@index([organizationId, date])
+}
+
+enum PunchType {
+  CLOCK_IN
+  CLOCK_OUT
+  BREAK_START
+  BREAK_END
+}
+
+/// One attendance action, exactly as it happened. The evidence everything else
+/// is computed from (PRTS §12: "Punch Events are immutable").
+///
+/// **Append-only, enforced by the database.** A trigger in the migration
+/// rejects every UPDATE and DELETE on this table, so the guarantee does not
+/// rest on nobody ever writing an update route. A mistaken punch is answered
+/// by a new punch, never by editing the old one — a pay dispute is settled by
+/// what was recorded at the time.
+///
+/// TRUNCATE is not blocked (row triggers do not fire on it), which keeps the
+/// e2e reset working. Nothing in the application truncates.
+model PunchEvent {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  /// Restrict, not Cascade: users are soft-deleted (UserStatus.DELETED), and a
+  /// hard delete must never be able to take their attendance with it.
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  type PunchType
+
+  /// When it happened, from the SERVER's clock. Nothing the browser sends is
+  /// ever used as the time — a client clock is set by the person being timed.
+  ///
+  /// The service passes this explicitly, from the same instant it uses to
+  /// compute workDate, so the two can never disagree across a midnight. The
+  /// default is a backstop only.
+  occurredAt DateTime @default(now())
+
+  /// The local calendar date this punch belongs to, in the organisation's
+  /// timezone at the time of the punch. Stored, not derived at read time:
+  /// if the organisation later changes timezone, history must not move days.
+  workDate DateTime @db.Date
+
+  /// Where the browser said it was — recorded, not enforced (Phase 3
+  /// decision 6). FR-010 needs location on every attendance event; Phase 4's
+  /// geo-fence check will read these. Null when the browser refused location.
+  latitude       Float?
+  longitude      Float?
+  accuracyMeters Float?
+
+  createdAt DateTime @default(now())
+
+  /// "This user's punches today, in order" — the state-machine read on every
+  /// punch, and the summary recompute.
+  @@index([userId, workDate, occurredAt])
+  /// Organisation-wide day views (Phase 5 reports, the end-of-day job).
+  @@index([organizationId, workDate])
+}
+
+enum AttendanceStatus {
+  /// Clocked in at least once.
+  PRESENT
+  /// A working day under the rule, not a holiday, and no clock-in — set by
+  /// the end-of-day job, never by a punch.
+  ABSENT
+  ON_HOLIDAY
+  /// Not one of the rule's working days.
+  REST_DAY
+}
+
+/// One row per person per local day, derived from that day's PunchEvents.
+///
+/// **Derived and rebuildable — never the source of truth.** Recomputed inside
+/// each punch's transaction by a pure function of (punches, rule, timezone,
+/// holiday). If the arithmetic is ever wrong, fix the function and recompute;
+/// the punches are untouched. That is why this table may be updated and
+/// PunchEvent may not.
+///
+/// All durations are whole minutes. Breaks are SUBTRACTED from workedMinutes
+/// (Phase 3 decision 3 — pending management confirmation; the rule lives in
+/// the summary function only, so changing it is one line plus a recompute).
+model AttendanceSummary {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  workDate DateTime @db.Date
+  status   AttendanceStatus
+
+  firstClockIn DateTime?
+  lastClockOut DateTime?
+
+  workedMinutes   Int @default(0)
+  breakMinutes    Int @default(0)
+  overtimeMinutes Int @default(0)
+
+  isLate      Boolean @default(false)
+  lateMinutes Int     @default(0)
+
+  /// Clocked in with no matching clock-out when the day closed (Phase 3
+  /// decision 4). The day is left open and flagged — a clock-out is never
+  /// invented, because an inferred punch is a fabricated record.
+  isIncomplete Boolean @default(false)
+
+  /// The rule as it stood when this day was computed. A snapshot, not just a
+  /// pointer: if HR moves the start time from 08:00 to 09:00 in March, a
+  /// January recompute must still judge January against 08:00.
+  workRuleId            String?
+  workRule              WorkRule? @relation(fields: [workRuleId], references: [id], onDelete: SetNull)
+  scheduledStartMinutes Int?
+  scheduledEndMinutes   Int?
+  gracePeriodMinutes    Int?
+
+  computedAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, workDate])
+  @@index([organizationId, workDate])
+  @@index([workRuleId])
 }
 
 /// Issued when an admin provisions a user. The raw token is handed to the

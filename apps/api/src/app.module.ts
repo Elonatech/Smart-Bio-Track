@@ -10,6 +10,10 @@ import { OfficesModule } from './offices/office.module';
 import { UsersModule } from './users/users.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { AuditModule } from './audit/audit.module';
+import { AttendanceModule } from './attendance/attendance.module';
+import { WorkRulesModule } from './work-rules/work-rules.module';
+import { HolidaysModule } from './holidays/holidays.module';
+import { OrganizationModule } from './organization/organization.module';
 import { THROTTLE_DEFAULT } from './common/throttle.config';
 
 @Module({
@@ -32,6 +36,14 @@ import { THROTTLE_DEFAULT } from './common/throttle.config';
     UsersModule,
     MaintenanceModule,
     AuditModule,
+    // Registered here or its routes do not exist. Its first version was
+    // written and unit-tested but never added to this list, so every route
+    // 404'd — Departments and Offices were unreachable the same way in
+    // Phase 2. e2e (attendance.e2e-spec.ts) now calls the real routes.
+    AttendanceModule,
+    WorkRulesModule,
+    HolidaysModule,
+    OrganizationModule,
   ],
   controllers: [AppController],
   providers: [
