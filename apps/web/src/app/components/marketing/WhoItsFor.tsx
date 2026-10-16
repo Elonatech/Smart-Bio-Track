@@ -7,6 +7,7 @@ import {
   Network,
   type LucideIcon,
 } from "lucide-react";
+import { SwipeRow } from "./SwipeRow";
 
 interface Industry {
   icon: LucideIcon;
@@ -58,13 +59,18 @@ export function WhoItsFor() {
           Built for teams of all business types and sizes
         </h2>
 
-        <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {/* Phones: one swipeable row with dots, instead of six stacked
+            cards (~4 screens of scrolling before pricing). sm+ is the grid. */}
+        <SwipeRow
+          label="Industries SmartBioTrack is built for"
+          gridClassName="sm:grid-cols-2 sm:gap-5 lg:grid-cols-3"
+        >
           {INDUSTRIES.map((industry) => {
             const Icon = industry.icon;
             return (
               <div
                 key={industry.title}
-                className="rounded-xl border border-neutral/15 bg-surface p-5 transition-shadow hover:shadow-md"
+                className="h-full rounded-xl border border-neutral/15 bg-surface p-5 transition-shadow hover:shadow-md"
               >
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
                   <Icon className="h-5 w-5" strokeWidth={1.75} />
@@ -78,7 +84,7 @@ export function WhoItsFor() {
               </div>
             );
           })}
-        </div>
+        </SwipeRow>
       </div>
     </section>
   );

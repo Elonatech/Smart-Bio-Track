@@ -1,4 +1,5 @@
 import { Star } from "lucide-react";
+import { SwipeRow } from "./SwipeRow";
 
 interface Testimonial {
   quote: string;
@@ -51,11 +52,17 @@ export function Testimonials() {
           What enterprise buyers say
         </h2>
 
-        <div className="mt-10 grid gap-6 lg:grid-cols-3">
+        {/* Swipes below lg — phones AND tablets, since this was a single
+            stacked column until lg anyway. */}
+        <SwipeRow
+          label="Customer testimonials"
+          until="lg"
+          gridClassName="lg:grid-cols-3 lg:gap-6"
+        >
           {TESTIMONIALS.map((t) => (
             <div
               key={t.name}
-              className="flex flex-col rounded-xl border border-neutral/15 bg-surface p-6 shadow-sm"
+              className="flex h-full flex-col rounded-xl border border-neutral/15 bg-surface p-6 shadow-sm"
             >
               <div className="flex items-center justify-between">
                 <span className="flex p-2 items-center justify-center rounded-md bg-primary/10 text-xs font-semibold text-primary">
@@ -92,7 +99,7 @@ export function Testimonials() {
               </div>
             </div>
           ))}
-        </div>
+        </SwipeRow>
       </div>
     </section>
   );
