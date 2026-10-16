@@ -1,13 +1,12 @@
+import { recordPunch, type PunchLocation } from "@/lib/attendance";
+
 // The three results a clock-in attempt can have, per the roadmap's Trust Score
 // Engine: approved (recorded), flagged (recorded, but HR must review it) and
 // rejected (not recorded).
 //
-// UI-only for now. There is no attendance endpoint, so nothing here is a
-// server response — `submitClockIn` below is a local stand-in that always
-// approves, and it is the single function to replace with the real call.
-// When the backend contract exists, these types are what should move into
-// packages/types; the reasons are plain strings because the real reason
-// codes have not been agreed yet.
+// `submitClockIn` below calls the real API. Only "approved" can come back from
+// it until Phase 4 adds scoring; the reasons are plain strings because the
+// real reason codes have not been agreed yet.
 //
 // `recordedAt` is the SERVER's timestamp as an ISO 8601 string in UTC
 // ("2026-08-10T08:12:00.000Z"), never the browser's clock: the roadmap lists
@@ -57,18 +56,25 @@ export function previewOutcomeFromUrl(): ClockInOutcome | null {
   return null;
 }
 
-// Local stand-in for POST /attendance/clock-in. The short delay is
-// deliberate: an instant result reads as the button doing nothing. The
-// timestamp here comes from the browser only because there is no server to
-// supply it — the real response replaces this whole function.
-export async function submitClockIn(): Promise<ClockInOutcome> {
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  return (
-    previewOutcomeFromUrl() ?? {
-      status: "approved",
-      recordedAt: new Date().toISOString(),
-    }
-  );
+// POST /attendance/clock-in. `recordedAt` is the server's own timestamp from
+// the saved punch.
+//
+// Always "approved" for now: Phase 3 records every clock-in and has no
+// scoring yet, so the server never flags or rejects one. The flagged and
+// rejected screens stay for Phase 4's Trust Score Engine, and the dev-only
+// ?clockin-outcome= preview still shows them — WITHOUT calling the API, so a
+// preview never records a real punch.
+//
+// A refusal from the server ("You are already clocked in.") throws; the
+// caller shows its message.
+export async function submitClockIn(
+  location?: PunchLocation | null,
+): Promise<ClockInOutcome> {
+  const preview = previewOutcomeFromUrl();
+  if (preview) return preview;
+
+  const { punch } = await recordPunch("CLOCK_IN", location);
+  return { status: "approved", recordedAt: punch.occurredAt };
 }
 
 // Turns a stored UTC instant into a time the reader can use: shown in THEIR

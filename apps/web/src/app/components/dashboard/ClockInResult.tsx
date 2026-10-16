@@ -98,11 +98,6 @@ export function ClockInResult({
           {outcome.status === "rejected" ? "Close" : "Done"}
         </button>
       </div>
-
-      <p className="mt-3 text-xs text-neutral">
-        Saved to this screen only — no backend endpoint exists yet to record a
-        real attendance punch.
-      </p>
     </div>
   );
 }

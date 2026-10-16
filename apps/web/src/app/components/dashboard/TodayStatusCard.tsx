@@ -1,29 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { LogIn, LogOut, Coffee, Timer } from "lucide-react";
+import { LogIn, LogOut, Coffee, Timer, RefreshCw } from "lucide-react";
 import { ClockInFlow } from "@/app/components/dashboard/ClockInFlow";
 import { formatRecordedTime } from "@/app/components/dashboard/clockInOutcome";
 import { useToast } from "@/app/components/Toast";
-import { useAuthStore } from "@/lib/store/auth-store";
+import { extractErrorMessage } from "@/lib/api-client";
+import {
+  fetchToday,
+  readPositionQuietly,
+  recordPunch,
+  timeFromPunches,
+  type PunchType,
+  type TodayAttendance,
+} from "@/lib/attendance";
 
 // The "Today's status" card that opens every role's overview. Every
 // dashboard showed an identical copy of this markup, so a mobile layout
 // fix had to be made in four places — hence one component.
 //
-// Clock In opens ClockInFlow, which does a REAL geolocation + geo-fence
-// check against the organization's actual offices — no backend needed for
-// that part. Everything below (break, clock-out, the running timer) is
-// LOCAL-ONLY state, the same pattern every other backend-less feature in
-// this app uses (Work Rules, Holidays, Departments before their
-// endpoints existed): there is no Attendance/Punch model in
-// prisma/schema.prisma and no endpoint to record any of this against.
-// It survives a same-tab page refresh (see the sessionStorage helpers
-// below) so the loop doesn't look broken mid-demo, but never a real
-// server — it exists so the whole clock-in → break → clock-out loop can
-// be seen and demoed end to end instead of dead-ending at a permanently
-// disabled button.
+// REAL since Phase 3: state comes from GET /attendance/today, and clock-in
+// (via ClockInFlow), breaks and clock-out are recorded punches. The server
+// is the source of truth — its state machine decides what's allowed, and
+// every time shown is the server's timestamp, never the browser's clock.
+// (This used to be a local-only demo loop kept in sessionStorage.)
 function formatElapsed(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const hours = Math.floor(s / 3600);
@@ -32,63 +33,21 @@ function formatElapsed(totalSeconds: number): string {
   return [hours, minutes, seconds].map((n) => String(n).padStart(2, "0")).join(":");
 }
 
-// Stored times are UTC instants (toISOString); this shows them in the
-// viewer's own timezone with the zone named, same as the clock-in result.
-function formatClockTime(date: Date): string {
-  return formatRecordedTime(date.toISOString());
-}
+type CardPunch = Exclude<PunchType, "CLOCK_IN">;
 
-// Local-only persistence for the demo clock-in/break/clock-out loop above —
-// NOT a stand-in for a real backend. Without this, refreshing mid-shift lost
-// the whole loop, which reads as a bug in a demo even though the underlying
-// "nothing is saved to a server" story hasn't changed: the same honest toasts
-// still fire on every action, this just keeps THIS SCREEN's own state alive
-// across a reload the same way an unsaved form draft might.
-//
-// sessionStorage (not localStorage): a shift that's still "open" only makes
-// sense for the tab that's live right now — closing the tab is close enough
-// to "the shift ended" for data that was never going to survive a real
-// server round trip anyway.
-//
-// Keyed per user, same convention as notifications.ts's read-state, so
-// signing out and a different person signing in on the same browser never
-// inherits someone else's open shift.
-interface StoredTodayStatus {
-  /** Local YYYY-MM-DD. A shift left open from a previous day is stale, not resumable. */
-  date: string;
-  clockedInAt: string | null;
-  clockedOutAt: string | null;
-  breakStartedAt: string | null;
-  completedBreakSeconds: number;
-}
+// Mirrors the server's state machine (attendance-state.ts) for the
+// optimistic update; the server's answer always wins.
+const NEXT_STATE: Record<CardPunch, TodayAttendance["state"]> = {
+  BREAK_START: "ON_BREAK",
+  BREAK_END: "CLOCKED_IN",
+  CLOCK_OUT: "CLOCKED_OUT",
+};
 
-function storageKey(userId: string): string {
-  return `today-status:${userId}`;
-}
-
-function todayKey(now: Date): string {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-function loadStoredStatus(userId: string): StoredTodayStatus | null {
-  try {
-    const raw = sessionStorage.getItem(storageKey(userId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredTodayStatus;
-    return parsed.date === todayKey(new Date()) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveStoredStatus(userId: string, status: StoredTodayStatus) {
-  try {
-    sessionStorage.setItem(storageKey(userId), JSON.stringify(status));
-  } catch {
-    // Same shrug as notifications.ts: losing this just means a refresh
-    // mid-shift looks like a fresh day, which is safe, not silently wrong.
-  }
-}
+const PUNCH_TOAST: Record<CardPunch, [string, string]> = {
+  BREAK_START: ["Break started", "Working hours pause until you end your break."],
+  BREAK_END: ["Break ended", "Working hours have resumed."],
+  CLOCK_OUT: ["Clocked out", "Your hours for today are saved."],
+};
 
 function MiniStat({
   icon: Icon,
@@ -117,73 +76,34 @@ function MiniStat({
 
 export function TodayStatusCard() {
   const toast = useToast();
-  const userId = useAuthStore((state) => state.user?.id);
-
-  // Read once, synchronously, when this component instance is FIRST
-  // created — not in an effect. An effect-based restore raced against the
-  // write-back effect below: React (in development) runs every effect
-  // twice on mount to catch exactly this kind of bug, and the second
-  // effect's run was seeing the first run's *pre-restore* values, saving
-  // blanks over the shift a moment after it was read back in. Doing the
-  // read here, before any effect exists to race it, removes the race
-  // entirely rather than papering over it.
-  //
-  // The function form of useState's initial value — not a plain value —
-  // is what makes this a ONE-TIME read: React only ever calls this
-  // function on the very first render of this component instance and
-  // ignores it on every render after. A plain expression here would
-  // re-read and re-parse sessionStorage on every render instead, including
-  // every second this card is ticking while someone's clocked in.
-  //
-  // AuthGuard (see AuthGuard.tsx) renders nothing until the session is
-  // restored and only mounts this component afterwards, so userId is
-  // already known the first time this function body runs — there's no
-  // "userId arrives later" case to handle here.
+  const [today, setToday] = useState<TodayAttendance | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [pending, setPending] = useState<CardPunch | null>(null);
   const [isClockInOpen, setIsClockInOpen] = useState(false);
-  const [clockedInAt, setClockedInAt] = useState<Date | null>(() => {
-    const stored = userId ? loadStoredStatus(userId) : null;
-    return stored?.clockedInAt ? new Date(stored.clockedInAt) : null;
-  });
-  const [clockedOutAt, setClockedOutAt] = useState<Date | null>(() => {
-    const stored = userId ? loadStoredStatus(userId) : null;
-    return stored?.clockedOutAt ? new Date(stored.clockedOutAt) : null;
-  });
-  const [breakStartedAt, setBreakStartedAt] = useState<Date | null>(() => {
-    const stored = userId ? loadStoredStatus(userId) : null;
-    return stored?.breakStartedAt ? new Date(stored.breakStartedAt) : null;
-  });
-  // Only COMPLETED breaks — the one currently in progress, if any, is
-  // computed live in render from breakStartedAt instead of stored here.
-  const [completedBreakSeconds, setCompletedBreakSeconds] = useState(() => {
-    const stored = userId ? loadStoredStatus(userId) : null;
-    return stored?.completedBreakSeconds ?? 0;
-  });
 
-  // The only thing that touches storage now. Fires once on mount with
-  // whatever was just restored above (a harmless no-op re-save, since it's
-  // writing back exactly what it read) and again on every real change —
-  // no separate "have we restored yet" flag needed, because there's no
-  // restore step left to race against.
+  // State is only ever set when the request settles — never synchronously
+  // inside the effect, which React's lint rule rightly flags.
+  const load = useCallback(() => {
+    fetchToday()
+      .then((data) => {
+        setToday(data);
+        setLoadError(null);
+      })
+      .catch((error) => setLoadError(extractErrorMessage(error)));
+  }, []);
+
   useEffect(() => {
-    if (!userId) return;
-    saveStoredStatus(userId, {
-      date: todayKey(new Date()),
-      clockedInAt: clockedInAt ? clockedInAt.toISOString() : null,
-      clockedOutAt: clockedOutAt ? clockedOutAt.toISOString() : null,
-      breakStartedAt: breakStartedAt ? breakStartedAt.toISOString() : null,
-      completedBreakSeconds,
-    });
-  }, [userId, clockedInAt, clockedOutAt, breakStartedAt, completedBreakSeconds]);
+    load();
+  }, [load]);
 
-  const isClockedIn = clockedInAt !== null && clockedOutAt === null;
-  const isOnBreak = breakStartedAt !== null;
+  const state = today?.state ?? "NOT_STARTED";
+  const punches = today?.punches ?? [];
+  const isClockedIn = state === "CLOCKED_IN" || state === "ON_BREAK";
+  const isOnBreak = state === "ON_BREAK";
 
-  // A tick counter rather than storing "elapsed seconds" directly — the
-  // actual numbers below are always derived fresh from the real
-  // timestamps, this just forces a re-render once a second so those
-  // derivations produce a new value. Stops entirely once clocked out, so
-  // the final numbers freeze instead of continuing to advance against
-  // "now" after the shift has already ended.
+  // Re-render once a second while a shift is open, so the timer derived
+  // from the punch times below advances. Stops when clocked out, so the
+  // final numbers freeze.
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!isClockedIn) return;
@@ -191,57 +111,74 @@ export function TodayStatusCard() {
     return () => clearInterval(interval);
   }, [isClockedIn]);
 
-  const referenceNow = clockedOutAt ?? new Date();
-  const totalElapsedSeconds = clockedInAt
-    ? (referenceNow.getTime() - clockedInAt.getTime()) / 1000
-    : 0;
-  const currentBreakSeconds = breakStartedAt
-    ? (referenceNow.getTime() - breakStartedAt.getTime()) / 1000
-    : 0;
-  const totalBreakSeconds = completedBreakSeconds + currentBreakSeconds;
-  const workedSeconds = totalElapsedSeconds - totalBreakSeconds;
+  const { workedSeconds, breakSeconds: totalBreakSeconds } = timeFromPunches(
+    punches,
+    new Date()
+  );
+  const firstClockIn = punches.find((p) => p.type === "CLOCK_IN");
+  const lastClockOut =
+    state === "CLOCKED_OUT"
+      ? [...punches].reverse().find((p) => p.type === "CLOCK_OUT")
+      : undefined;
 
-  function handleStartBreak() {
-    setBreakStartedAt(new Date());
-    toast.success("Break started successfully", "Working hours pause until you end your break.");
-  }
-
-  function handleEndBreak() {
-    if (!breakStartedAt) return;
-    setCompletedBreakSeconds(
-      (prev) => prev + (Date.now() - breakStartedAt.getTime()) / 1000
+  async function handlePunch(type: CardPunch) {
+    setPending(type);
+    // Optimistic: show the new state at once. A punch takes the server
+    // ~1–2 s (six queries to Neon — see TRANSACTION_OPTIONS in
+    // attendance.service.ts), and a button stuck on "Saving…" for that long
+    // reads as broken. The placeholder uses the browser's clock only until
+    // the re-read below swaps in the server's real timestamp; a refusal
+    // re-reads too, which puts the card back.
+    setToday((current) =>
+      current && {
+        ...current,
+        state: NEXT_STATE[type],
+        punches: [
+          ...current.punches,
+          { id: "pending", type, occurredAt: new Date().toISOString() },
+        ],
+      }
     );
-    setBreakStartedAt(null);
-    toast.success("Break ended successfully", "Working hours have resumed.");
-  }
-
-  function handleClockOut() {
-    // Ending the shift implicitly ends any break still running — folded
-    // into the total rather than losing it or leaving isOnBreak stuck true
-    // after clocking out.
-    if (breakStartedAt) {
-      setCompletedBreakSeconds(
-        (prev) => prev + (Date.now() - breakStartedAt.getTime()) / 1000
-      );
-      setBreakStartedAt(null);
+    try {
+      // Best effort and brief: location helps the audit trail but must
+      // never be the reason a punch is slow or fails.
+      const location = await readPositionQuietly(1000);
+      await recordPunch(type, location);
+      toast.success(...PUNCH_TOAST[type]);
+    } catch (error) {
+      toast.error("That didn't go through", extractErrorMessage(error));
+    } finally {
+      setPending(null);
+      // Re-read either way: on success it replaces the placeholder with the
+      // server's punch, and on a refusal ("You are already on a break.") it
+      // restores what's really recorded — another tab or device may have
+      // punched since.
+      load();
     }
-    setClockedOutAt(new Date());
-    toast.success(
-      "Clocked out successfully",
-      "Saved to this screen only — there is no backend endpoint yet to record a real punch."
+  }
+
+  if (loadError && !today) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-surface border border-neutral/20 p-5 rounded-xl">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-heading">
+            Couldn&apos;t load today&apos;s attendance
+          </p>
+          <p className="text-xs text-neutral mt-0.5 wrap-break-word">{loadError}</p>
+        </div>
+        <button
+          type="button"
+          onClick={load}
+          className="inline-flex items-center gap-2 border border-neutral/30 text-heading text-sm font-medium px-4 py-2 rounded-md hover:bg-neutral/10"
+        >
+          <RefreshCw className="h-4 w-4" strokeWidth={2} />
+          Try again
+        </button>
+      </div>
     );
   }
 
-  // Resets everything so the loop can be run through again without a page
-  // refresh — useful for demoing or testing repeatedly, and there is no
-  // real daily-limit concept to enforce since none of this is persisted.
-  function handleStartNewShift() {
-    setClockedInAt(null);
-    setClockedOutAt(null);
-    setBreakStartedAt(null);
-    setCompletedBreakSeconds(0);
-    setIsClockInOpen(true);
-  }
+  const isLoading = today === null;
 
   return (
     // No items-* override here: default align-items (stretch) is
@@ -267,11 +204,17 @@ export function TodayStatusCard() {
       <div className="grid content-start lg:content-between gap-4 bg-surface border border-neutral/20 p-5 rounded-xl sm:grid-cols-[1fr_auto]">
         <div>
           <h5 className="text-xs font-medium tracking-wide uppercase text-neutral border-b border-neutral/30 inline-block pb-0.5">
-            Today's status
+            Today&apos;s status
           </h5>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <p className="text-[20px] sm:text-[22px] font-semibold text-heading">
-              {clockedOutAt ? "Clocked Out" : isClockedIn ? "Clocked In" : "Not clocked in yet"}
+              {isLoading
+                ? "Loading…"
+                : state === "CLOCKED_OUT"
+                  ? "Clocked Out"
+                  : isClockedIn
+                    ? "Clocked In"
+                    : "Not clocked in yet"}
             </p>
             {isClockedIn && !isOnBreak && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 text-success text-xs font-medium px-2 py-0.5">
@@ -298,7 +241,9 @@ export function TodayStatusCard() {
         </div>
 
         <div className="sm:col-start-1 sm:row-start-2 flex flex-wrap gap-3">
-          {!clockedInAt && !clockedOutAt && (
+          {/* Also shown after clocking out: the server allows a second
+              shift the same day. */}
+          {!isLoading && !isClockedIn && (
             <button
               type="button"
               onClick={() => setIsClockInOpen(true)}
@@ -309,37 +254,32 @@ export function TodayStatusCard() {
             </button>
           )}
 
-         
           {isClockedIn && (
             <>
               <button
                 type="button"
-                onClick={isOnBreak ? handleEndBreak : handleStartBreak}
-                className="inline-flex items-center gap-2 border border-neutral/30 text-heading text-sm font-medium px-4 py-2 rounded-md hover:bg-neutral/10"
+                onClick={() => handlePunch(isOnBreak ? "BREAK_END" : "BREAK_START")}
+                disabled={pending !== null}
+                className="inline-flex items-center gap-2 border border-neutral/30 text-heading text-sm font-medium px-4 py-2 rounded-md hover:bg-neutral/10 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Coffee className="h-4 w-4" strokeWidth={2} />
+                {/* No "Saving…": the card already shows the new state
+                    (optimistic), and `disabled` above stops a double tap
+                    sending a second punch while the first is in flight. */}
                 {isOnBreak ? "End Break" : "Start Break"}
               </button>
               <button
                 type="button"
-                onClick={handleClockOut}
-                className="inline-flex items-center gap-2 border border-alert/30 text-alert text-sm font-medium px-4 py-2 rounded-md hover:bg-alert/10"
+                onClick={() => handlePunch("CLOCK_OUT")}
+                // The server refuses clock-out mid-break; say so up front.
+                disabled={pending !== null || isOnBreak}
+                title={isOnBreak ? "End your break before clocking out." : undefined}
+                className="inline-flex items-center gap-2 border border-alert/30 text-alert text-sm font-medium px-4 py-2 rounded-md hover:bg-alert/10 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <LogOut className="h-4 w-4" strokeWidth={2} />
                 Clock Out
               </button>
             </>
-          )}
-
-          {clockedOutAt && (
-            <button
-              type="button"
-              onClick={handleStartNewShift}
-              className="inline-flex items-center gap-2 bg-primary text-white text-sm font-semibold px-4 py-3 rounded-md hover:bg-primary/90"
-            >
-              <LogIn className="h-4 w-4" strokeWidth={2} />
-              Clock In
-            </button>
           )}
         </div>
       </div>
@@ -348,12 +288,12 @@ export function TodayStatusCard() {
         <MiniStat
           icon={LogIn}
           label="Clock-in time"
-          value={clockedInAt ? formatClockTime(clockedInAt) : "—"}
+          value={firstClockIn ? formatRecordedTime(firstClockIn.occurredAt) : "—"}
         />
         <MiniStat
           icon={LogOut}
           label="Clock-out time"
-          value={clockedOutAt ? formatClockTime(clockedOutAt) : "—"}
+          value={lastClockOut ? formatRecordedTime(lastClockOut.occurredAt) : "—"}
         />
         <MiniStat
           icon={Timer}
@@ -366,7 +306,9 @@ export function TodayStatusCard() {
       {isClockInOpen && (
         <ClockInFlow
           onClose={() => setIsClockInOpen(false)}
-          onConfirmed={(outcome) => setClockedInAt(new Date(outcome.recordedAt))}
+          // The punch is already saved; re-read so the card shows the
+          // server's state rather than a guess.
+          onConfirmed={() => load()}
         />
       )}
     </div>

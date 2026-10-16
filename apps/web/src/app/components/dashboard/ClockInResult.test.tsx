@@ -8,6 +8,16 @@ import {
   previewOutcomeFromUrl,
   submitClockIn,
 } from "./clockInOutcome";
+import { appClient } from "@/lib/api-client";
+
+jest.mock("@/lib/api-client", () => ({
+  appClient: { post: jest.fn() },
+}));
+const mockPost = appClient.post as jest.Mock;
+beforeEach(() => {
+  mockPost.mockReset();
+  window.history.pushState({}, "", "/");
+});
 
 // A fixed server instant, so nothing below depends on when the test runs.
 const RECORDED_AT = "2026-08-10T08:12:00.000Z";
@@ -134,16 +144,28 @@ describe("preview outcomes", () => {
     expect(previewOutcomeFromUrl()).toBeNull();
   });
 
-  it("the local stand-in approves by default", async () => {
-    jest.useFakeTimers();
-    const pending = submitClockIn();
-    jest.advanceTimersByTime(600);
-
-    // The timestamp is a UTC ISO string (server-style), not a local time.
-    await expect(pending).resolves.toEqual({
-      status: "approved",
-      recordedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+  it("records a real clock-in and uses the server's timestamp", async () => {
+    mockPost.mockResolvedValueOnce({
+      data: {
+        state: "CLOCKED_IN",
+        punch: { id: "p1", type: "CLOCK_IN", occurredAt: "2026-10-16T08:01:00.000Z" },
+      },
     });
-    jest.useRealTimers();
+
+    await expect(
+      submitClockIn({ latitude: 6.5, longitude: 3.4, accuracyMeters: 12 })
+    ).resolves.toEqual({ status: "approved", recordedAt: "2026-10-16T08:01:00.000Z" });
+    expect(mockPost).toHaveBeenCalledWith("/attendance/clock-in", {
+      latitude: 6.5,
+      longitude: 3.4,
+      accuracyMeters: 12,
+    });
+  });
+
+  it("never calls the API for a dev preview outcome", async () => {
+    window.history.pushState({}, "", "/?clockin-outcome=flagged");
+
+    await expect(submitClockIn(null)).resolves.toMatchObject({ status: "flagged" });
+    expect(mockPost).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   X,
   MapPin,
@@ -11,7 +11,8 @@ import {
   LoaderCircle,
   ShieldQuestion,
 } from "lucide-react";
-import { appClient } from "@/lib/api-client";
+import { appClient, extractErrorMessage } from "@/lib/api-client";
+import type { PunchLocation } from "@/lib/attendance";
 import {
   distanceInMeters,
   formatDistance,
@@ -47,7 +48,7 @@ const PENDING_TRUST_SIGNALS = [
   "Registered device",
   "Device attestation",
   "Office network validation",
-  "Server timestamp & replay protection",
+  "Replay protection",
 ];
 
 type LocationState =
@@ -89,6 +90,9 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
   });
   const [isConfirming, setIsConfirming] = useState(false);
   const [result, setResult] = useState<ClockInOutcome | null>(null);
+  // Sent with the punch for the audit trail. A ref, not state: nothing
+  // renders from it.
+  const positionRef = useRef<PunchLocation | null>(null);
 
   function runLocationCheck() {
     setLocation({ status: "checking" });
@@ -103,6 +107,11 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        positionRef.current = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracyMeters: position.coords.accuracy,
+        };
         appClient
           .get<Office[]>("/offices")
           .then((res) => {
@@ -150,7 +159,7 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
   // actionable gate that the button stays disabled for. Once location is
   // genuinely fine, there is nothing left to block on: null here means
   // "enabled", with a permanent disclaimer below (not a disabled reason)
-  // making clear the confirmation itself is still local-only.
+  // noting the punch is recorded with the server's time.
   const confirmDisabledReason = (() => {
     if (location.status === "checking") return "Checking your location…";
     if (location.status === "denied")
@@ -162,24 +171,21 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
     return null;
   })();
 
-  // Completes LOCALLY only — no Attendance/Punch model or endpoint exists
-  // to actually record this against (project_smartbiotrack_known_gaps).
-  // submitClockIn is the stand-in for the real request; the result screen
-  // below already handles all three outcomes the Trust Score Engine can
-  // return, so swapping in the API only changes that one function.
+  // Records a real punch via POST /attendance/clock-in (submitClockIn). The
+  // result screen handles all three Trust Score outcomes; Phase 3 can only
+  // return approved.
   async function handleConfirm() {
     setIsConfirming(true);
     try {
-      const outcome = await submitClockIn();
+      const outcome = await submitClockIn(positionRef.current);
       if (outcome.status !== "rejected") onConfirmed(outcome);
       setResult(outcome);
-    } catch {
+    } catch (error) {
       // A failed request is not a "rejected" outcome — nothing was decided.
-      // Stay on the checks so they can simply tap confirm again.
-      toast.error(
-        "Couldn't clock you in",
-        "Check your connection and try again.",
-      );
+      // Stay on the checks so they can tap confirm again. The server's
+      // refusals ("You are already clocked in.") are written for people, so
+      // they're shown as-is.
+      toast.error("Couldn't clock you in", extractErrorMessage(error));
     } finally {
       setIsConfirming(false);
     }
@@ -357,7 +363,7 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
             </button>
             <p className="mt-2 text-center text-xs text-neutral">
               {confirmDisabledReason ??
-                "This saves to your screen only — no backend endpoint exists yet to record a real punch."}
+                "Your clock-in is recorded with the server's time, along with your location."}
             </p>
           </>
         )}
