@@ -48,6 +48,9 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
   ],
   HR_ADMIN: [
     { label: "Overview", href: HR_ADMIN_ROOT, icon: LayoutDashboard },
+    // Their OWN days — HR clocks in like everyone else. Other people's
+    // attendance belongs to Reports.
+    { label: "My Attendance", href: `${HR_ADMIN_ROOT}/attendance`, icon: Clock },
     { label: "Review Queue", href: `${HR_ADMIN_ROOT}/review`, icon: ClipboardList, requiredPlan: "CORE" },
     { label: "Employees", href: `${HR_ADMIN_ROOT}/employees`, icon: Users },
     { label: "Reports", href: `${HR_ADMIN_ROOT}/reports`, icon: FileText },
@@ -57,6 +60,7 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
   ],
   TEAM_LEAD: [
     { label: "Team Today", href: TEAM_LEAD_ROOT, icon: Users },
+    { label: "My Attendance", href: `${TEAM_LEAD_ROOT}/attendance`, icon: Clock },
     { label: "Pending Exceptions", href: `${TEAM_LEAD_ROOT}/exceptions`, icon: AlertTriangle },
     { label: "Department Reports", href: `${TEAM_LEAD_ROOT}/reports`, icon: FileText },
     { label: "Leave Requests", href: `${TEAM_LEAD_ROOT}/leave`, icon: CalendarClock },

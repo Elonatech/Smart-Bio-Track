@@ -81,13 +81,36 @@ const COMPONENTS_DIR = join(__dirname, '..', '..', 'components');
 const LIB_DIR = join(__dirname, '..', '..', '..', 'lib');
 
 /**
- * True when a page imports a component that talks to the server.
+ * True when a file imports a data module in src/lib that talks to the server
+ * (e.g. lib/attendance.ts).
  *
- * Reads the imported file rather than guessing from its name. Only follows
- * `@/app/components/...` imports one level deep, which is enough for this
- * codebase's shape — pages delegate to a component, and that component does
- * its own fetching. If a page ever delegates two levels down, this reports it
- * as a placeholder, which fails loudly rather than passing silently.
+ * `api-client` itself is skipped: importing it — say, just for
+ * extractErrorMessage — doesn't mean anything is fetched, and the word
+ * "appClient" is in it by definition. A real fetch through it shows up as
+ * `appClient` in the importing file, which the callers check directly.
+ */
+function importsLiveDataModule(source: string): boolean {
+  const imports = source.matchAll(/from ["']@\/lib\/([^"']+)["']/g);
+  for (const [, relative] of imports) {
+    if (relative === 'api-client') continue;
+    try {
+      if (readFileSync(join(LIB_DIR, `${relative}.ts`), 'utf8').includes('appClient')) return true;
+    } catch {
+      // Not a plain .ts module; treated as "not live", the safe direction.
+    }
+  }
+  return false;
+}
+
+/**
+ * True when a page talks to the server through something it imports: a
+ * component that fetches (directly, or through a src/lib data module), or a
+ * src/lib data module of its own.
+ *
+ * Reads the imported files rather than guessing from their names. Follows
+ * page → component → data module and no further. If a page ever delegates
+ * deeper, this reports it as a placeholder, which fails loudly rather than
+ * passing silently.
  */
 function delegatesToLiveComponent(source: string): boolean {
   const imports = source.matchAll(/from ["']@\/app\/components\/([^"']+)["']/g);
@@ -95,7 +118,8 @@ function delegatesToLiveComponent(source: string): boolean {
   for (const [, relative] of imports) {
     const file = join(COMPONENTS_DIR, `${relative.replace(/^dashboard\//, 'dashboard/')}.tsx`);
     try {
-      if (readFileSync(file, 'utf8').includes('appClient')) return true;
+      const component = readFileSync(file, 'utf8');
+      if (component.includes('appClient') || importsLiveDataModule(component)) return true;
     } catch {
       // Not a file we can read (a barrel, a .ts, a path shape this does not
       // handle). Treated as "not live", so the page is still required to
@@ -103,18 +127,7 @@ function delegatesToLiveComponent(source: string): boolean {
     }
   }
 
-  // Data modules too: a page may fetch through a helper in src/lib (e.g.
-  // lib/attendance.ts) rather than a component. Same one-level rule.
-  const libImports = source.matchAll(/from ["']@\/lib\/([^"']+)["']/g);
-  for (const [, relative] of libImports) {
-    try {
-      if (readFileSync(join(LIB_DIR, `${relative}.ts`), 'utf8').includes('appClient')) return true;
-    } catch {
-      // Not a plain .ts module; treated as "not live", the safe direction.
-    }
-  }
-
-  return false;
+  return importsLiveDataModule(source);
 }
 
 describe('every placeholder dashboard screen carries the marker', () => {
