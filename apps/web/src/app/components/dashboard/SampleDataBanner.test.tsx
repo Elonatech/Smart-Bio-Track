@@ -77,6 +77,8 @@ describe('SampleDataBanner', () => {
  */
 /** Components under src/app/components, by absolute path. */
 const COMPONENTS_DIR = join(__dirname, '..', '..', 'components');
+/** src/lib, for pages that fetch through a data module instead. */
+const LIB_DIR = join(__dirname, '..', '..', '..', 'lib');
 
 /**
  * True when a page imports a component that talks to the server.
@@ -98,6 +100,17 @@ function delegatesToLiveComponent(source: string): boolean {
       // Not a file we can read (a barrel, a .ts, a path shape this does not
       // handle). Treated as "not live", so the page is still required to
       // carry the marker — the safe direction.
+    }
+  }
+
+  // Data modules too: a page may fetch through a helper in src/lib (e.g.
+  // lib/attendance.ts) rather than a component. Same one-level rule.
+  const libImports = source.matchAll(/from ["']@\/lib\/([^"']+)["']/g);
+  for (const [, relative] of libImports) {
+    try {
+      if (readFileSync(join(LIB_DIR, `${relative}.ts`), 'utf8').includes('appClient')) return true;
+    } catch {
+      // Not a plain .ts module; treated as "not live", the safe direction.
     }
   }
 

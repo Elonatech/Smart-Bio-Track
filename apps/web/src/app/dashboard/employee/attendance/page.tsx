@@ -1,236 +1,252 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Info, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { DataTable } from "@/app/components/dashboard/DataTable";
+import { formatRecordedTime } from "@/app/components/dashboard/clockInOutcome";
+import { extractErrorMessage } from "@/lib/api-client";
+import { fetchHistory, type AttendanceDay } from "@/lib/attendance";
 
-// Seeded example data — there is no Attendance/Punch Prisma model and
-// no attendance module in apps/api/src, so nothing here comes from the
-// backend. It's structured the way a real API would return it (one row
-// per worked day) so swapping the array for an
-// appClient.get("/attendance/me") call later is a small change.
-type DayStatus = "ON_TIME" | "LATE" | "ABSENT" | "FLAGGED";
+// The signed-in person's own attendance, one row per day, from
+// GET /attendance/history (Phase 3). Read-only.
+//
+// Two columns the sample version had are gone on purpose: "Branch" (a day's
+// summary doesn't record which branch) and "Trust score" (no scoring exists
+// until Phase 4). Showing invented values there would be worse than not
+// showing the column.
 
-interface AttendanceDay {
-  id: string;
-  date: string; // pre-formatted; a real API would send an ISO string
-  clockIn: string | null;
-  clockOut: string | null;
-  totalHours: string;
-  office: string;
-  status: DayStatus;
-  trustScore: number | null;
+// What a row means to the person, derived from the server's summary.
+type DayKind = "ON_TIME" | "LATE" | "IN_PROGRESS" | "INCOMPLETE" | "ABSENT" | "HOLIDAY" | "REST_DAY";
+
+function kindOf(day: AttendanceDay): DayKind {
+  if (day.status === "ABSENT") return "ABSENT";
+  if (day.status === "ON_HOLIDAY") return "HOLIDAY";
+  if (day.status === "REST_DAY") return "REST_DAY";
+  // PRESENT from here on.
+  if (day.isIncomplete) return "INCOMPLETE";
+  if (!day.lastClockOut) return "IN_PROGRESS";
+  return day.isLate ? "LATE" : "ON_TIME";
 }
 
-const INITIAL_DAYS: AttendanceDay[] = [
-  {
-    id: "1",
-    date: "26 Aug 2026",
-    clockIn: "08:42",
-    clockOut: "17:31",
-    totalHours: "8h 49m",
-    office: "Lagos HQ",
-    status: "ON_TIME",
-    trustScore: 96,
-  },
-  {
-    id: "2",
-    date: "25 Aug 2026",
-    clockIn: "08:57",
-    clockOut: "17:12",
-    totalHours: "8h 15m",
-    office: "Lagos HQ",
-    status: "ON_TIME",
-    trustScore: 91,
-  },
-  {
-    id: "3",
-    date: "24 Aug 2026",
-    clockIn: "09:26",
-    clockOut: "17:40",
-    totalHours: "8h 14m",
-    office: "Lagos HQ",
-    status: "LATE",
-    trustScore: 88,
-  },
-  {
-    id: "4",
-    date: "21 Aug 2026",
-    clockIn: "08:39",
-    clockOut: "16:02",
-    totalHours: "7h 23m",
-    office: "Abuja Branch",
-    status: "FLAGGED",
-    trustScore: 58,
-  },
-  {
-    id: "5",
-    date: "20 Aug 2026",
-    clockIn: null,
-    clockOut: null,
-    totalHours: "—",
-    office: "—",
-    status: "ABSENT",
-    trustScore: null,
-  },
-];
-
-// Kept next to the type so adding a status forces you to give it a
-// label and colour here too, rather than falling through to unstyled
-// text somewhere in the table.
-const STATUS_STYLES: Record<DayStatus, { label: string; className: string }> = {
+// Next to the type so a new kind can't be added without a label and colour.
+const KIND_STYLES: Record<DayKind, { label: string; className: string }> = {
   ON_TIME: { label: "On time", className: "bg-success/15 text-success" },
   LATE: { label: "Late", className: "bg-warning/15 text-warning" },
+  IN_PROGRESS: { label: "In progress", className: "bg-primary/10 text-primary" },
+  INCOMPLETE: { label: "No clock-out", className: "bg-alert/10 text-alert" },
   ABSENT: { label: "Absent", className: "bg-neutral/15 text-neutral" },
-  FLAGGED: { label: "Flagged", className: "bg-alert/10 text-alert" },
+  HOLIDAY: { label: "Holiday", className: "bg-info/10 text-info" },
+  REST_DAY: { label: "Rest day", className: "bg-neutral/10 text-neutral" },
 };
 
-const STATUS_FILTERS = ["ALL", "ON_TIME", "LATE", "ABSENT", "FLAGGED"] as const;
-type StatusFilter = (typeof STATUS_FILTERS)[number];
+const FILTERS = ["ALL", "ON_TIME", "LATE", "INCOMPLETE", "ABSENT"] as const;
+type Filter = (typeof FILTERS)[number];
+
+// Days back from today. The server caps a request at 93 days.
+const RANGES = [7, 30, 90] as const;
+type Range = (typeof RANGES)[number];
+
+/** "YYYY-MM-DD" for the browser's today minus `days - 1`, so the range includes today. */
+function startOfRange(days: Range): string {
+  const d = new Date();
+  d.setDate(d.getDate() - (days - 1));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * "Fri 16 Oct 2026". workDate is a calendar date in the organisation's zone,
+ * not an instant — formatted as UTC so no timezone can move it a day.
+ */
+function formatWorkDate(workDate: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${workDate}T00:00:00Z`));
+}
+
+function formatMinutes(minutes: number): string {
+  if (minutes <= 0) return "—";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
+}
+
+function KindBadge({ day }: { day: AttendanceDay }) {
+  const kind = kindOf(day);
+  const style = KIND_STYLES[kind];
+  return (
+    <span className={`inline-block rounded px-2 py-1 text-xs font-medium whitespace-nowrap ${style.className}`}>
+      {style.label}
+      {kind === "LATE" && day.lateMinutes > 0 ? ` · ${day.lateMinutes}m` : ""}
+    </span>
+  );
+}
 
 export default function EmployeeAttendancePage() {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [range, setRange] = useState<Range>(30);
+  const [filter, setFilter] = useState<Filter>("ALL");
+  const [days, setDays] = useState<AttendanceDay[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   usePageHeader("Attendance history", "Your clock-in and clock-out record");
 
-  // useMemo so the filtering only re-runs when the search text or the
-  // selected status actually changes — not on every unrelated re-render.
-  const filteredDays = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return INITIAL_DAYS.filter((day) => {
-      const matchesStatus =
-        statusFilter === "ALL" || day.status === statusFilter;
-      const matchesSearch =
-        !query ||
-        [day.date, day.office].join(" ").toLowerCase().includes(query);
-      return matchesStatus && matchesSearch;
-    });
-  }, [search, statusFilter]);
+  useEffect(() => {
+    let isActive = true;
+    fetchHistory(startOfRange(range))
+      .then((history) => {
+        if (!isActive) return;
+        setDays(history.days);
+        setError(null);
+      })
+      .catch((err) => {
+        if (isActive) setError(extractErrorMessage(err));
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [range, reloadKey]);
+
+  const filteredDays = useMemo(
+    () => (days ?? []).filter((day) => filter === "ALL" || kindOf(day) === filter),
+    [days, filter]
+  );
 
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div className="flex flex-wrap gap-2">
-          {STATUS_FILTERS.map((filter) => (
+          {FILTERS.map((option) => (
             <button
-              key={filter}
+              key={option}
               type="button"
-              onClick={() => setStatusFilter(filter)}
+              onClick={() => setFilter(option)}
+              aria-pressed={filter === option}
               className={`rounded-md px-3 py-2 text-sm font-medium border ${
-                statusFilter === filter
+                filter === option
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-neutral/30 text-neutral hover:text-heading"
               }`}
             >
-              {filter === "ALL" ? "All" : STATUS_STYLES[filter].label}
+              {option === "ALL" ? "All" : KIND_STYLES[option].label}
             </button>
           ))}
         </div>
 
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by date or branch"
-            className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+        <label className="flex items-center gap-2 text-sm text-neutral">
+          Show
+          <select
+            value={range}
+            onChange={(event) => setRange(Number(event.target.value) as Range)}
+            className="rounded-md border border-neutral/40 px-3 py-2 text-sm text-heading focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {RANGES.map((option) => (
+              <option key={option} value={option}>
+                Last {option} days
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {error && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-alert/30 bg-alert/10 px-4 py-3">
+          <p className="min-w-0 text-sm text-alert wrap-break-word">
+            Couldn&apos;t load your attendance: {error}
+          </p>
+          <button
+            type="button"
+            onClick={() => setReloadKey((k) => k + 1)}
+            className="inline-flex items-center gap-2 text-sm font-medium text-heading hover:underline"
+          >
+            <RefreshCw className="h-4 w-4" strokeWidth={2} />
+            Try again
+          </button>
         </div>
-      </div>
+      )}
 
-      <div className="flex items-center gap-2 bg-primary/10 text-primary text-sm rounded-md px-4 py-2.5 mb-4">
-        <Info className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-        Example records — your real history appears here once the attendance
-        service is connected.
-      </div>
-
-      <DataTable
-        rows={filteredDays}
-        getRowKey={(day) => day.id}
-        emptyMessage="No attendance records match these filters."
-        pageSize={10}
-        itemLabel="days"
-        renderCardHeader={(day) => (
-          <div className="flex items-center justify-between gap-3">
-            <p className="font-semibold text-heading">{day.date}</p>
-            <span
-              className={`inline-block rounded px-2 py-1 text-xs font-medium ${
-                STATUS_STYLES[day.status].className
-              }`}
-            >
-              {STATUS_STYLES[day.status].label}
-            </span>
-          </div>
-        )}
-        columns={[
-          {
-            key: "date",
-            header: "Date",
-            hideOnMobile: true,
-            render: (day) => (
-              <span className="font-medium text-heading whitespace-nowrap">
-                {day.date}
-              </span>
-            ),
-          },
-          {
-            key: "clockIn",
-            header: "Clock in",
-            render: (day) => (
-              <span className="text-neutral tabular-nums">
-                {day.clockIn ?? "—"}
-              </span>
-            ),
-          },
-          {
-            key: "clockOut",
-            header: "Clock out",
-            render: (day) => (
-              <span className="text-neutral tabular-nums">
-                {day.clockOut ?? "—"}
-              </span>
-            ),
-          },
-          {
-            key: "totalHours",
-            header: "Total",
-            render: (day) => (
-              <span className="text-neutral tabular-nums">{day.totalHours}</span>
-            ),
-          },
-          {
-            key: "office",
-            header: "Branch",
-            render: (day) => <span className="text-neutral">{day.office}</span>,
-          },
-          {
-            key: "status",
-            header: "Status",
-            hideOnMobile: true,
-            render: (day) => (
-              <span
-                className={`inline-block rounded px-2 py-1 text-xs font-medium ${
-                  STATUS_STYLES[day.status].className
-                }`}
-              >
-                {STATUS_STYLES[day.status].label}
-              </span>
-            ),
-          },
-          {
-            key: "trustScore",
-            header: "Trust score",
-            render: (day) => (
-              <span className="text-neutral tabular-nums">
-                {day.trustScore ?? "—"}
-              </span>
-            ),
-          },
-        ]}
-      />
+      {days === null && !error ? (
+        <p className="text-sm text-neutral">Loading your attendance…</p>
+      ) : (
+        <DataTable
+          rows={filteredDays}
+          getRowKey={(day) => day.workDate}
+          emptyMessage={
+            filter === "ALL"
+              ? `No attendance recorded in the last ${range} days.`
+              : "No days match this filter."
+          }
+          pageSize={10}
+          itemLabel="days"
+          renderCardHeader={(day) => (
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-semibold text-heading">{formatWorkDate(day.workDate)}</p>
+              <KindBadge day={day} />
+            </div>
+          )}
+          columns={[
+            {
+              key: "date",
+              header: "Date",
+              hideOnMobile: true,
+              render: (day) => (
+                <span className="font-medium text-heading whitespace-nowrap">
+                  {formatWorkDate(day.workDate)}
+                </span>
+              ),
+            },
+            {
+              key: "clockIn",
+              header: "Clock in",
+              render: (day) => (
+                <span className="text-neutral tabular-nums">
+                  {day.firstClockIn ? formatRecordedTime(day.firstClockIn) : "—"}
+                </span>
+              ),
+            },
+            {
+              key: "clockOut",
+              header: "Clock out",
+              render: (day) => (
+                <span className="text-neutral tabular-nums">
+                  {day.lastClockOut ? formatRecordedTime(day.lastClockOut) : "—"}
+                </span>
+              ),
+            },
+            {
+              key: "worked",
+              header: "Worked",
+              render: (day) => (
+                <span className="text-neutral tabular-nums">{formatMinutes(day.workedMinutes)}</span>
+              ),
+            },
+            {
+              key: "break",
+              header: "Break",
+              render: (day) => (
+                <span className="text-neutral tabular-nums">{formatMinutes(day.breakMinutes)}</span>
+              ),
+            },
+            {
+              key: "overtime",
+              header: "Overtime",
+              render: (day) => (
+                <span className="text-neutral tabular-nums">{formatMinutes(day.overtimeMinutes)}</span>
+              ),
+            },
+            {
+              key: "status",
+              header: "Status",
+              hideOnMobile: true,
+              render: (day) => <KindBadge day={day} />,
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

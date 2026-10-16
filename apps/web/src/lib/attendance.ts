@@ -39,6 +39,43 @@ export interface PunchLocation {
   accuracyMeters?: number;
 }
 
+export type AttendanceStatus = "PRESENT" | "ABSENT" | "ON_HOLIDAY" | "REST_DAY";
+
+/** One day's summary — SUMMARY_SELECT in attendance.service.ts. */
+export interface AttendanceDay {
+  /** The organisation's local date, "YYYY-MM-DD". */
+  workDate: string;
+  status: AttendanceStatus;
+  /** UTC ISO strings, or null. */
+  firstClockIn: string | null;
+  lastClockOut: string | null;
+  workedMinutes: number;
+  breakMinutes: number;
+  overtimeMinutes: number;
+  isLate: boolean;
+  lateMinutes: number;
+  /** Only true once the day has closed with a session still open. */
+  isIncomplete: boolean;
+}
+
+export interface AttendanceHistory {
+  from: string;
+  to: string;
+  timeZone: string;
+  /** Newest first. Days with no punches may simply be absent from the list. */
+  days: AttendanceDay[];
+}
+
+/** The server caps a request at 93 days. */
+export const MAX_HISTORY_DAYS = 93;
+
+export async function fetchHistory(from?: string): Promise<AttendanceHistory> {
+  const { data } = await appClient.get<AttendanceHistory>("/attendance/history", {
+    params: from ? { from } : undefined,
+  });
+  return data;
+}
+
 const PUNCH_PATH: Record<PunchType, string> = {
   CLOCK_IN: "/attendance/clock-in",
   CLOCK_OUT: "/attendance/clock-out",
