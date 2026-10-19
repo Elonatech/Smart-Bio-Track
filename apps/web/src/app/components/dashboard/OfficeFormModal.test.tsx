@@ -24,7 +24,7 @@ import userEvent from '@testing-library/user-event';
  */
 
 jest.mock('@/lib/api-client', () => ({
-  appClient: { post: jest.fn(), put: jest.fn() },
+  appClient: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
   extractErrorMessage: (err: unknown) =>
     err instanceof Error ? err.message : 'Something went wrong',
 }));
@@ -45,6 +45,12 @@ jest.mock('@/app/components/dashboard/GeofenceMapPicker', () => ({
 
 const mockPost = appClient.post as jest.Mock;
 const mockPut = appClient.put as jest.Mock;
+const mockGet = appClient.get as jest.Mock;
+
+const RULES = [
+  { id: 'rule-std', name: 'Standard hours', isDefault: true, startTime: '08:00', endTime: '17:00', workingDays: [1, 2, 3, 4, 5], gracePeriodMinutes: 15, overtimeAfterMinutes: 540, overtimeMultiplier: 1.5, offices: [] },
+  { id: 'rule-night', name: 'Night ops', isDefault: false, startTime: '12:00', endTime: '20:00', workingDays: [1, 2, 3], gracePeriodMinutes: 10, overtimeAfterMinutes: null, overtimeMultiplier: 1, offices: [] },
+];
 
 const EXISTING = {
   id: 'office-1',
@@ -70,6 +76,7 @@ async function setField(label: RegExp, value: string) {
 }
 
 beforeEach(() => {
+  mockGet.mockResolvedValue({ data: RULES });
   mockPost.mockResolvedValue({ data: {} });
   mockPut.mockResolvedValue({ data: {} });
 });
@@ -253,5 +260,77 @@ describe('validation and failure', () => {
     expect(mockPut).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe("the branch's work rule", () => {
+  // Phase 3: a branch can follow the organization's default rule (null) or
+  // have its own. The API only accepts workRuleId on update, so a new branch
+  // is created first and then pointed at its rule.
+
+  it('offers the default by role, not by name, and the other rules by name', async () => {
+    renderModal();
+
+    const select = (await screen.findByLabelText('Work rule')) as HTMLSelectElement;
+    await waitFor(() => expect(select).toBeEnabled());
+    const labels = Array.from(select.options).map((o) => o.textContent);
+    expect(labels).toEqual(['Organization default (Standard hours)', 'Night ops — 12:00–20:00']);
+  });
+
+  it('sends the chosen rule when editing, and null for the default', async () => {
+    renderModal({ ...EXISTING, workRuleId: 'rule-night' } as typeof EXISTING);
+    const select = await screen.findByLabelText('Work rule');
+    await waitFor(() => expect(select).toHaveValue('rule-night'));
+
+    await userEvent.selectOptions(select, '');
+    await save();
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalled());
+    expect(mockPut.mock.calls[0][1]).toMatchObject({ workRuleId: null });
+  });
+
+  it('creates a new branch, then sets its rule', async () => {
+    mockPost.mockResolvedValueOnce({ data: { ...EXISTING, id: 'office-new' } });
+    renderModal();
+    await setField(/branch name/i, 'Abuja Branch');
+    const select = await screen.findByLabelText('Work rule');
+    await waitFor(() => expect(select).toBeEnabled());
+    await userEvent.selectOptions(select, 'rule-night');
+
+    await save();
+
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/offices/office-new', { workRuleId: 'rule-night' })
+    );
+    // The create itself never carries workRuleId — the API would reject it.
+    expect(mockPost.mock.calls[0][1]).not.toHaveProperty('workRuleId');
+  });
+
+  it("doesn't call it a failure when the branch was created but the rule didn't stick", async () => {
+    mockPost.mockResolvedValueOnce({ data: { ...EXISTING, id: 'office-new' } });
+    mockPut.mockRejectedValueOnce(new Error('Invalid work rule ID'));
+    const { onSaved, onClose } = renderModal();
+    await setField(/branch name/i, 'Abuja Branch');
+    const select = await screen.findByLabelText('Work rule');
+    await waitFor(() => expect(select).toBeEnabled());
+    await userEvent.selectOptions(select, 'rule-night');
+
+    await save();
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onClose).toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(
+      "Abuja Branch was created, but its work rule wasn't set",
+      expect.stringContaining('Edit the branch')
+    );
+  });
+
+  it('still lets the branch be saved when rules fail to load', async () => {
+    mockGet.mockRejectedValueOnce(new Error('Network Error'));
+    renderModal(EXISTING);
+
+    expect(await screen.findByText(/Couldn't load work rules/)).toBeInTheDocument();
+    await save();
+    await waitFor(() => expect(mockPut).toHaveBeenCalled());
   });
 });
