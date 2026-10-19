@@ -34,6 +34,14 @@ function getProgressKey(userId: string) {
   return `onboarding-progress:${userId}`;
 }
 
+const STARTER_RULE_NAME = "Standard hours";
+
+/** "08:30" → 510. */
+function toMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + m;
+}
+
 interface SavedProgress {
   currentStep: number;
   payload: Partial<OnboardingPayload>;
@@ -194,7 +202,9 @@ export default function OnboardingPage() {
   //   orgProfile   -> nowhere. The Organization was already created at
   //                   /verify-organization, and there's no PATCH
   //                   /organizations to rename it or set a logo.
-  //   workRules    -> nowhere. No WorkRule model or module exists.
+  //   workRules    -> POST /work-rules (real since Phase 3), as the org's
+  //                   default rule. The step has no day picker, so Mon–Fri;
+  //                   it can be changed on the Time Regulation page.
   //   inviteTeam   -> POST /users        (real, one call each)
   //
   // Requests run in sequence rather than Promise.all so a failure points
@@ -210,7 +220,7 @@ export default function OnboardingPage() {
       // exists", with no way to move forward or back.
       //
       // So: read what's already there, and only create what's missing.
-      const [existingOffices, existingDepartments, existingUsers] =
+      const [existingOffices, existingDepartments, existingUsers, existingRules] =
         await Promise.all([
           appClient
             .get<{ name: string }[]>("/offices")
@@ -230,6 +240,9 @@ export default function OnboardingPage() {
             })
             .then((res) => ({ data: res.data.items }))
             .catch(() => ({ data: [] as { email: string }[] })),
+          appClient
+            .get<{ name: string }[]>("/work-rules")
+            .catch(() => ({ data: [] as { name: string }[] })),
         ]);
 
       const officeNames = new Set(
@@ -254,6 +267,27 @@ export default function OnboardingPage() {
           latitude: payload.office.latitude,
           longitude: payload.office.longitude,
           geofenceRadiusMeters: payload.office.geofenceRadiusMeters,
+        });
+      }
+
+      // Skipped if a rule already exists at all: either this is a retry
+      // after a partial failure, or the org set its hours up elsewhere —
+      // and a second "default" would quietly replace theirs.
+      if (payload.workRules && existingRules.data.length === 0) {
+        const rule = payload.workRules;
+        const startMinutes = toMinutes(rule.startTime);
+        await appClient.post("/work-rules", {
+          name: STARTER_RULE_NAME,
+          workingDays: [1, 2, 3, 4, 5],
+          startTime: rule.startTime,
+          endTime: rule.endTime,
+          gracePeriodMinutes: rule.gracePeriodMinutes,
+          // The step stores the CLOCK HOUR overtime starts (e.g. 17 for
+          // 5pm); the API wants worked minutes in a day. Hours from start
+          // to that hour is the same threshold.
+          overtimeAfterMinutes: Math.max(0, rule.overtimeAfterHours * 60 - startMinutes),
+          overtimeMultiplier: rule.overtimeMultiplier,
+          isDefault: true,
         });
       }
 
@@ -307,10 +341,10 @@ export default function OnboardingPage() {
       toast.success(
         "Workspace set up successfully",
         invitedCount > 0
-          ? `Your branch and departments are saved, and ${invitedCount} activation ${
+          ? `Your setup is saved, and ${invitedCount} activation ${
               invitedCount === 1 ? "email has" : "emails have"
             } been sent.`
-          : "Your branch and departments have been saved."
+          : "Your setup has been saved."
       );
 
       goToWelcome();

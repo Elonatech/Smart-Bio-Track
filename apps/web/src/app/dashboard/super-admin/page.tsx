@@ -7,7 +7,7 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { SetupReminderBanner } from "@/app/components/dashboard/SetupReminderBanner";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
-import { SAMPLE_WORK_RULES } from "@/app/components/dashboard/workRuleSamples";
+import { fetchWorkRules, type WorkRule } from "@/lib/workRules";
 import { SAMPLE_FLAGGED_PUNCHES } from "@/app/components/dashboard/flaggedPunchSamples";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
@@ -26,13 +26,6 @@ interface RecentAuditEntry {
   targetLabel: string | null;
 }
 
-// A shorter label per rule than its full form-facing name ("Night Shift
-// (Ops)" -> "Night") — this card only has room for a few words, and the
-// full names are one click away on the Time Regulation page itself.
-function shortRuleLabel(name: string): string {
-  return name.split(/[\s(]/)[0];
-}
-
 export default function SuperAdminDashboardPage() {
   const orgName = useAuthStore((state) => state.user?.organizationName) ?? "Your organization";
   const today = new Date().toLocaleDateString("en-GB", {
@@ -43,12 +36,12 @@ export default function SuperAdminDashboardPage() {
   });
   usePageHeader("Organization overview", `${orgName} · ${today} · WAT`);
 
-  // Employees, offices, and (as of the audit-log backend landing) recent
-  // activity are real. Time Regulation and Flagged Punches still have no
-  // Prisma model, so those two cards stay sourced from the same seed data
-  // their own pages render rather than being faked into looking live.
+  // Employees, offices, work rules and recent activity are real. Flagged
+  // Punches still has no backend (Phase 4), so that card stays sourced from
+  // the same seed data its own page renders rather than faked into looking live.
   const [employeeCount, setEmployeeCount] = useState<number | null>(null);
   const [offices, setOffices] = useState<OfficeSummary[] | null>(null);
+  const [workRules, setWorkRules] = useState<WorkRule[] | null>(null);
   const [recentActivity, setRecentActivity] = useState<RecentAuditEntry[] | null>(null);
   const [recentActivityError, setRecentActivityError] = useState(false);
 
@@ -71,6 +64,12 @@ export default function SuperAdminDashboardPage() {
       .get<OfficeSummary[]>("/offices")
       .then((res) => {
         if (isActive) setOffices(res.data);
+      })
+      .catch(() => {});
+
+    fetchWorkRules()
+      .then((rules) => {
+        if (isActive) setWorkRules(rules);
       })
       .catch(() => {});
 
@@ -108,7 +107,19 @@ export default function SuperAdminDashboardPage() {
           ? officeNames.join(", ")
           : `${officeNames.slice(0, 2).join(", ")} +${officeNames.length - 2} more`;
 
-  const ruleSubtitle = SAMPLE_WORK_RULES.map((r) => shortRuleLabel(r.name)).join(", ");
+  // Same null-means-loading rule as offices above. Names only the default:
+  // the big number is already the count, the default is the rule that
+  // applies to everyone, and one name stays one line however many rules
+  // an organisation has.
+  const defaultRule = workRules?.find((r) => r.isDefault);
+  const ruleSubtitle =
+    workRules === null
+      ? ""
+      : workRules.length === 0
+        ? "None yet — nobody is marked late"
+        : defaultRule
+          ? `Default: ${defaultRule.name}`
+          : "";
 
   return (
     <div>
@@ -152,10 +163,9 @@ export default function SuperAdminDashboardPage() {
           </div>
         </div>
 
-        {/* Time Regulation and Flagged Punches below have no backend model —
-            counts come from the same seed arrays their own pages render
-            (workRuleSamples.ts, flaggedPunchSamples.ts), so this card can
-            never show a number those pages don't actually have. */}
+        {/* Real (GET /work-rules). Flagged Punches, after it, still has no
+            backend — its count comes from flaggedPunchSamples.ts, the same
+            array its own page renders. */}
         <div className="flex gap-3 items-start bg-surface border border-neutral/20 p-5 rounded-xl">
           <div className="flex items-center justify-center h-10 w-10 rounded-lg bg-primary/10 mb-3">
             <Clock4 className="h-5 w-5 text-primary" strokeWidth={1.75} />
@@ -165,7 +175,7 @@ export default function SuperAdminDashboardPage() {
               Time Regulation
             </p>
             <p className="mt-1 text-[24px] font-semibold text-heading">
-              {SAMPLE_WORK_RULES.length}
+              {workRules?.length ?? "—"}
             </p>
             <p className="text-[12px] text-neutral">{ruleSubtitle}</p>
           </div>

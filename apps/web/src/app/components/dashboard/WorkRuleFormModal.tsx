@@ -2,66 +2,121 @@
 
 import { useRef, useState } from "react";
 import { X } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useModalA11y } from "@/lib/useModalA11y";
+import { extractErrorMessage } from "@/lib/api-client";
+import {
+  OVERTIME_RATES,
+  WEEKDAYS,
+  clockToMinutes,
+  type WorkRule,
+  type WorkRuleInput,
+} from "@/lib/workRules";
 
-// NOTE: purely local state — there's no backend WorkRule model or API
-// yet (confirmed: no controller, service, or Prisma model exists).
-// This form just hands validated values back to the parent page's
-// in-memory array; nothing is persisted, and a refresh loses changes.
-// Swap this for real appClient.post/put calls once a backend exists,
-// same pattern as OfficeFormModal.
-const workRuleFormSchema = z.object({
-  name: z.string().min(2, { message: "Rule name is required" }),
-  startTime: z.string().min(1, { message: "Start time is required" }),
-  endTime: z.string().min(1, { message: "End time is required" }),
-  days: z.string().min(1, { message: "Days are required" }),
-  gracePeriodMinutes: z.number().min(0).max(60),
-  breakMinutes: z.number().min(0).max(180),
-  overtimeAfterHours: z.number().min(1).max(16),
-});
+// Create / edit a work rule. Fields mirror CreateWorkRuleDto
+// (apps/api/src/work-rules/dto/work-rule.dto.ts) and use the same limits, so
+// the server rarely has to refuse what this lets through. When it does
+// (a duplicate name, say), its message is shown here and the form stays open.
+//
+// No "break" field: the backend has no break allowance — breaks are measured
+// from actual Start/End Break punches instead.
+const workRuleFormSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(2, { message: "Rule name is required" })
+      .max(60, { message: "Keep the name under 60 characters" }),
+    workingDays: z.array(z.number()).min(1, { message: "Choose at least one working day" }),
+    startTime: z.string().regex(/^\d{2}:\d{2}$/, { message: "Start time is required" }),
+    endTime: z.string().regex(/^\d{2}:\d{2}$/, { message: "End time is required" }),
+    gracePeriodMinutes: z
+      .number({ message: "Enter minutes" })
+      .int()
+      .min(0)
+      .max(180, { message: "Grace can't be more than 180 minutes" }),
+    tracksOvertime: z.boolean(),
+    overtimeAfterHours: z
+      .number({ message: "Enter hours" })
+      .min(0.5, { message: "At least half an hour" })
+      .max(24, { message: "At most 24 hours" }),
+    overtimeMultiplier: z.number(),
+    isDefault: z.boolean(),
+  })
+  .refine((v) => clockToMinutes(v.endTime) > clockToMinutes(v.startTime), {
+    // The server's own rule — overnight shifts aren't supported yet.
+    message: "End time must be after start time (overnight shifts aren't supported yet)",
+    path: ["endTime"],
+  });
 
 type WorkRuleFormValues = z.infer<typeof workRuleFormSchema>;
 
-export interface WorkRule extends WorkRuleFormValues {
-  id: string;
+interface WorkRuleFormModalProps {
+  /** Present = editing; absent = creating. */
+  rule?: WorkRule;
+  onClose: () => void;
+  /** Saves to the server. Throws on refusal; the modal shows the reason. */
+  onSave: (input: WorkRuleInput) => Promise<void>;
 }
 
-interface WorkRuleFormModalProps {
-  rule?: WorkRule; // present = editing; absent = creating
-  onClose: () => void;
-  onSave: (values: WorkRuleFormValues) => void;
+function defaultsFrom(rule?: WorkRule): WorkRuleFormValues {
+  return {
+    name: rule?.name ?? "",
+    workingDays: rule?.workingDays ?? [1, 2, 3, 4, 5],
+    startTime: rule?.startTime ?? "08:00",
+    endTime: rule?.endTime ?? "17:00",
+    gracePeriodMinutes: rule?.gracePeriodMinutes ?? 15,
+    tracksOvertime: rule ? rule.overtimeAfterMinutes !== null : true,
+    overtimeAfterHours: rule?.overtimeAfterMinutes != null ? rule.overtimeAfterMinutes / 60 : 8,
+    overtimeMultiplier: rule?.overtimeMultiplier ?? 1.5,
+    isDefault: rule?.isDefault ?? false,
+  };
 }
+
+const inputClass =
+  "w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary";
 
 export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalProps) {
   const isEditing = Boolean(rule);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   useModalA11y(panelRef, onClose);
 
   const {
     register,
+    control,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<WorkRuleFormValues>({
     resolver: zodResolver(workRuleFormSchema),
-    defaultValues: {
-      name: rule?.name ?? "",
-      startTime: rule?.startTime ?? "08:00",
-      endTime: rule?.endTime ?? "17:00",
-      days: rule?.days ?? "Mon–Fri",
-      gracePeriodMinutes: rule?.gracePeriodMinutes ?? 15,
-      breakMinutes: rule?.breakMinutes ?? 60,
-      overtimeAfterHours: rule?.overtimeAfterHours ?? 9,
-    },
+    defaultValues: defaultsFrom(rule),
   });
 
-  const onSubmit = (values: WorkRuleFormValues) => {
-    setIsSubmitting(true);
-    onSave(values);
-    onClose();
+  const tracksOvertime = useWatch({ control, name: "tracksOvertime" });
+
+  const onSubmit = async (values: WorkRuleFormValues) => {
+    setServerError(null);
+    try {
+      await onSave({
+        name: values.name,
+        workingDays: [...values.workingDays].sort((a, b) => a - b),
+        startTime: values.startTime,
+        endTime: values.endTime,
+        gracePeriodMinutes: values.gracePeriodMinutes,
+        overtimeAfterMinutes: values.tracksOvertime
+          ? Math.round(values.overtimeAfterHours * 60)
+          : null,
+        overtimeMultiplier: values.overtimeMultiplier,
+        // Only ever sent as true: the server makes the first rule the
+        // default itself, and un-defaulting is done by defaulting another.
+        ...(values.isDefault && !rule?.isDefault ? { isDefault: true } : {}),
+      });
+      onClose();
+    } catch (error) {
+      setServerError(extractErrorMessage(error));
+    }
   };
 
   return (
@@ -92,7 +147,13 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
           </button>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {serverError && (
+          <div className="mb-4 rounded-md bg-alert/10 border border-alert/30 text-alert text-sm px-3 py-2 wrap-break-word">
+            {serverError}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-heading mb-1">
               Rule name
@@ -100,103 +161,162 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
             <input
               id="name"
               type="text"
-              placeholder="e.g. Standard Corporate"
+              placeholder="e.g. Standard hours"
               {...register("name")}
-              className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              className={inputClass}
             />
-            {errors.name && (
-              <p className="mt-1 text-sm text-alert">{errors.name.message}</p>
-            )}
+            {errors.name && <p className="mt-1 text-sm text-alert">{errors.name.message}</p>}
           </div>
+
+          <fieldset>
+            <legend className="block text-sm font-medium text-heading mb-1">Working days</legend>
+            <Controller
+              control={control}
+              name="workingDays"
+              render={({ field }) => (
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAYS.map((day) => {
+                    const isOn = field.value.includes(day.value);
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        aria-pressed={isOn}
+                        onClick={() =>
+                          field.onChange(
+                            isOn
+                              ? field.value.filter((d) => d !== day.value)
+                              : [...field.value, day.value]
+                          )
+                        }
+                        className={`min-w-11 rounded-md border px-2.5 py-1.5 text-sm font-medium ${
+                          isOn
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-neutral/30 text-neutral hover:text-heading"
+                        }`}
+                      >
+                        {day.short}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            />
+            {errors.workingDays && (
+              <p className="mt-1 text-sm text-alert">{errors.workingDays.message}</p>
+            )}
+          </fieldset>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="startTime" className="block text-sm font-medium text-heading mb-1">
                 Start time
               </label>
-              <input
-                id="startTime"
-                type="time"
-                {...register("startTime")}
-                className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+              <input id="startTime" type="time" {...register("startTime")} className={inputClass} />
+              {errors.startTime && (
+                <p className="mt-1 text-sm text-alert">{errors.startTime.message}</p>
+              )}
             </div>
             <div>
               <label htmlFor="endTime" className="block text-sm font-medium text-heading mb-1">
                 End time
               </label>
-              <input
-                id="endTime"
-                type="time"
-                {...register("endTime")}
-                className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+              <input id="endTime" type="time" {...register("endTime")} className={inputClass} />
             </div>
           </div>
+          {errors.endTime && <p className="-mt-2 text-sm text-alert">{errors.endTime.message}</p>}
 
           <div>
-            <label htmlFor="days" className="block text-sm font-medium text-heading mb-1">
-              Days
+            <label
+              htmlFor="gracePeriodMinutes"
+              className="block text-sm font-medium text-heading mb-1"
+            >
+              Grace period (minutes)
             </label>
             <input
-              id="days"
-              type="text"
-              placeholder="e.g. Mon–Fri"
-              {...register("days")}
-              className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              id="gracePeriodMinutes"
+              type="number"
+              min={0}
+              max={180}
+              {...register("gracePeriodMinutes", { valueAsNumber: true })}
+              className={inputClass}
             />
-            {errors.days && (
-              <p className="mt-1 text-sm text-alert">{errors.days.message}</p>
+            <p className="mt-1 text-xs text-neutral">
+              Clocking in within this many minutes of the start time isn&apos;t counted as late.
+            </p>
+            {errors.gracePeriodMinutes && (
+              <p className="mt-1 text-sm text-alert">{errors.gracePeriodMinutes.message}</p>
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label
-                htmlFor="gracePeriodMinutes"
-                className="block text-sm font-medium text-heading mb-1"
-              >
-                Grace (min)
-              </label>
-              <input
-                id="gracePeriodMinutes"
-                type="number"
-                min={0}
-                max={60}
-                {...register("gracePeriodMinutes", { valueAsNumber: true })}
-                className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-            <div>
-              <label htmlFor="breakMinutes" className="block text-sm font-medium text-heading mb-1">
-                Break (min)
-              </label>
-              <input
-                id="breakMinutes"
-                type="number"
-                min={0}
-                max={180}
-                {...register("breakMinutes", { valueAsNumber: true })}
-                className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="overtimeAfterHours"
-                className="block text-sm font-medium text-heading mb-1"
-              >
-                Overtime after (h)
-              </label>
-              <input
-                id="overtimeAfterHours"
-                type="number"
-                min={1}
-                max={16}
-                {...register("overtimeAfterHours", { valueAsNumber: true })}
-                className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
+          <div className="rounded-md border border-neutral/20 p-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-heading">
+              <input type="checkbox" {...register("tracksOvertime")} className="h-4 w-4 accent-primary" />
+              Track overtime
+            </label>
+            {tracksOvertime && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="overtimeAfterHours"
+                    className="block text-sm font-medium text-heading mb-1"
+                  >
+                    After this many hours worked
+                  </label>
+                  <input
+                    id="overtimeAfterHours"
+                    type="number"
+                    step={0.5}
+                    min={0.5}
+                    max={24}
+                    {...register("overtimeAfterHours", { valueAsNumber: true })}
+                    className={inputClass}
+                  />
+                  {errors.overtimeAfterHours && (
+                    <p className="mt-1 text-sm text-alert">{errors.overtimeAfterHours.message}</p>
+                  )}
+                </div>
+                <div>
+                  <label
+                    htmlFor="overtimeMultiplier"
+                    className="block text-sm font-medium text-heading mb-1"
+                  >
+                    Overtime rate
+                  </label>
+                  <select
+                    id="overtimeMultiplier"
+                    {...register("overtimeMultiplier", { valueAsNumber: true })}
+                    className={inputClass}
+                  >
+                    {OVERTIME_RATES.map((rate) => (
+                      <option key={rate.value} value={rate.value}>
+                        {rate.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Already the default: nothing to toggle — another rule has to
+              take over instead, which is the server's rule too. */}
+          {rule?.isDefault ? (
+            <p className="text-sm text-neutral">
+              This is your organization&apos;s default rule. To change that, make another rule the
+              default.
+            </p>
+          ) : (
+            <label className="flex items-start gap-2 text-sm text-heading">
+              <input type="checkbox" {...register("isDefault")} className="mt-0.5 h-4 w-4 accent-primary" />
+              <span>
+                Make this the default rule
+                <span className="block text-xs text-neutral">
+                  Used for everyone whose branch doesn&apos;t have its own rule.
+                </span>
+              </span>
+            </label>
+          )}
 
           <div className="flex items-center justify-end gap-3 pt-2">
             <button
@@ -211,7 +331,7 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
               disabled={isSubmitting}
               className="rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
             >
-              Save rule
+              {isSubmitting ? "Saving..." : isEditing ? "Save changes" : "Create rule"}
             </button>
           </div>
         </form>

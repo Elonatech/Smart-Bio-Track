@@ -47,7 +47,13 @@ const STEP_VALUES = {
     longitude: 3.4,
     geofenceRadiusMeters: 100,
   },
-  workRules: { workStart: '09:00' },
+  workRules: {
+    startTime: '08:00',
+    endTime: '17:00',
+    gracePeriodMinutes: 15,
+    overtimeAfterHours: 17,
+    overtimeMultiplier: 1.5,
+  },
   departments: { departments: [{ name: 'Engineering' }, { name: 'Sales' }] },
   inviteTeam: {
     invites: [{ name: 'Bola Ade', email: 'bola@acme.test', role: 'EMPLOYEE', department: 'Engineering' }],
@@ -106,6 +112,7 @@ function existing({
   offices = [] as { name: string }[],
   departments = [] as { id?: string; name: string }[],
   users = [] as { email: string }[],
+  workRules = [] as { name: string }[],
 } = {}) {
   mockGet.mockImplementation((url: string) => {
     if (url === '/offices') return Promise.resolve({ data: offices });
@@ -115,6 +122,7 @@ function existing({
       });
     }
     if (url === '/users') return Promise.resolve({ data: { items: users } });
+    if (url === '/work-rules') return Promise.resolve({ data: workRules });
     return Promise.reject(new Error('unexpected GET ' + url));
   });
 }
@@ -261,15 +269,41 @@ describe('finishing setup', () => {
     expect(postsTo('/users')).toHaveLength(1);
   });
 
-  it('sends nothing for work rules, which have nowhere to be stored yet', async () => {
+  it("saves the work rules step as the organization's default rule", async () => {
     seedFinishedWizard();
     renderWithProviders(<OnboardingPage />);
 
     await userEvent.click(await screen.findByRole('button', { name: 'Finish setup' }));
     await waitFor(() => expect(push).toHaveBeenCalled());
 
-    const urls = mockPost.mock.calls.map(([url]) => url);
-    expect(urls.every((u) => ['/offices', '/departments', '/users'].includes(u))).toBe(true);
+    expect(postsTo('/work-rules')).toEqual([
+      [
+        '/work-rules',
+        {
+          name: 'Standard hours',
+          workingDays: [1, 2, 3, 4, 5],
+          startTime: '08:00',
+          endTime: '17:00',
+          gracePeriodMinutes: 15,
+          // Overtime "from 17:00" on an 08:00 start = after 9 hours worked.
+          overtimeAfterMinutes: 540,
+          overtimeMultiplier: 1.5,
+          isDefault: true,
+        },
+      ],
+    ]);
+  });
+
+  it('does not add a second default when the organization already has a work rule', async () => {
+    // A retry after a partial failure, or hours already set up elsewhere.
+    seedFinishedWizard();
+    existing({ workRules: [{ name: 'Night shift' }] });
+    renderWithProviders(<OnboardingPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Finish setup' }));
+    await waitFor(() => expect(push).toHaveBeenCalled());
+
+    expect(postsTo('/work-rules')).toHaveLength(0);
   });
 
   it("attaches an invite to its department by the department's real id", async () => {

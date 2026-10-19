@@ -1,63 +1,107 @@
 "use client";
 
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { useToast } from "@/app/components/Toast";
 import { DataTable } from "@/app/components/dashboard/DataTable";
 import { ConfirmDialog } from "@/app/components/dashboard/ConfirmDialog";
+import { WorkRuleFormModal } from "@/app/components/dashboard/WorkRuleFormModal";
+import { extractErrorMessage } from "@/lib/api-client";
 import {
-  WorkRuleFormModal,
+  createWorkRule,
+  deleteWorkRule,
+  fetchWorkRules,
+  formatHours,
+  formatWorkingDays,
+  updateWorkRule,
   type WorkRule,
-} from "@/app/components/dashboard/WorkRuleFormModal";
-import { SAMPLE_WORK_RULES } from "@/app/components/dashboard/workRuleSamples";
-import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
+  type WorkRuleInput,
+} from "@/lib/workRules";
+
+// Work rules on real data (GET/POST/PATCH/DELETE /work-rules, Phase 3 M2).
+//
+// One rule is the organisation's default; branches can be given their own.
+// Changes apply from the next punch — the server snapshots each day's rule,
+// so editing hours here never rewrites who was late in past weeks.
+
+const DEFAULT_LOCKED = "This is the default rule. Make another rule the default before deleting it.";
+
+function overtimeLabel(rule: WorkRule): string {
+  if (rule.overtimeAfterMinutes === null) return "Not tracked";
+  return `After ${formatHours(rule.overtimeAfterMinutes)} · ×${rule.overtimeMultiplier}`;
+}
+
+function appliesTo(rule: WorkRule): string {
+  const branches = rule.offices.map((o) => o.name).join(", ");
+  if (rule.isDefault) {
+    return branches ? `Everyone else, plus ${branches}` : "Everyone (default)";
+  }
+  return branches || "No branches yet";
+}
 
 export default function SuperAdminTimeRegulationPage() {
   const toast = useToast();
   const orgName =
-    useAuthStore((state) => state.user?.organizationName) ??
-    "Your organization";
-  const [rules, setRules] = useState<WorkRule[]>(SAMPLE_WORK_RULES);
+    useAuthStore((state) => state.user?.organizationName) ?? "Your organization";
+  const [rules, setRules] = useState<WorkRule[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<"create" | WorkRule | null>(null);
   const [deletingRule, setDeletingRule] = useState<WorkRule | null>(null);
 
-  function handleDelete(rule: WorkRule) {
-    setRules((prev) => prev.filter((existing) => existing.id !== rule.id));
-    toast.success(
-      `${rule.name} deleted successfully`,
-      "Removed from this screen only — time regulations are not saved to the server yet."
-    );
-  }
-
   usePageHeader(
     "Time Regulation",
-    `${orgName} · applied per employee or department`
+    `${orgName} · ${rules ? `${rules.length} rule${rules.length === 1 ? "" : "s"}` : "working hours"}`
   );
 
-  function handleSave(values: Omit<WorkRule, "id">) {
-    const isEdit = Boolean(modalMode && modalMode !== "create");
-    toast.success(
-      values.name + (isEdit ? " updated successfully" : " created successfully"),
-      "Applied on this screen only — time regulations are not saved to the server yet."
-    );
+  const load = useCallback(() => {
+    fetchWorkRules()
+      .then((data) => {
+        // Default first, then by name — the default is the one people look for.
+        setRules([...data].sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name)));
+        setLoadError(null);
+      })
+      .catch((error) => setLoadError(extractErrorMessage(error)));
+  }, []);
 
-    if (modalMode && modalMode !== "create") {
-      const editingId = modalMode.id;
-      setRules((prev) =>
-        prev.map((rule) =>
-          rule.id === editingId ? { ...values, id: editingId } : rule
-        )
-      );
-    } else {
-      setRules((prev) => [...prev, { ...values, id: crypto.randomUUID() }]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function handleSave(input: WorkRuleInput) {
+    const editing = modalMode && modalMode !== "create" ? modalMode : null;
+    // Throws on refusal — the modal catches it and shows the reason.
+    if (editing) await updateWorkRule(editing.id, input);
+    else await createWorkRule(input);
+    toast.success(input.name + (editing ? " updated" : " created"), "Applies from the next clock-in.");
+    load();
+  }
+
+  async function handleMakeDefault(rule: WorkRule) {
+    try {
+      await updateWorkRule(rule.id, { isDefault: true });
+      toast.success(`${rule.name} is now the default`, "Used for everyone whose branch has no rule of its own.");
+    } catch (error) {
+      toast.error("Couldn't change the default", extractErrorMessage(error));
+    } finally {
+      load();
+    }
+  }
+
+  async function handleDelete(rule: WorkRule) {
+    try {
+      await deleteWorkRule(rule.id);
+      toast.success(`${rule.name} deleted`, "Branches that used it now follow the default rule.");
+    } catch (error) {
+      toast.error("Couldn't delete this rule", extractErrorMessage(error));
+    } finally {
+      load();
     }
   }
 
   return (
     <div>
-      <SampleDataBanner describes="work rules" />
       <div className="flex justify-end mb-6">
         <button
           type="button"
@@ -69,118 +113,109 @@ export default function SuperAdminTimeRegulationPage() {
         </button>
       </div>
 
-      <DataTable
-        rows={rules}
-        getRowKey={(rule) => rule.id}
-        emptyMessage="No time regulations yet."
-        renderCardHeader={(rule) => (
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-semibold text-heading break-words">
-                {rule.name}
-              </p>
-              <p className="text-[12px] text-neutral">
-                {rule.startTime} – {rule.endTime}, {rule.days}
-              </p>
-            </div>
-            {/* The table's own actions column is hideOnMobile, so Delete has
-                to live here too or phones can edit a rule but never remove one. */}
-            <div className="flex items-center gap-4 shrink-0">
-              <button
-                type="button"
-                onClick={() => setModalMode(rule)}
-                className="text-sm font-medium text-primary hover:underline"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeletingRule(rule)}
-                className="text-sm font-medium text-alert hover:underline"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        )}
-        columns={[
-          {
-            key: "name",
-            header: "Rule",
-            hideOnMobile: true,
-            render: (rule) => (
-              <span className="font-semibold text-heading">{rule.name}</span>
-            ),
-          },
-          {
-            key: "window",
-            header: "Shift window",
-            hideOnMobile: true,
-            render: (rule) => (
-              <span className="text-neutral whitespace-nowrap">
-                {rule.startTime} – {rule.endTime}, {rule.days}
-              </span>
-            ),
-          },
-          {
-            key: "grace",
-            header: "Grace period",
-            render: (rule) => (
-              <span className="font-medium text-heading whitespace-nowrap">
-                {rule.gracePeriodMinutes} min
-              </span>
-            ),
-          },
-          {
-            key: "break",
-            header: "Break",
-            render: (rule) => (
-              <span className="font-medium text-heading whitespace-nowrap">
-                {rule.breakMinutes} min
-              </span>
-            ),
-          },
-          {
-            key: "overtime",
-            header: "Overtime",
-            render: (rule) => (
-              <span className="font-medium text-heading whitespace-nowrap">
-                After {rule.overtimeAfterHours} h
-              </span>
-            ),
-          },
-          {
-            key: "actions",
-            header: "",
-            align: "right",
-            hideOnMobile: true,
-            render: (rule) => (
-              <div className="flex items-center justify-end gap-4">
-                <button
-                  type="button"
-                  onClick={() => setModalMode(rule)}
-                  className="text-sm font-medium text-primary hover:underline"
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDeletingRule(rule)}
-                  className="text-sm font-medium text-alert hover:underline"
-                >
-                  Delete
-                </button>
+      {loadError && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-alert/30 bg-alert/10 px-4 py-3">
+          <p className="min-w-0 text-sm text-alert wrap-break-word">
+            Couldn&apos;t load work rules: {loadError}
+          </p>
+          <button
+            type="button"
+            onClick={load}
+            className="inline-flex items-center gap-2 text-sm font-medium text-heading hover:underline"
+          >
+            <RefreshCw className="h-4 w-4" strokeWidth={2} />
+            Try again
+          </button>
+        </div>
+      )}
+
+      {rules === null && !loadError ? (
+        <p className="text-sm text-neutral">Loading work rules…</p>
+      ) : (
+        <DataTable
+          rows={rules ?? []}
+          getRowKey={(rule) => rule.id}
+          emptyMessage="No time regulations yet. Create one to start judging lateness and overtime — until then, nobody is marked late."
+          renderCardHeader={(rule) => (
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold text-heading wrap-break-word">
+                  {rule.name}
+                  {rule.isDefault && <DefaultBadge />}
+                </p>
+                <p className="text-[12px] text-neutral">
+                  {rule.startTime} – {rule.endTime}, {formatWorkingDays(rule.workingDays)}
+                </p>
               </div>
-            ),
-          },
-        ]}
-      />
+              {/* The table's actions column is hideOnMobile, so actions
+                  live here too or phones could never delete a rule. */}
+              <div className="shrink-0">
+                <Actions rule={rule} onMakeDefault={handleMakeDefault} onEdit={setModalMode} onDelete={setDeletingRule} />
+              </div>
+            </div>
+          )}
+          columns={[
+            {
+              key: "name",
+              header: "Rule",
+              hideOnMobile: true,
+              render: (rule) => (
+                <span className="font-semibold text-heading">
+                  {rule.name}
+                  {rule.isDefault && <DefaultBadge />}
+                </span>
+              ),
+            },
+            {
+              key: "window",
+              header: "Shift window",
+              hideOnMobile: true,
+              render: (rule) => (
+                <span className="text-neutral whitespace-nowrap">
+                  {rule.startTime} – {rule.endTime}, {formatWorkingDays(rule.workingDays)}
+                </span>
+              ),
+            },
+            {
+              key: "grace",
+              header: "Grace period",
+              render: (rule) => (
+                <span className="font-medium text-heading whitespace-nowrap">
+                  {rule.gracePeriodMinutes} min
+                </span>
+              ),
+            },
+            {
+              key: "overtime",
+              header: "Overtime",
+              render: (rule) => (
+                <span className="font-medium text-heading whitespace-nowrap">{overtimeLabel(rule)}</span>
+              ),
+            },
+            {
+              key: "appliesTo",
+              header: "Applies to",
+              render: (rule) => <span className="text-neutral">{appliesTo(rule)}</span>,
+            },
+            {
+              key: "actions",
+              header: "",
+              align: "right",
+              hideOnMobile: true,
+              render: (rule) => <Actions rule={rule} onMakeDefault={handleMakeDefault} onEdit={setModalMode} onDelete={setDeletingRule} />,
+            },
+          ]}
+        />
+      )}
 
       {deletingRule && (
         <ConfirmDialog
           title={`Delete ${deletingRule.name}?`}
-          description="Employees assigned to this rule will have no shift window, grace period or overtime threshold until they are moved to another one."
-          note="Removed from this screen only — time regulations are not saved to the server yet."
+          description={
+            deletingRule.offices.length > 0
+              ? `${deletingRule.offices.map((o) => o.name).join(", ")} will follow the default rule instead. Past days keep the hours they were judged against.`
+              : "Past days keep the hours they were judged against."
+          }
           confirmLabel="Delete rule"
           onConfirm={() => handleDelete(deletingRule)}
           onClose={() => setDeletingRule(null)}
@@ -195,5 +230,59 @@ export default function SuperAdminTimeRegulationPage() {
         />
       )}
     </div>
+  );
+}
+
+// Top-level, not defined inside the page: a component declared in a render
+// function is a new type every render, so React remounts it — and a click
+// can land on a button mid-replacement and do nothing.
+function Actions({
+  rule,
+  onMakeDefault,
+  onEdit,
+  onDelete,
+}: {
+  rule: WorkRule;
+  onMakeDefault: (rule: WorkRule) => void;
+  onEdit: (rule: WorkRule) => void;
+  onDelete: (rule: WorkRule) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+      {!rule.isDefault && (
+        <button
+          type="button"
+          onClick={() => onMakeDefault(rule)}
+          className="text-sm font-medium text-neutral hover:text-heading hover:underline"
+        >
+          Make default
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => onEdit(rule)}
+        className="text-sm font-medium text-primary hover:underline"
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        onClick={() => onDelete(rule)}
+        // The server refuses to delete the default; say so before asking.
+        disabled={rule.isDefault}
+        title={rule.isDefault ? DEFAULT_LOCKED : undefined}
+        className="text-sm font-medium text-alert hover:underline disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+      >
+        Delete
+      </button>
+    </div>
+  );
+}
+
+function DefaultBadge() {
+  return (
+    <span className="ml-2 inline-block align-middle rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
+      Default
+    </span>
   );
 }
