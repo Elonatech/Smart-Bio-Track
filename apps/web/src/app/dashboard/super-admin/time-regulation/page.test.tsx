@@ -200,3 +200,30 @@ it("offers a retry when the rules can't load", async () => {
   expect((await screen.findAllByText("Standard hours")).length).toBeGreaterThan(0);
 });
 
+
+describe("deleting feels instant", () => {
+  async function deleteNightOps() {
+    renderWithProviders(<TimeRegulationPage />);
+    await screen.findAllByText("Night ops");
+    const enabledDelete = screen
+      .getAllByRole("button", { name: "Delete" })
+      .find((b) => !(b as HTMLButtonElement).disabled) as HTMLElement;
+    await userEvent.click(enabledDelete);
+    await userEvent.click(await screen.findByRole("button", { name: "Delete rule" }));
+  }
+
+  it("removes the row before the server answers", async () => {
+    mockDelete.mockReturnValueOnce(new Promise(() => {}));
+    await deleteNightOps();
+
+    await waitFor(() => expect(screen.queryAllByText("Night ops")).toHaveLength(0));
+  });
+
+  it("puts the row back when the server refuses", async () => {
+    mockDelete.mockRejectedValueOnce(new Error("Work rule not found"));
+    await deleteNightOps();
+
+    expect((await screen.findAllByText("Night ops")).length).toBeGreaterThan(0);
+    expect(error).toHaveBeenCalledWith("Couldn't delete this rule", "Work rule not found");
+  });
+});

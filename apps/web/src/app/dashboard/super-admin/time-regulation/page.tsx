@@ -90,6 +90,10 @@ export default function SuperAdminTimeRegulationPage() {
   }
 
   async function handleDelete(rule: WorkRule) {
+    // Optimistic: drop the row now. The delete plus its audit entry takes the
+    // server a second or so, then the re-read below takes more — waiting for
+    // both left a "deleted" row on screen. A refusal re-reads, which puts it back.
+    setRules((current) => current && current.filter((r) => r.id !== rule.id));
     try {
       await deleteWorkRule(rule.id);
       toast.success(`${rule.name} deleted`, "Branches that used it now follow the default rule.");

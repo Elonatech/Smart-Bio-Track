@@ -71,6 +71,10 @@ export default function SuperAdminHolidaysPage() {
   }
 
   async function handleDelete(holiday: Holiday) {
+    // Optimistic: drop the row now. The delete plus its audit entry takes the
+    // server a second or so, then the re-read below takes more — waiting for
+    // both left a "deleted" row on screen. A refusal re-reads, which puts it back.
+    setHolidays((current) => current && current.filter((h) => h.id !== holiday.id));
     try {
       await deleteHoliday(holiday.id);
       toast.success(holiday.name + " deleted", "Attendance expectations apply on that date again.");

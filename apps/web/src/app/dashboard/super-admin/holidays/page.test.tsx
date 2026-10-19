@@ -166,3 +166,28 @@ it("offers a retry when holidays can't load", async () => {
 
   expect(await screen.findByText("Company closure")).toBeInTheDocument();
 });
+
+describe("deleting feels instant", () => {
+  it("removes the row before the server answers", async () => {
+    mockDelete.mockReturnValueOnce(new Promise(() => {}));
+    renderWithProviders(<HolidaysPage />);
+    await screen.findByText("Company closure");
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete" })[1]);
+    await userEvent.click(await screen.findByRole("button", { name: "Delete holiday" }));
+
+    await waitFor(() => expect(screen.queryByText("Company closure")).not.toBeInTheDocument());
+  });
+
+  it("puts the row back when the server refuses", async () => {
+    mockDelete.mockRejectedValueOnce(new Error("Holiday not found"));
+    renderWithProviders(<HolidaysPage />);
+    await screen.findByText("Company closure");
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Delete" })[1]);
+    await userEvent.click(await screen.findByRole("button", { name: "Delete holiday" }));
+
+    expect(await screen.findByText("Company closure")).toBeInTheDocument();
+    expect(error).toHaveBeenCalledWith("Couldn't delete this holiday", "Holiday not found");
+  });
+});
