@@ -301,6 +301,8 @@ export default function TeamLeadReportsPage() {
         <DataTable
           rows={TEAM_WEEK}
           getRowKey={(member) => member.name}
+          pageSize={10}
+          itemLabel="people"
           emptyMessage="No one is assigned to your team yet."
           renderCardHeader={(member) => (
             <div className="flex items-start justify-between gap-3">

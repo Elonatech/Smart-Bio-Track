@@ -135,6 +135,8 @@ export default function SuperAdminTimeRegulationPage() {
         <DataTable
           rows={rules ?? []}
           getRowKey={(rule) => rule.id}
+          pageSize={10}
+          itemLabel="rules"
           emptyMessage="No time regulations yet. Create one to start judging lateness and overtime — until then, nobody is marked late."
           renderCardHeader={(rule) => (
             <div className="flex items-start justify-between gap-3">

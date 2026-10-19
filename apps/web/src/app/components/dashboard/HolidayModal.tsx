@@ -1,15 +1,24 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Toggle } from "@/app/components/dashboard/Toggle";
 import { useModalA11y } from "@/lib/useModalA11y";
+import { extractErrorMessage } from "@/lib/api-client";
+import type { Holiday, HolidayInput } from "@/lib/holidays";
 
+// Saves through the page's onSave (POST/PATCH /holidays). Limits match
+// CreateHolidayDto; anything the server still refuses — the same name on the
+// same date, say — is shown here and the form stays open.
 const holidayFormSchema = z.object({
-  name: z.string().min(2, { message: "Holiday name is required" }),
+  name: z
+    .string()
+    .trim()
+    .min(2, { message: "Holiday name is required" })
+    .max(80, { message: "Keep the name under 80 characters" }),
   date: z.string().min(1, { message: "Date is required" }),
   repeatsAnnually: z.boolean(),
   type: z.enum(["PUBLIC", "COMPANY"]),
@@ -17,20 +26,18 @@ const holidayFormSchema = z.object({
 
 type HolidayFormValues = z.infer<typeof holidayFormSchema>;
 
-export interface Holiday extends HolidayFormValues {
-  id: string;
-}
-
 interface HolidayModalProps {
   /** Present = editing that holiday; absent = adding a new one. Same
       shape as OfficeFormModal, so both modals behave alike. */
   holiday?: Holiday;
   onClose: () => void;
-  onSave: (values: HolidayFormValues) => void;
+  /** Saves to the server. Throws on refusal; the modal shows the reason. */
+  onSave: (values: HolidayInput) => Promise<void>;
 }
 
 export function HolidayModal({ holiday, onClose, onSave }: HolidayModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
   useModalA11y(panelRef, onClose);
 
   const {
@@ -38,7 +45,7 @@ export function HolidayModal({ holiday, onClose, onSave }: HolidayModalProps) {
     handleSubmit,
     watch,
     setValue,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<HolidayFormValues>({
     resolver: zodResolver(holidayFormSchema),
     // Pre-filled when editing so the form shows what the holiday
@@ -55,9 +62,14 @@ export function HolidayModal({ holiday, onClose, onSave }: HolidayModalProps) {
   // it needs the current value read back and written explicitly.
   const repeatsAnnually = watch("repeatsAnnually");
 
-  const onSubmit = (values: HolidayFormValues) => {
-    onSave(values);
-    onClose();
+  const onSubmit = async (values: HolidayFormValues) => {
+    setServerError(null);
+    try {
+      await onSave(values);
+      onClose();
+    } catch (error) {
+      setServerError(extractErrorMessage(error));
+    }
   };
 
   return (
@@ -94,6 +106,12 @@ export function HolidayModal({ holiday, onClose, onSave }: HolidayModalProps) {
         <p className="text-sm text-neutral mb-5">
           Attendance expectations are suspended for every employee on this date.
         </p>
+
+        {serverError && (
+          <div className="mb-4 rounded-md bg-alert/10 border border-alert/30 text-alert text-sm px-3 py-2 wrap-break-word">
+            {serverError}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {/* Name and date share a row: both are short, and pairing them
@@ -185,9 +203,10 @@ export function HolidayModal({ holiday, onClose, onSave }: HolidayModalProps) {
             </button>
             <button
               type="submit"
-              className="rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90"
+              disabled={isSubmitting}
+              className="rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
             >
-              {holiday ? "Save changes" : "Save holiday"}
+              {isSubmitting ? "Saving..." : holiday ? "Save changes" : "Save holiday"}
             </button>
           </div>
         </form>

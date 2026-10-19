@@ -256,6 +256,8 @@ export default function HRAdminReportsPage() {
         <DataTable
           rows={rows}
           getRowKey={(row) => row.department}
+          pageSize={10}
+          itemLabel="departments"
           emptyMessage={
             <>
               No attendance recorded at {office} in this range.
