@@ -113,7 +113,7 @@ describe('submitting the form', () => {
     const [url, body] = mockPost.mock.calls[0];
 
     expect(url).toBe('/users');
-    // phoneNumber, jobRole and workRule are collected by the form and have
+    // phoneNumber and jobRole are collected by the form and have
     // nowhere to go on the server. Sending them risks a 400 from a strict
     // validation pipe, which is the kind of failure that looks like the form
     // being broken rather than the payload being wrong.
@@ -256,5 +256,17 @@ describe('the optional lookups', () => {
 
     expect(await screen.findByLabelText('Role')).toBeInTheDocument();
     expect(screen.getByLabelText('Full name')).toBeInTheDocument();
+  });
+});
+
+describe('working hours', () => {
+  it('asks for no work rule — hours follow the branch', async () => {
+    // Rules belong to a branch, not a person (Phase 3 decision 2). This form
+    // used to offer three made-up rule names that were never sent anywhere.
+    renderModal();
+    await screen.findByLabelText('Role');
+
+    expect(screen.queryByLabelText(/work rule/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Working hours follow their branch/)).toBeInTheDocument();
   });
 });

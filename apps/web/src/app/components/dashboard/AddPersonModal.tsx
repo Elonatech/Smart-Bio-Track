@@ -27,11 +27,15 @@ import type { UserRole } from "@/lib/store/auth-store";
 //                 and there is no column for it on the User model.
 //
 // Matches CreateUserDto (apps/api/src/users/dto/create-users.dto.ts) for
-// the fields that actually get sent. phoneNumber/jobRole/workRule are
-// deliberately NOT in the DTO — confirmed against prisma/schema.prisma's
-// User model that none of those three columns exist at all. They're
-// still collected to match the design, but stripped before the request
-// and flagged to the admin.
+// the fields that actually get sent. phoneNumber/jobRole are deliberately
+// NOT in the DTO — prisma/schema.prisma's User model has no column for
+// either. They're still collected to match the design, but stripped
+// before the request and flagged to the admin.
+//
+// No work-rule field: rules belong to a BRANCH, not a person (Phase 3
+// decision 2 — office's rule → organisation default). Someone's hours
+// follow the branch picked above; there's nothing to choose here. This
+// used to offer three made-up rule names that were never sent anywhere.
 // No employeeId field: the server generates one, prefixed by role —
 // ADM-, HR-, TL-, EMP- — via generateUniqueEmployeeId() in
 // apps/api/src/common/employee-id.util.ts. It's globally unique, so only
@@ -47,7 +51,6 @@ const addPersonSchema = z
     departmentId: z.string().optional(),
     officeId: z.string().optional(),
     jobRole: z.string().optional(),
-    workRule: z.string().optional(),
   })
   .superRefine((values, ctx) => {
     // Same rule the onboarding invite step enforces: a Team Lead's whole
@@ -94,9 +97,6 @@ interface AddPersonModalProps {
   onInvited: () => void; // parent refetches the employee list after this fires
 }
 
-// Static placeholders — mirrors the same seeded rows Time Regulation shows,
-// since there's no backend WorkRule model to fetch real ones from.
-const WORK_RULE_OPTIONS = ["Standard Corporate", "Night Shift (Ops)", "Field Team"];
 
 export function AddPersonModal({
   allowedRoles,
@@ -149,8 +149,8 @@ export function AddPersonModal({
     setServerError(null);
     setIsSubmitting(true);
     try {
-      // Only send what the backend actually accepts — phoneNumber,
-      // jobRole, and workRule have nowhere to go (see note above).
+      // Only send what the backend actually accepts — phoneNumber and
+      // jobRole have nowhere to go (see note above).
       const { data } = await appClient.post<ProvisionResponse>("/users", {
         name: values.name,
         email: values.email,
@@ -387,8 +387,8 @@ export function AddPersonModal({
                 </div>
               </div>
 
-              {/* Job role and work rule are grouped together because
-                  neither is persisted — see the note below the row. */}
+              {/* Job title: not persisted — see the note below. Working
+                  hours aren't asked for at all: they follow the branch. */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="jobRole" className="block text-sm font-medium text-heading mb-1">
@@ -405,31 +405,15 @@ export function AddPersonModal({
                     Descriptive only — doesn&apos;t affect permissions.
                   </p>
                 </div>
-                <div>
-                  <label htmlFor="workRule" className="block text-sm font-medium text-heading mb-1">
-                    Assigned work rule
-                  </label>
-                  <select
-                    id="workRule"
-                    {...register("workRule")}
-                    className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  >
-                    {WORK_RULE_OPTIONS.map((rule) => (
-                      <option key={rule} value={rule}>
-                        {rule}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-neutral">
-                    Shift window, grace period and overtime thresholds.
-                  </p>
+                <div className="rounded-md bg-neutral/5 px-3 py-2 text-xs text-neutral sm:self-end">
+                  Working hours follow their branch&apos;s work rule, or your
+                  organization&apos;s default.
                 </div>
               </div>
 
               <p className="text-xs text-neutral border-t border-neutral/20 pt-3">
-                Phone number, job title, and assigned work rule
-                aren&apos;t saved yet — backend support for these is still
-                pending.
+                Phone number and job title aren&apos;t saved yet — backend
+                support for these is still pending.
               </p>
 
               <div className="flex items-center justify-end gap-3 pt-2">
