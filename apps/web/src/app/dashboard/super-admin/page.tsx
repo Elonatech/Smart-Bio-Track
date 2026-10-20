@@ -5,7 +5,7 @@ import { Clock4, MapPinned, ShieldAlert, Users } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { SetupReminderBanner } from "@/app/components/dashboard/SetupReminderBanner";
-import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
+import { OrgTodayPanel } from "@/app/components/dashboard/OrgTodayPanel";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { fetchWorkRules, type WorkRule } from "@/lib/workRules";
 import { SAMPLE_FLAGGED_PUNCHES } from "@/app/components/dashboard/flaggedPunchSamples";
@@ -42,7 +42,7 @@ export default function SuperAdminDashboardPage() {
   const [employeeCount, setEmployeeCount] = useState<number | null>(null);
   const [offices, setOffices] = useState<OfficeSummary[] | null>(null);
   const [workRules, setWorkRules] = useState<WorkRule[] | null>(null);
-  const [recentActivity, setRecentActivity] = useState<RecentAuditEntry[] | null>(null);
+  const [recentActivity, setRecentActivity] =  useState<RecentAuditEntry[] | null>(null);
   const [recentActivityError, setRecentActivityError] = useState(false);
 
   useEffect(() => {
@@ -128,7 +128,11 @@ export default function SuperAdminDashboardPage() {
           the setup wizard for anyone who skipped or abandoned it. */}
       <SetupReminderBanner />
 
-      <TodayStatusCard />
+      {/* Super Admins don't clock in, so the overview opens on the whole
+          organisation's day instead of a personal clock-in card. Its
+          numbers are sample until the summary endpoint exists — see
+          lib/orgToday.ts. */}
+      <OrgTodayPanel />
 
       <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="flex gap-3 items-start bg-surface border border-neutral/20 p-5 rounded-xl">
