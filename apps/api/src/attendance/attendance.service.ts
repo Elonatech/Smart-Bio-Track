@@ -13,6 +13,7 @@ import {
   type AttendanceState,
 } from './attendance-state';
 import { computeDaySummary, type RuleSnapshot } from './day-summary';
+import { isHolidayOn, RULE_SELECT, shiftDays } from './attendance-rules';
 import {
   fromDbDate,
   localMoment,
@@ -83,15 +84,6 @@ const SUMMARY_SELECT = {
   scheduledEndMinutes: true,
   gracePeriodMinutes: true,
 } satisfies Prisma.AttendanceSummarySelect;
-
-const RULE_SELECT = {
-  id: true,
-  workingDays: true,
-  startMinutes: true,
-  endMinutes: true,
-  gracePeriodMinutes: true,
-  overtimeAfterMinutes: true,
-} satisfies Prisma.WorkRuleSelect;
 
 /** History is a screen, not an export — payroll ranges are Phase 5. */
 const MAX_HISTORY_DAYS = 93;
@@ -255,7 +247,7 @@ export class AttendanceService {
           orderBy: { occurredAt: 'asc' },
           select: { type: true, occurredAt: true },
         }),
-        this.isHoliday(tx, caller.organizationId, date),
+        isHolidayOn(tx, caller.organizationId, date),
       ]);
 
       const refusal = refusalFor(stateFromPunches(punches), type);
@@ -358,41 +350,10 @@ export class AttendanceService {
     return { timeZone: user.organization.timezone, rule };
   }
 
-  /**
-   * Whether `date` is a holiday: an exact match, or an annual holiday on the
-   * same month and day in any year. Annual ones are few per organisation, so
-   * they are filtered here rather than with date arithmetic in SQL.
-   */
-  private async isHoliday(
-    tx: Prisma.TransactionClient,
-    organizationId: string,
-    date: LocalDate,
-  ): Promise<boolean> {
-    const candidates = await tx.holiday.findMany({
-      where: {
-        organizationId,
-        OR: [{ date: toDbDate(date) }, { repeatsAnnually: true }],
-      },
-      select: { date: true, repeatsAnnually: true },
-    });
-
-    const monthDay = date.slice(5);
-    return candidates.some((h) => {
-      const d = fromDbDate(h.date);
-      return d === date || (h.repeatsAnnually && d.slice(5) === monthDay);
-    });
-  }
-
   /** A `@db.Date` comes back as a Date at UTC midnight; send the plain date. */
   private presentSummary<T extends { workDate: Date }>(summary: T) {
     return { ...summary, workDate: fromDbDate(summary.workDate) };
   }
-}
-
-function shiftDays(date: LocalDate, days: number): LocalDate {
-  const d = new Date(`${date}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 function daysBetween(from: LocalDate, to: LocalDate): number {
