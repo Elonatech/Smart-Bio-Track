@@ -382,13 +382,17 @@ export function AddPersonModal({
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-neutral">
-                    Sets the geo-fence they clock in against.
+                    {/* Rules belong to a branch (Phase 3 decision 2), so the
+                        branch is also what decides their hours. */}
+                    Sets the geo-fence they clock in against, and their working hours.
                   </p>
                 </div>
               </div>
 
-              {/* Job title: not persisted — see the note below. Working
-                  hours aren't asked for at all: they follow the branch. */}
+              {/* Job title: not persisted — see the note below. Half width
+                  like the fields above, so the form keeps one rhythm. No
+                  "descriptive only" hint: Role's own hint already says
+                  that Role is what sets permissions. */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="jobRole" className="block text-sm font-medium text-heading mb-1">
@@ -401,13 +405,6 @@ export function AddPersonModal({
                     {...register("jobRole")}
                     className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   />
-                  <p className="mt-1 text-xs text-neutral">
-                    Descriptive only — doesn&apos;t affect permissions.
-                  </p>
-                </div>
-                <div className="rounded-md bg-neutral/5 px-3 py-2 text-xs text-neutral sm:self-end">
-                  Working hours follow their branch&apos;s work rule, or your
-                  organization&apos;s default.
                 </div>
               </div>
 

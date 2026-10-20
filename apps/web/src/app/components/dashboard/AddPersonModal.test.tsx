@@ -267,6 +267,6 @@ describe('working hours', () => {
     await screen.findByLabelText('Role');
 
     expect(screen.queryByLabelText(/work rule/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/Working hours follow their branch/)).toBeInTheDocument();
+    expect(screen.getByText(/and their working hours/)).toBeInTheDocument();
   });
 });
