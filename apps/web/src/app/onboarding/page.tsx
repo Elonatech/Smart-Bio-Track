@@ -6,6 +6,7 @@ import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import { getDashboardPath } from "@/lib/roleRoutes";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { DEFAULT_TIMEZONE, normalizeTimezone, updateOrganization } from "@/lib/organization";
 import { consumeOnboardingIndustryHint } from "@/lib/onboarding-hint";
 import { PartyPopper } from "lucide-react";
 import { StepProgress } from "@/app/components/onboarding/StepProgress";
@@ -123,7 +124,7 @@ export default function OnboardingPage() {
           orgProfile: {
             // Same fallback StepOrgProfile uses on its own — the only
             // option today, so there's nothing to prefill it FROM yet.
-            timezone: "WAT",
+            timezone: DEFAULT_TIMEZONE,
             organizationName: organizationName ?? "",
             industry: industryHint ?? "",
             ...prev.orgProfile,
@@ -194,9 +195,11 @@ export default function OnboardingPage() {
   //
   //   office       -> POST /offices       (real)
   //   departments  -> POST /departments   (real, one call each)
-  //   orgProfile   -> nowhere. The Organization was already created at
-  //                   /verify-organization, and there's no PATCH
-  //                   /organizations to rename it or set a logo.
+  //   orgProfile   -> PATCH /organization (real since Phase 3): name,
+  //                   industry and timezone. Sent first — the timezone
+  //                   decides which day every later punch belongs to.
+  //                   Idempotent by nature: it sets values, so a retry
+  //                   just sets them again. (Logo has no field yet.)
   //   workRules    -> POST /work-rules (real since Phase 3), as the org's
   //                   default rule. The step has no day picker, so Mon–Fri;
   //                   it can be changed on the Time Regulation page.
@@ -215,6 +218,19 @@ export default function OnboardingPage() {
       // exists", with no way to move forward or back.
       //
       // So: read what's already there, and only create what's missing.
+      if (payload.orgProfile) {
+        const saved = await updateOrganization({
+          name: payload.orgProfile.organizationName,
+          industry: payload.orgProfile.industry,
+          timezone: normalizeTimezone(payload.orgProfile.timezone),
+        });
+        // The sidebar and header read the name from the session, which was
+        // filled at sign-in — keep it in step with a rename made here.
+        useAuthStore.setState((state) =>
+          state.user ? { user: { ...state.user, organizationName: saved.name } } : state
+        );
+      }
+
       const [existingOffices, existingDepartments, existingUsers, existingRules] =
         await Promise.all([
           appClient

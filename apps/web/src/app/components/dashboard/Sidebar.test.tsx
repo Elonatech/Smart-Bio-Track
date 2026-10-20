@@ -90,17 +90,43 @@ describe('what each role is offered', () => {
     renderSidebar({ role: 'SUPER_ADMIN' });
 
     expect(screen.getByRole('link', { name: /audit logs/i })).toBeInTheDocument();
-    // Organization Settings carries requiredPlan: "ENTERPRISE"
-    // (sidebarConfig.ts), and CURRENT_PLAN is hardcoded to "STARTER"
-    // (planTiers.ts) — there's no real plan on Organization yet, so this
-    // item is always locked today. A locked item is still OFFERED to a
-    // SUPER_ADMIN (it's crowned and clickable-to-an-upsell-toast, not
-    // hidden), so it's still in the sidebar's items — just rendered as a
-    // <button>, not a <Link>, since clicking it navigates nowhere. See
-    // Sidebar.tsx's isLocked branch.
+    // Open on every plan since Phase 3: it holds the organization profile
+    // (name, industry, timezone), which every organization needs. Its
+    // Enterprise-only parts are locked inside the page instead.
     expect(
-      screen.getByRole('button', { name: /organization settings/i })
+      screen.getByRole('link', { name: /organization settings/i })
     ).toBeInTheDocument();
+  });
+
+  it('offers a plan-locked item without letting it navigate', () => {
+    // A locked item is still OFFERED (crowned, and clicking it explains the
+    // plan) rather than hidden — rendered as a <button>, not a <Link>, since
+    // it goes nowhere. See Sidebar.tsx's isLocked branch. Uses its own
+    // item rather than a real page's, so this keeps covering the lock even
+    // as real pages move between plans. CURRENT_PLAN is hardcoded below
+    // Enterprise (planTiers.ts).
+    signedInAs('SUPER_ADMIN');
+    pathname = '/dashboard/super-admin';
+    render(
+      <Sidebar
+        items={[
+          ...SIDEBAR_ITEMS.SUPER_ADMIN,
+          {
+            label: 'Enterprise feature',
+            href: '/dashboard/super-admin/enterprise-only',
+            icon: SIDEBAR_ITEMS.SUPER_ADMIN[0].icon,
+            requiredPlan: 'ENTERPRISE',
+          },
+        ]}
+        isMobileOpen={false}
+        onCloseMobile={jest.fn()}
+        isCollapsed={false}
+        onToggleCollapse={jest.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /enterprise feature/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /enterprise feature/i })).not.toBeInTheDocument();
   });
 
   it('offers no audit trail to any other role', () => {

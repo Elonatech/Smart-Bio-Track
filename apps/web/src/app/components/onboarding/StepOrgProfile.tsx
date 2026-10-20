@@ -1,8 +1,8 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Lock } from "lucide-react";
 import { orgProfileSchema, type OrgProfileValues } from "@/lib/validation/onboarding";
 import { INDUSTRIES } from "@/lib/industries";
+import { DEFAULT_TIMEZONE, TIMEZONES, normalizeTimezone } from "@/lib/organization";
 
 // Every step component follows this same contract:
 // - `defaultValues`: whatever was entered last time (so clicking "Back"
@@ -27,32 +27,26 @@ export function StepOrgProfile({ defaultValues, onNext, onBack }: StepOrgProfile
   } = useForm<OrgProfileValues>({
     resolver: zodResolver(orgProfileSchema),
     defaultValues: {
-      timezone: "WAT",
       ...defaultValues,
+      // normalizeTimezone: saved progress from before this change may
+      // still hold "WAT", which the API refuses.
+      timezone: normalizeTimezone(defaultValues?.timezone ?? DEFAULT_TIMEZONE),
     },
   });
 
-  // Both were already collected for real at signup (verify-organization
-  // requires them) and the Organization row was created with them then.
-  // This step used to let you retype either one — which looked like an
-  // edit, updated nothing, and reappeared as the ORIGINAL value the moment
-  // you left and came back, because onboarding/page.tsx's handleFinish has
-  // nowhere to send an org-profile change: there is no PATCH /organizations
-  // endpoint yet, only POST /auth/verify-organization, which only ever
-  // runs once. Shown read-only with that explained, instead of an
-  // editable-looking field whose edits silently evaporate.
+  // Editable now that there's somewhere to send them: handleFinish saves
+  // name, industry and timezone with PATCH /organization. (Until Phase 3
+  // these were shown locked, because there was no endpoint and an edit
+  // here silently changed nothing.) Prefilled from signup, so most people
+  // just continue.
   //
-  // Locked ONLY when there's a real value to show. A signup that somehow
-  // reached this step with one blank (a pre-existing org from before
-  // industry was required, a seed script, bad data) must still be able to
-  // TYPE one in — both are required by the schema below, and a locked
-  // empty field can never satisfy that, which would strand that account
-  // on step 1 of its own wizard with no way to continue and no visible
-  // reason why.
-  const readOnlyOrgName = defaultValues?.organizationName ?? "";
-  const readOnlyIndustry = defaultValues?.industry ?? "";
-  const isOrgNameLocked = readOnlyOrgName.trim().length > 0;
-  const isIndustryLocked = readOnlyIndustry.trim().length > 0;
+  // An industry saved at signup that isn't in today's list stays
+  // selectable, so prefilling never silently blanks it.
+  const savedIndustry = defaultValues?.industry ?? "";
+  const industryOptions =
+    savedIndustry && !(INDUSTRIES as readonly string[]).includes(savedIndustry)
+      ? [savedIndustry, ...INDUSTRIES]
+      : INDUSTRIES;
 
   // Note: no try/catch or API call here. Unlike login/register, this
   // step doesn't hit the backend on its own — it just hands validated
@@ -72,32 +66,12 @@ export function StepOrgProfile({ defaultValues, onNext, onBack }: StepOrgProfile
         >
           Organization name
         </label>
-        {isOrgNameLocked ? (
-          <>
-            <div
-              id="organizationName"
-              className="flex items-center justify-between gap-2 w-full rounded-md border border-neutral/40 bg-neutral/5 px-3 py-2 text-sm text-heading"
-            >
-              <span>{readOnlyOrgName}</span>
-              <Lock className="h-3.5 w-3.5 shrink-0 text-neutral" strokeWidth={2} />
-            </div>
-            {/* Carries the real value through to onNext(values) —
-                nothing here is user-editable, so there's nothing for a
-                visible input to register against. */}
-            <input type="hidden" {...register("organizationName")} />
-            <p className="mt-1 text-xs text-neutral">
-              Set when your workspace was created — renaming isn&apos;t
-              available yet.
-            </p>
-          </>
-        ) : (
-          <input
-            id="organizationName"
-            type="text"
-            {...register("organizationName")}
-            className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-        )}
+        <input
+          id="organizationName"
+          type="text"
+          {...register("organizationName")}
+          className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        />
         {errors.organizationName && (
           <p className="mt-1 text-sm text-alert">
             {errors.organizationName.message}
@@ -130,35 +104,20 @@ export function StepOrgProfile({ defaultValues, onNext, onBack }: StepOrgProfile
           >
             Industry
           </label>
-          {isIndustryLocked ? (
-            <>
-              <div
-                id="industry"
-                className="flex items-center justify-between gap-2 w-full rounded-md border border-neutral/40 bg-neutral/5 px-3 py-2 text-sm text-heading"
-              >
-                <span>{readOnlyIndustry}</span>
-                <Lock className="h-3.5 w-3.5 shrink-0 text-neutral" strokeWidth={2} />
-              </div>
-              <input type="hidden" {...register("industry")} />
-              <p className="mt-1 text-xs text-neutral">Also set at signup.</p>
-            </>
-          ) : (
-            <select
-              id="industry"
-              {...register("industry")}
-              defaultValue=""
-              className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="" disabled>
-                Select industry
+          <select
+            id="industry"
+            {...register("industry")}
+            className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="" disabled>
+              Select industry
+            </option>
+            {industryOptions.map((industry) => (
+              <option key={industry} value={industry}>
+                {industry}
               </option>
-              {INDUSTRIES.map((industry) => (
-                <option key={industry} value={industry}>
-                  {industry}
-                </option>
-              ))}
-            </select>
-          )}
+            ))}
+          </select>
           {errors.industry && (
             <p className="mt-1 text-sm text-alert">{errors.industry.message}</p>
           )}
@@ -177,8 +136,16 @@ export function StepOrgProfile({ defaultValues, onNext, onBack }: StepOrgProfile
           {...register("timezone")}
           className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         >
-          <option value="WAT">(GMT+1) West Africa Time — WAT</option>
+          {/* IANA values only — see TIMEZONES in lib/organization.ts. */}
+          {TIMEZONES.map((zone) => (
+            <option key={zone.value} value={zone.value}>
+              {zone.label}
+            </option>
+          ))}
         </select>
+        <p className="mt-1 text-xs text-neutral">
+          Decides which day each clock-in belongs to, and what &ldquo;08:00&rdquo; means for lateness.
+        </p>
       </div>
 
       <div className="flex items-center justify-between pt-4 border-t border-neutral/20">

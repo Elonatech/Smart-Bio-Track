@@ -6,6 +6,9 @@ import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { Toggle } from "@/app/components/dashboard/Toggle";
 import { useToast } from "@/app/components/Toast";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
+import { OrganizationProfileCard } from "@/app/components/dashboard/OrganizationProfileCard";
+import { Lock } from "lucide-react";
+import { CURRENT_PLAN, PLAN_LABEL, isPlanUnlocked } from "@/lib/planTiers";
  
 
 const REQUIRED_SIGNALS = [
@@ -43,12 +46,16 @@ export default function SuperAdminSettingsPage() {
     Object.fromEntries(SECURITY_POLICIES.map((p) => [p.key, p.defaultOn])) as Record<PolicyKey, boolean>
   );
 
+  const isSecurityUnlocked = isPlanUnlocked("ENTERPRISE", CURRENT_PLAN);
   const [auditRetentionYears, setAuditRetentionYears] = useState(7);
   const [punchRetentionYears, setPunchRetentionYears] = useState(5);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <SampleDataBanner describes="settings" />
+      {/* Partial: the organization profile below is real (PATCH
+          /organization); every card after it is Phase 4+ and still sample. */}
+      <SampleDataBanner partial />
+      <OrganizationProfileCard />
       {/* Trust score thresholds */}
       <div className="bg-surface border border-neutral/20 rounded-xl p-5">
         <h2 className="text-base font-semibold text-heading">Trust score thresholds</h2>
@@ -142,9 +149,26 @@ export default function SuperAdminSettingsPage() {
         </button>
       </div>
 
-      {/* Security policy */}
+      {/* Security policy — Enterprise ("Single Sign-On & custom password
+          policy" on the pricing page). The page itself is open on every
+          plan; this card is locked inside it. The fieldset disables every
+          control within, the Save button included. */}
       <div className="bg-surface border border-neutral/20 rounded-xl p-5">
-        <h2 className="text-base font-semibold text-heading mb-4">Security policy</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <h2 className="text-base font-semibold text-heading">Security policy</h2>
+          {!isSecurityUnlocked && (
+            <span className="inline-flex items-center gap-1 rounded bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+              <Lock className="h-3 w-3" strokeWidth={2} />
+              {PLAN_LABEL.ENTERPRISE} plan
+            </span>
+          )}
+        </div>
+        {!isSecurityUnlocked && (
+          <p className="-mt-2 mb-4 text-sm text-neutral">
+            Available on the {PLAN_LABEL.ENTERPRISE} plan.
+          </p>
+        )}
+        <fieldset disabled={!isSecurityUnlocked} className="disabled:opacity-50">
 
         <div className="space-y-4">
           {SECURITY_POLICIES.map((policy) => (
@@ -173,6 +197,7 @@ export default function SuperAdminSettingsPage() {
         >
           Save policy
         </button>
+        </fieldset>
       </div>
 
       {/* Data retention */}

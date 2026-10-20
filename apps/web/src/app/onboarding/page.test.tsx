@@ -27,7 +27,7 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('@/lib/api-client', () => ({
-  appClient: { get: jest.fn(), post: jest.fn() },
+  appClient: { get: jest.fn(), post: jest.fn(), patch: jest.fn() },
   extractErrorMessage: (err: unknown) =>
     err instanceof Error ? err.message : 'Something went wrong',
 }));
@@ -40,7 +40,7 @@ jest.mock('@/app/components/Toast', () => ({
 
 // What each stub step submits when its Next button is clicked.
 const STEP_VALUES = {
-  orgProfile: { organizationName: 'Acme Ltd', industry: 'Retail', timezone: 'WAT' },
+  orgProfile: { organizationName: 'Acme Ltd', industry: 'Retail', timezone: 'Africa/Lagos' },
   office: {
     officeName: 'Lagos HQ',
     latitude: 6.5,
@@ -96,6 +96,7 @@ jest.mock('@/app/components/onboarding/StepInviteTeam', () => ({
 
 const mockGet = appClient.get as jest.Mock;
 const mockPost = appClient.post as jest.Mock;
+const mockPatch = appClient.patch as jest.Mock;
 
 const PROGRESS_KEY = 'onboarding-progress:user-1';
 
@@ -136,6 +137,9 @@ beforeEach(() => {
   signOut();
   signInAs('SUPER_ADMIN');
   mockPost.mockResolvedValue({ data: {} });
+  mockPatch.mockImplementation((_url: string, body: { name?: string }) =>
+    Promise.resolve({ data: { id: 'org-1', name: body.name ?? 'Acme Ltd', industry: 'Retail', timezone: 'Africa/Lagos' } })
+  );
   existing();
 });
 
@@ -252,6 +256,37 @@ describe('the exits', () => {
 });
 
 describe('finishing setup', () => {
+  it('saves the organization profile, with an IANA time zone', async () => {
+    seedFinishedWizard();
+    renderWithProviders(<OnboardingPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Finish setup' }));
+    await waitFor(() => expect(push).toHaveBeenCalled());
+
+    expect(mockPatch).toHaveBeenCalledWith('/organization', {
+      name: 'Acme Ltd',
+      industry: 'Retail',
+      timezone: 'Africa/Lagos',
+    });
+  });
+
+  it('turns an old saved "WAT" into Africa/Lagos, which the API accepts', async () => {
+    // Progress saved before the timezone fix still holds the abbreviation.
+    localStorage.setItem(
+      PROGRESS_KEY,
+      JSON.stringify({
+        currentStep: 6,
+        payload: { ...STEP_VALUES, orgProfile: { ...STEP_VALUES.orgProfile, timezone: 'WAT' } },
+      })
+    );
+    renderWithProviders(<OnboardingPage />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Finish setup' }));
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled());
+
+    expect(mockPatch.mock.calls[0][1].timezone).toBe('Africa/Lagos');
+  });
+
   it('creates the branch, each department and each invite through the real endpoints', async () => {
     seedFinishedWizard();
     renderWithProviders(<OnboardingPage />);

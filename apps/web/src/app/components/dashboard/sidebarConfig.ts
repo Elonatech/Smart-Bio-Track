@@ -43,7 +43,10 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
     { label: "Time Regulation", href: `${SUPER_ADMIN_ROOT}/time-regulation`, icon: Clock },
     { label: "Holiday Calendar", href: `${SUPER_ADMIN_ROOT}/holidays`, icon: Calendar },
     { label: "Audit Logs", href: `${SUPER_ADMIN_ROOT}/audit-logs`, icon: ClipboardList },
-    { label: "Organization Settings", href: `${SUPER_ADMIN_ROOT}/settings`, icon: Settings, requiredPlan: "ENTERPRISE" },
+    // Every plan: the organization profile on this page (name, industry,
+    // timezone) is something every organization must be able to change.
+    // Enterprise-only parts are locked inside the page instead.
+    { label: "Organization Settings", href: `${SUPER_ADMIN_ROOT}/settings`, icon: Settings },
     { label: "Profile", href: `${SUPER_ADMIN_ROOT}/profile`, icon: User },
   ],
   HR_ADMIN: [
