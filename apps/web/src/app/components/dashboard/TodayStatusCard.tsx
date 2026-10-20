@@ -9,6 +9,7 @@ import { useToast } from "@/app/components/Toast";
 import { extractErrorMessage } from "@/lib/api-client";
 import {
   fetchToday,
+  punchErrorMessage,
   readPositionQuietly,
   recordPunch,
   timeFromPunches,
@@ -146,7 +147,7 @@ export function TodayStatusCard() {
       await recordPunch(type, location);
       toast.success(...PUNCH_TOAST[type]);
     } catch (error) {
-      toast.error("That didn't go through", extractErrorMessage(error));
+      toast.error("That didn't go through", punchErrorMessage(error));
     } finally {
       setPending(null);
       // Re-read either way: on success it replaces the placeholder with the

@@ -29,18 +29,17 @@ function toMinutes(time: string | undefined): number | null {
 }
 
 /**
- * Hours between two "HH:MM" times. An end earlier than the start is read as
- * the next day (a night shift, 20:00 to 06:00 is 10 hours). Equal times, or
- * anything unreadable, is 0 — never a made-up 24.
+ * Hours between two "HH:MM" times. An end at or before the start is 0: night
+ * shifts aren't supported (Phase 3 Manual, decision 8 — the API refuses them),
+ * so the worked example must not present 20:00–06:00 as a valid 10-hour day.
+ * Anything unreadable is 0 too — never a made-up figure.
  */
 export function hoursBetween(start: string | undefined, end: string | undefined): number {
   const from = toMinutes(start);
   const to = toMinutes(end);
   if (from === null || to === null) return 0;
 
-  let minutes = to - from;
-  if (minutes < 0) minutes += 24 * 60;
-  return minutes / 60;
+  return Math.max(0, to - from) / 60;
 }
 
 export interface OvertimeExample {

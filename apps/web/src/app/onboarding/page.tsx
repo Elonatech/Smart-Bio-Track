@@ -36,11 +36,6 @@ function getProgressKey(userId: string) {
 
 const STARTER_RULE_NAME = "Standard hours";
 
-/** "08:30" → 510. */
-function toMinutes(time: string): number {
-  const [h, m] = time.split(":").map(Number);
-  return h * 60 + m;
-}
 
 interface SavedProgress {
   currentStep: number;
@@ -275,18 +270,18 @@ export default function OnboardingPage() {
       // and a second "default" would quietly replace theirs.
       if (payload.workRules && existingRules.data.length === 0) {
         const rule = payload.workRules;
-        const startMinutes = toMinutes(rule.startTime);
         await appClient.post("/work-rules", {
           name: STARTER_RULE_NAME,
           workingDays: [1, 2, 3, 4, 5],
           startTime: rule.startTime,
           endTime: rule.endTime,
           gracePeriodMinutes: rule.gracePeriodMinutes,
-          // The step stores the CLOCK HOUR overtime starts (e.g. 17 for
-          // 5pm); the API wants worked minutes in a day. Hours from start
-          // to that hour is the same threshold.
-          overtimeAfterMinutes: Math.max(0, rule.overtimeAfterHours * 60 - startMinutes),
-          overtimeMultiplier: rule.overtimeMultiplier,
+          // No overtime fields, on purpose. Phase 3 Manual §3: what
+          // "overtime" means is still undecided — the step means "after a
+          // clock time" (17:00), the server means "beyond a length of day"
+          // (480 min), and they disagree on real days and so on pay. Until
+          // that's settled the rule is created with overtime untracked;
+          // it can be switched on in Time Regulation.
           isDefault: true,
         });
       }

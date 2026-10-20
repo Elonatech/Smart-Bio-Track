@@ -41,6 +41,10 @@ export const officeSchema = z.object({
 });
 export type OfficeValues = z.infer<typeof officeSchema>;
 
+// .refine below: no overnight shifts (Phase 3 Manual, decision 8). The API
+// refuses an end at or before the start; checking it here means the person
+// sees it on this step, not as an error on the wizard's final screen.
+// "HH:MM" strings compare correctly as plain text.
 export const workRulesSchema = z.object({
   startTime: z.string().min(1, { message: "Start time is required" }), // "08:00"
   endTime: z.string().min(1, { message: "End time is required" }),     // "17:00"
@@ -52,6 +56,9 @@ export const workRulesSchema = z.object({
   // Pay rate multiplier applied once overtimeAfterHours is exceeded,
   // e.g. 1.5 = "time and a half". 1 = no extra pay, just tracked hours.
   overtimeMultiplier: z.number().min(1).max(3),
+}).refine((v) => v.endTime > v.startTime, {
+  message: "The end time must be after the start time. Overnight shifts are not supported yet.",
+  path: ["endTime"],
 });
 export type WorkRulesValues = z.infer<typeof workRulesSchema>;
 

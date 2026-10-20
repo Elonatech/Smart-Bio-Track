@@ -1,4 +1,4 @@
-import { appClient } from "@/lib/api-client";
+import { appClient, extractErrorMessage } from "@/lib/api-client";
 
 // The attendance API (apps/api/src/attendance), Phase 3. Every route acts on
 // the signed-in caller only — there is no user id to pass.
@@ -167,4 +167,21 @@ export function readPositionQuietly(timeoutMs = 4000): Promise<PunchLocation | n
       { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 60_000 },
     );
   });
+}
+
+/** Shown when a punch never reached the server (Phase 3 Manual §8.2). */
+export const NOT_RECORDED_MESSAGE = "Not recorded — check your connection and try again.";
+
+/**
+ * What to tell someone when a punch fails.
+ *
+ * No response at all means the request never arrived — so say plainly that
+ * nothing was recorded, rather than "Network Error". A response means the
+ * server decided (a 409 like "You are already on a break."), and its
+ * message is written for the person, so it's shown as-is.
+ */
+export function punchErrorMessage(error: unknown): string {
+  const isAxiosLike = typeof error === "object" && error !== null && "isAxiosError" in error;
+  if (isAxiosLike && !(error as { response?: unknown }).response) return NOT_RECORDED_MESSAGE;
+  return extractErrorMessage(error);
 }

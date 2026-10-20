@@ -9,8 +9,10 @@ describe('hoursBetween', () => {
     expect(hoursBetween('08:30', '17:00')).toBe(8.5);
   });
 
-  it('reads an end earlier than the start as the next day (night shift)', () => {
-    expect(hoursBetween('20:00', '06:00')).toBe(10);
+  it('gives 0 for an end before the start — night shifts are not supported', () => {
+    // Phase 3 Manual, decision 8. This used to read 20:00–06:00 as a
+    // 10-hour night shift, which the API would then refuse.
+    expect(hoursBetween('20:00', '06:00')).toBe(0);
   });
 
   it('treats identical times as zero rather than a full 24 hours', () => {

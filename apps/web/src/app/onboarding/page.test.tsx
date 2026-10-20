@@ -285,9 +285,8 @@ describe('finishing setup', () => {
           startTime: '08:00',
           endTime: '17:00',
           gracePeriodMinutes: 15,
-          // Overtime "from 17:00" on an 08:00 start = after 9 hours worked.
-          overtimeAfterMinutes: 540,
-          overtimeMultiplier: 1.5,
+          // No overtime fields: the overtime definition is still open
+          // (Phase 3 Manual §3), so the rule is created with it untracked.
           isDefault: true,
         },
       ],

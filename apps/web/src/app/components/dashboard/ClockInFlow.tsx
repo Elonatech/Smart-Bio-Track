@@ -11,8 +11,8 @@ import {
   LoaderCircle,
   ShieldQuestion,
 } from "lucide-react";
-import { appClient, extractErrorMessage } from "@/lib/api-client";
-import type { PunchLocation } from "@/lib/attendance";
+import { appClient } from "@/lib/api-client";
+import { punchErrorMessage, type PunchLocation } from "@/lib/attendance";
 import {
   distanceInMeters,
   formatDistance,
@@ -154,20 +154,20 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
   const isWithinFence =
     location.status === "resolved" && location.result.withinFence;
 
-  // Disables the final button for whichever reason is actually true right
-  // now, and says so specifically — "you're 340m away" is a real,
-  // actionable gate that the button stays disabled for. Once location is
-  // genuinely fine, there is nothing left to block on: null here means
-  // "enabled", with a permanent disclaimer below (not a disabled reason)
-  // noting the punch is recorded with the server's time.
-  const confirmDisabledReason = (() => {
-    if (location.status === "checking") return "Checking your location…";
+  // A HINT, not a gate (Phase 3 Manual, decision 6): location is recorded
+  // with the punch, never enforced, until Phase 4 makes the server the
+  // authority. So the button only waits while the location check is still
+  // running; outside the fence, with location blocked, or with no branches
+  // set up, the person can still clock in — and is told plainly what was
+  // found. (This used to disable the button in all three cases.)
+  const isCheckingLocation = location.status === "checking";
+  const locationWarning = (() => {
     if (location.status === "denied")
-      return "Resolve the location error above first.";
+      return "We couldn't read your location, so your clock-in will be recorded without one.";
     if (location.status === "no-offices")
-      return "No branches are configured for your organization yet.";
-    if (!isWithinFence)
-      return "You need to be inside a branch's geo-fence to clock in.";
+      return "No branches are set up yet, so we can't check where you are.";
+    if (location.status === "resolved" && !isWithinFence)
+      return `You appear to be outside ${location.result.office.name}'s geo-fence. You can still clock in — your location is recorded with it.`;
     return null;
   })();
 
@@ -185,7 +185,7 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
       // Stay on the checks so they can tap confirm again. The server's
       // refusals ("You are already clocked in.") are written for people, so
       // they're shown as-is.
-      toast.error("Couldn't clock you in", extractErrorMessage(error));
+      toast.error("Couldn't clock you in", punchErrorMessage(error));
     } finally {
       setIsConfirming(false);
     }
@@ -287,7 +287,7 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
                   {location.status === "resolved" && (
                     <>
                       <p
-                        className={`text-xs mt-0.5 ${isWithinFence ? "text-success" : "text-alert"}`}
+                        className={`text-xs mt-0.5 ${isWithinFence ? "text-success" : "text-warning"}`}
                       >
                         {isWithinFence
                           ? `Within ${location.result.office.name}'s geo-fence (±${Math.round(location.result.accuracyMeters)} m GPS accuracy)`
@@ -354,17 +354,26 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={confirmDisabledReason !== null || isConfirming}
-              title={confirmDisabledReason ?? undefined}
+              disabled={isCheckingLocation || isConfirming}
+              title={isCheckingLocation ? "Checking your location…" : undefined}
               className="mt-5 w-full inline-flex items-center justify-center gap-2 bg-primary text-white text-sm font-semibold py-3 rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <LogIn className="h-4 w-4" strokeWidth={2} />
-              {isConfirming ? "Confirming…" : "Confirm clock-in"}
+              {isConfirming
+                ? "Confirming…"
+                : isCheckingLocation
+                  ? "Checking your location…"
+                  : "Confirm clock-in"}
             </button>
-            <p className="mt-2 text-center text-xs text-neutral">
-              {confirmDisabledReason ??
-                "Your clock-in is recorded with the server's time, along with your location."}
-            </p>
+            {locationWarning ? (
+              <p role="status" className="mt-2 rounded-md bg-warning/10 px-3 py-2 text-center text-xs text-warning">
+                {locationWarning}
+              </p>
+            ) : (
+              <p className="mt-2 text-center text-xs text-neutral">
+                Your clock-in is recorded with the server&apos;s time, along with your location.
+              </p>
+            )}
           </>
         )}
       </div>
