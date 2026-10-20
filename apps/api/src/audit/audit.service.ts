@@ -52,6 +52,10 @@ export const AUDIT_ACTIONS = [
   'HOLIDAY_UPDATED',
   'HOLIDAY_DELETED',
   'ORGANIZATION_UPDATED',
+  // Written by the end-of-day job (M6), one per organisation per day it
+  // changed, with no actor ("System"). The label carries the counts — how many
+  // were marked absent, how many left a day unfinished.
+  'ATTENDANCE_DAY_CLOSED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
