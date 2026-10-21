@@ -289,12 +289,12 @@ export function TodayStatusCard() {
         <MiniStat
           icon={LogIn}
           label="Clock-in time"
-          value={firstClockIn ? formatRecordedTime(firstClockIn.occurredAt) : "—"}
+          value={firstClockIn ? formatRecordedTime(firstClockIn.occurredAt, today?.timeZone) : "—"}
         />
         <MiniStat
           icon={LogOut}
           label="Clock-out time"
-          value={lastClockOut ? formatRecordedTime(lastClockOut.occurredAt) : "—"}
+          value={lastClockOut ? formatRecordedTime(lastClockOut.occurredAt, today?.timeZone) : "—"}
         />
         <MiniStat
           icon={Timer}

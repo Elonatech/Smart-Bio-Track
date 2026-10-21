@@ -12,6 +12,7 @@ import {
 import { useAuthStore } from "@/lib/store/auth-store";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { formatOrgToday, useOrgTimeZone, zoneLabel } from "@/lib/orgTime";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 import { getInitials } from "@/lib/initials";
 
@@ -107,16 +108,14 @@ export default function TeamLeadDashboardPage() {
   // "Engineering", which every Sales lead in the product also saw.
   const teamName =
     useAuthStore((state) => state.user?.departmentName) ?? "Your team";
-  const today = new Date().toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  // The organisation's date and zone, not the browser's (decision 1.1).
+  const timeZone = useOrgTimeZone();
+  const today = formatOrgToday(timeZone);
+  const zone = timeZone ? ` · ${zoneLabel(timeZone)}` : "";
 
   usePageHeader(
     `${teamName} — today`,
-    `${orgName ? `${orgName} · ` : ""}${today} · WAT`
+    `${orgName ? `${orgName} · ` : ""}${today}${zone}`
   );
 
   // Counted off the roster rather than hardcoded, so the cards can't

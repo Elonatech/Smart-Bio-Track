@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/store/auth-store";
 import { SetupReminderBanner } from "@/app/components/dashboard/SetupReminderBanner";
 import { OrgTodayPanel } from "@/app/components/dashboard/OrgTodayPanel";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { formatOrgToday, useOrgTimeZone, zoneLabel } from "@/lib/orgTime";
 import { fetchWorkRules, type WorkRule } from "@/lib/workRules";
 import { SAMPLE_FLAGGED_PUNCHES } from "@/app/components/dashboard/flaggedPunchSamples";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
@@ -28,13 +29,11 @@ interface RecentAuditEntry {
 
 export default function SuperAdminDashboardPage() {
   const orgName = useAuthStore((state) => state.user?.organizationName) ?? "Your organization";
-  const today = new Date().toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-  usePageHeader("Organization overview", `${orgName} · ${today} · WAT`);
+  // The organisation's date and zone, not the browser's (decision 1.1).
+  const timeZone = useOrgTimeZone();
+  const today = formatOrgToday(timeZone);
+  const zone = timeZone ? ` · ${zoneLabel(timeZone)}` : "";
+  usePageHeader("Organization overview", `${orgName} · ${today}${zone}`);
 
   // Employees, offices, work rules and recent activity are real. Flagged
   // Punches still has no backend (Phase 4), so that card stays sourced from

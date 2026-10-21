@@ -153,7 +153,7 @@ export function OrgTodayPanel() {
             </h2>
             <p className="text-xs text-neutral">
               {ctx ? formatDay(ctx.workDate) : "Loading…"}
-              {updatedAt && ` · updated ${formatRecordedTime(updatedAt.toISOString())}`}
+              {updatedAt && ` · updated ${formatRecordedTime(updatedAt.toISOString(), ctx?.timeZone)}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -262,7 +262,7 @@ export function OrgTodayPanel() {
                 onToggle={() => setShowAllLate((v) => !v)}
                 renderRight={(p) => (
                   <span className="text-warning tabular-nums whitespace-nowrap">
-                    {formatRecordedTime((p as OrgTodayLate).firstClockIn)} · {(p as OrgTodayLate).lateMinutes}m
+                    {formatRecordedTime((p as OrgTodayLate).firstClockIn, ctx?.timeZone)} · {(p as OrgTodayLate).lateMinutes}m
                   </span>
                 )}
               />

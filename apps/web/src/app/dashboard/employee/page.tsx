@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+
 import {
   CalendarDays,
   Clock,
@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { formatOrgToday, useOrgTimeZone, zoneLabel } from "@/lib/orgTime";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 
@@ -176,12 +177,9 @@ const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default function EmployeeDashboardPage() {
   const today = new Date();
-  const formattedToday = today.toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  // The organisation's date and zone, not the browser's (decision 1.1).
+  const timeZone = useOrgTimeZone();
+  const formattedToday = formatOrgToday(timeZone, today);
   const monthLabel = today.toLocaleDateString("en-GB", {
     month: "long",
     year: "numeric",
@@ -189,14 +187,12 @@ export default function EmployeeDashboardPage() {
 
   // Title stays "Today" to match the reference — the navbar's account
   // chip already shows who is signed in.
-  usePageHeader("Today", `${formattedToday} · West Africa Time (WAT)`);
+  usePageHeader("Today", `${formattedToday}${timeZone ? ` · ${zoneLabel(timeZone)}` : ""}`);
 
-  // Recomputed only when the calendar date actually changes, not on
-  // every re-render.
-  const { leadingBlanks, days } = useMemo(
-    () => buildMonthDays(today),
-    [today.toDateString()] // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  // One month of calendar cells — cheap enough to build every render, and
+  // the React compiler memoizes it anyway. (A hand-written useMemo keyed on
+  // today.toDateString() was flagged by both the hooks and compiler lints.)
+  const { leadingBlanks, days } = buildMonthDays(today);
 
   // Bar heights are relative to the longest day of the week, so the
   // chart stays readable whatever the actual hours are.

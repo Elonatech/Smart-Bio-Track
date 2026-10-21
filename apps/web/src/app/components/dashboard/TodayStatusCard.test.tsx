@@ -206,3 +206,14 @@ describe("punching", () => {
     );
   });
 });
+
+describe("times", () => {
+  it("shows clock-in in the organisation's zone from the response, not the viewer's", async () => {
+    // 07:00 UTC is 08:00 in Lagos. The test machine isn't in Lagos, so seeing
+    // 08:00 proves the response's timeZone was used (decision 1.1).
+    mockGet.mockResolvedValue(today("CLOCKED_IN", [{ type: "CLOCK_IN", occurredAt: at("07:00") }]));
+    renderCard();
+
+    expect(await screen.findByText(/^08:00/)).toBeInTheDocument();
+  });
+});

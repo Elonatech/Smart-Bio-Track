@@ -77,10 +77,10 @@ export async function submitClockIn(
   return { status: "approved", recordedAt: punch.occurredAt };
 }
 
-// Turns a stored UTC instant into a time the reader can use: shown in THEIR
-// timezone, with the zone named ("09:12 WAT"), so someone in London and
-// someone in Lagos each read their own wall clock without either being wrong.
-// `timeZone` exists for tests; the app always passes nothing (browser zone).
+// Turns a stored UTC instant into a time people can read, with the zone named
+// ("09:12 GMT+1"). Pass the ORGANISATION's zone (backend decision 1.1): from
+// the API response where it carries `timeZone`, else useOrgTimeZone() in
+// lib/orgTime.ts. Undefined falls back to the browser's zone.
 export function formatRecordedTime(iso: string, timeZone?: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",

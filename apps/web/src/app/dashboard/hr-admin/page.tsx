@@ -5,6 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { OrgTodayPanel } from "@/app/components/dashboard/OrgTodayPanel";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { formatOrgToday, useOrgTimeZone, zoneLabel } from "@/lib/orgTime";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
 // HR Admin's overview. HR clocks in like everyone else, so its own
@@ -72,14 +73,12 @@ const SERIES = [
 ] as const;
 
 export default function HRAdminDashboardPage() {
-  const today = new Date().toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  // The organisation's date and zone, not the browser's (decision 1.1).
+  const timeZone = useOrgTimeZone();
+  const today = formatOrgToday(timeZone);
+  const zone = timeZone ? ` · ${zoneLabel(timeZone)}` : "";
 
-  usePageHeader("HR dashboard", `${today} · WAT`);
+  usePageHeader("HR dashboard", `${today}${zone}`);
 
   return (
     <div>

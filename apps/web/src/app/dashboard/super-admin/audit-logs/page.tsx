@@ -5,6 +5,7 @@ import { Lock, Search } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
+import { useOrgTimeZone } from "@/lib/orgTime";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { DataTable } from "@/app/components/dashboard/DataTable";
 
@@ -82,13 +83,14 @@ const ACTION_LABEL: Record<string, string> = {
  * reviewing a Lagos organization should see 09:41 in their own time, because
  * the question an audit trail answers is "where was I when this happened?".
  */
-function formatTimestamp(iso: string): string {
+function formatTimestamp(iso: string, timeZone: string | undefined): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
 
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "medium",
+    timeZone,
   }).format(date);
 }
 
@@ -98,6 +100,7 @@ export default function SuperAdminAuditLogsPage() {
 
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const timeZone = useOrgTimeZone();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [action, setAction] = useState("");
@@ -240,7 +243,7 @@ export default function SuperAdminAuditLogsPage() {
                 {log.actorRole ? ` (${ROLE_LABEL[log.actorRole]})` : ""}
               </p>
               <p className="text-[12px] text-neutral">
-                {formatTimestamp(log.createdAt)}
+                {formatTimestamp(log.createdAt, timeZone)}
               </p>
             </div>
           )}
@@ -251,7 +254,7 @@ export default function SuperAdminAuditLogsPage() {
               hideOnMobile: true,
               render: (log) => (
                 <span className="text-neutral whitespace-nowrap">
-                  {formatTimestamp(log.createdAt)}
+                  {formatTimestamp(log.createdAt, timeZone)}
                 </span>
               ),
             },

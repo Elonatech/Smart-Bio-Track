@@ -1,6 +1,7 @@
 "use client";
 
 import { CircleCheck, CircleX, TriangleAlert } from "lucide-react";
+import { useOrgTimeZone } from "@/lib/orgTime";
 import {
   formatRecordedTime,
   type ClockInOutcome,
@@ -23,10 +24,12 @@ export function ClockInResult({
   onDone,
   onRetry,
 }: ClockInResultProps) {
-  // The server's UTC instant, shown in the viewer's own timezone with the
+  // Organisation's zone (decision 1.1); the punch response carries none.
+  const timeZone = useOrgTimeZone();
+  // The server's UTC instant, shown in the organisation's zone with the
   // zone named. Rejected has no time — nothing was recorded.
   const time =
-    outcome.status === "rejected" ? "" : formatRecordedTime(outcome.recordedAt);
+    outcome.status === "rejected" ? "" : formatRecordedTime(outcome.recordedAt, timeZone);
 
   const view = {
     approved: {

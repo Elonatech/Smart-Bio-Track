@@ -92,6 +92,8 @@ export function MyAttendanceHistory() {
   const [range, setRange] = useState<Range>(30);
   const [filter, setFilter] = useState<Filter>("ALL");
   const [days, setDays] = useState<AttendanceDay[] | null>(null);
+  // From the response: times show in the organisation's zone (decision 1.1).
+  const [timeZone, setTimeZone] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -102,6 +104,7 @@ export function MyAttendanceHistory() {
       .then((history) => {
         if (!isActive) return;
         setDays(history.days);
+        setTimeZone(history.timeZone);
         setError(null);
       })
       .catch((err) => {
@@ -205,7 +208,7 @@ export function MyAttendanceHistory() {
               header: "Clock in",
               render: (day) => (
                 <span className="text-neutral tabular-nums">
-                  {day.firstClockIn ? formatRecordedTime(day.firstClockIn) : "—"}
+                  {day.firstClockIn ? formatRecordedTime(day.firstClockIn, timeZone) : "—"}
                 </span>
               ),
             },
@@ -214,7 +217,7 @@ export function MyAttendanceHistory() {
               header: "Clock out",
               render: (day) => (
                 <span className="text-neutral tabular-nums">
-                  {day.lastClockOut ? formatRecordedTime(day.lastClockOut) : "—"}
+                  {day.lastClockOut ? formatRecordedTime(day.lastClockOut, timeZone) : "—"}
                 </span>
               ),
             },
