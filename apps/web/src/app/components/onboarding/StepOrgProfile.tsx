@@ -80,21 +80,27 @@ export function StepOrgProfile({ defaultValues, onNext, onBack }: StepOrgProfile
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Kept visible so the setup shows what's coming, but disabled:
+            the Organization has no logo field and no upload endpoint, so
+            picking a file used to do nothing at all — which read as a
+            broken button. */}
         <div>
-          <label
-            htmlFor="logo"
-            className="block text-sm font-medium text-heading mb-1"
-          >
+          <p className="flex items-center gap-2 text-sm font-medium text-heading mb-1">
             Logo
-          </label>
-          <label
-            htmlFor="logo"
-            className="flex items-center justify-center gap-2 w-full rounded-md border border-dashed border-neutral/40 px-3 py-2 text-sm text-neutral cursor-pointer hover:border-primary hover:text-primary"
+            <span className="rounded bg-neutral/10 px-1.5 py-0.5 text-[11px] font-medium text-neutral">
+              Coming soon
+            </span>
+          </p>
+          <button
+            type="button"
+            disabled
+            aria-label="Upload logo — coming soon"
+            title="Logo upload isn't available yet."
+            className="flex items-center justify-center gap-2 w-full rounded-md border border-dashed border-neutral/40 px-3 py-2 text-sm text-neutral opacity-60 cursor-not-allowed"
           >
             <span aria-hidden>&#8593;</span>
             Upload PNG or SVG
-            <input id="logo" type="file" accept="image/png,image/svg+xml" className="hidden" />
-          </label>
+          </button>
         </div>
 
         <div>
