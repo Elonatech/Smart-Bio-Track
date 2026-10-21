@@ -45,17 +45,34 @@ const PAGE_SIZE = 25;
  * Mirrors AUDIT_ACTIONS in apps/api/src/audit/audit.service.ts.
  *
  * The API validates `action` against its own copy and 400s on anything else,
- * so this list only decides what the dropdown offers. Phase 3 adds CLOCK_IN,
- * PUNCH_APPROVED and DEVICE_REVOKED; add them on the server first, then here.
+ * so this list only decides what the dropdown offers — and how a row reads: an
+ * action missing here shows as its raw code ("WORK_RULE_UPDATED"). Keep it in
+ * step with the server's list, in the same order. Phase 4 will add more
+ * (punch review, devices); add them on the server first, then here.
  */
 const ACTION_LABEL: Record<string, string> = {
   USER_PROVISIONED: "Person added",
   USER_SUSPENDED: "Person suspended",
   USER_RESTORED: "Person restored",
   USER_DELETED: "Person removed",
+  INVITATION_RESENT: "Invitation resent",
   USER_UPDATED: "Details changed",
   USER_REINSTATED: "Person reinstated",
-  INVITATION_RESENT: "Invitation resent",
+  USER_LOCKED_OUT: "Locked out after failed sign-ins",
+  // Phase 3 — attendance and the settings it's judged against.
+  CLOCK_IN: "Clocked in",
+  CLOCK_OUT: "Clocked out",
+  BREAK_START: "Break started",
+  BREAK_END: "Break ended",
+  WORK_RULE_CREATED: "Work rule created",
+  WORK_RULE_UPDATED: "Work rule changed",
+  WORK_RULE_DELETED: "Work rule deleted",
+  HOLIDAY_CREATED: "Holiday added",
+  HOLIDAY_UPDATED: "Holiday changed",
+  HOLIDAY_DELETED: "Holiday deleted",
+  ORGANIZATION_UPDATED: "Organization settings changed",
+  // Written by the end-of-day job, with "System" as the actor.
+  ATTENDANCE_DAY_CLOSED: "Day closed (absences marked)",
 };
 
 /**

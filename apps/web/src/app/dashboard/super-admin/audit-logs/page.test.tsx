@@ -244,3 +244,48 @@ describe('SuperAdminAuditLogsPage', () => {
     expect(screen.getByText(/of 412 entries/)).toBeInTheDocument();
   });
 });
+
+describe('staying in step with the server', () => {
+  // The filter offers, and rows are labelled from, a list that mirrors
+  // AUDIT_ACTIONS on the server. When the server gained twelve Phase 3
+  // actions, this page kept showing them as raw codes ("WORK_RULE_UPDATED")
+  // and couldn't filter by them. This reads the server's own list, so the
+  // next action added there fails here until it has a label.
+  function serverActions(): string[] {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readFileSync } = require('fs') as typeof import('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { join } = require('path') as typeof import('path');
+    const source = readFileSync(
+      join(__dirname, '..', '..', '..', '..', '..', '..', 'api', 'src', 'audit', 'audit.service.ts'),
+      'utf8'
+    );
+    const list = source.slice(source.indexOf('AUDIT_ACTIONS = ['), source.indexOf('] as const'));
+    return [...list.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+  }
+
+  it('offers every action the server records, and nothing else', async () => {
+    respondWith();
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    const offered = Array.from(
+      (screen.getByLabelText('Filter by action') as HTMLSelectElement).options
+    )
+      .map((o) => o.value)
+      .filter(Boolean);
+
+    const expected = serverActions();
+    expect(expected.length).toBeGreaterThan(15); // guards the parser itself
+    expect(offered.sort()).toEqual(expected.sort());
+  });
+
+  it('labels a Phase 3 action in words, not its code', async () => {
+    respondWith({ items: [entry({ action: 'WORK_RULE_UPDATED' })] });
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    expect(desktop().getByText('Work rule changed')).toBeInTheDocument();
+    expect(screen.queryByText('WORK_RULE_UPDATED')).not.toBeInTheDocument();
+  });
+});
