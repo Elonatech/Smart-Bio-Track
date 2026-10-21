@@ -9,6 +9,7 @@ import { useToast } from "@/app/components/Toast";
 import { extractErrorMessage } from "@/lib/api-client";
 import { INDUSTRIES } from "@/lib/industries";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { setOrgTimeZone } from "@/lib/orgTime";
 import {
   TIMEZONES,
   fetchOrganization,
@@ -85,6 +86,9 @@ export function OrganizationProfileCard() {
         industry: saved.industry ?? "",
         timezone: normalizeTimezone(saved.timezone),
       });
+      // Every screen showing a time switches to the new zone at once — the
+      // zone is cached, so without this it only changed after a refresh.
+      setOrgTimeZone(saved.id, saved.timezone);
       // The sidebar and header read the name from the session.
       useAuthStore.setState((state) =>
         state.user ? { user: { ...state.user, organizationName: saved.name } } : state

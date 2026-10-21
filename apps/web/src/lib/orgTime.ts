@@ -18,6 +18,20 @@ import { useAuthStore } from "@/lib/store/auth-store";
 
 let cached: { organizationId: string; timeZone: Promise<string> } | null = null;
 
+// Screens currently showing times, told when the zone changes in this tab —
+// otherwise a zone saved in Settings only appeared after a full refresh,
+// because every screen kept the cached answer.
+const listeners = new Set<(organizationId: string, timeZone: string) => void>();
+
+/**
+ * Call after saving a new zone (Organization settings): replaces the cached
+ * answer and updates every screen showing a time, with no refresh.
+ */
+export function setOrgTimeZone(organizationId: string, timeZone: string): void {
+  cached = { organizationId, timeZone: Promise.resolve(timeZone) };
+  listeners.forEach((notify) => notify(organizationId, timeZone));
+}
+
 function orgTimeZone(organizationId: string): Promise<string> {
   if (cached?.organizationId !== organizationId) {
     cached = {
@@ -45,6 +59,10 @@ export function useOrgTimeZone(): string | undefined {
   useEffect(() => {
     if (!organizationId) return;
     let isActive = true;
+    const onChange = (changedOrg: string, zone: string) => {
+      if (isActive && changedOrg === organizationId) setTimeZone(zone);
+    };
+    listeners.add(onChange);
     try {
       orgTimeZone(organizationId)
         .then((zone) => {
@@ -58,6 +76,7 @@ export function useOrgTimeZone(): string | undefined {
     }
     return () => {
       isActive = false;
+      listeners.delete(onChange);
     };
   }, [organizationId]);
 
