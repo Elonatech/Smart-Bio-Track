@@ -7,7 +7,7 @@ import { useToast } from "@/app/components/Toast";
 import { getDashboardPath } from "@/lib/roleRoutes";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { DEFAULT_TIMEZONE, normalizeTimezone, updateOrganization } from "@/lib/organization";
-import { consumeOnboardingIndustryHint } from "@/lib/onboarding-hint";
+import { clearOnboardingIndustryHint, peekOnboardingIndustryHint } from "@/lib/onboarding-hint";
 import { PartyPopper } from "lucide-react";
 import { StepProgress } from "@/app/components/onboarding/StepProgress";
 import { StepOrgProfile } from "@/app/components/onboarding/StepOrgProfile";
@@ -43,29 +43,81 @@ interface SavedProgress {
   payload: Partial<OnboardingPayload>;
 }
 
+/** What the wizard starts with: saved progress, else the signup prefill. */
+function initialWizardState(userId: string | undefined, organizationName: string | undefined) {
+  if (userId) {
+    try {
+      const raw = localStorage.getItem(getProgressKey(userId));
+      if (raw) {
+        const saved = JSON.parse(raw) as SavedProgress;
+        return {
+          payload: saved.payload ?? {},
+          // Clamp: a saved step from an older build with a different
+          // number of steps shouldn't strand someone on a blank screen.
+          currentStep: Math.min(Math.max(saved.currentStep ?? 1, 1), 6),
+          fromSavedProgress: true,
+        };
+      }
+    } catch {
+      // Corrupt or unreadable — start fresh rather than crash.
+    }
+  }
+
+  // First time reaching this wizard, not a resumed one (no saved progress
+  // at all): step 1 asks for the organization name and industry again even
+  // though verify-organization just collected both. Prefill them instead of
+  // asking twice.
+  //
+  // Only when there's NO saved progress — someone who left step 1 with
+  // different values and came back to "Continue setup" must see THEIR edit,
+  // not have it silently replaced by what they typed at signup.
+  const industryHint = peekOnboardingIndustryHint();
+  const payload: Partial<OnboardingPayload> =
+    organizationName || industryHint
+      ? {
+          orgProfile: {
+            timezone: DEFAULT_TIMEZONE,
+            organizationName: organizationName ?? "",
+            industry: industryHint ?? "",
+          },
+        }
+      : {};
+  return { payload, currentStep: 1, fromSavedProgress: false };
+}
+
+// Waits for the session restore so it knows WHOSE progress to load, then
+// mounts the wizard — which reads that progress while it's being created
+// (useState initializers) rather than in an effect afterwards. Keyed by user:
+// a different person signing in on the same browser gets a fresh wizard.
 export default function OnboardingPage() {
+  const userId = useAuthStore((state) => state.user?.id);
+  const hasRestored = useAuthStore((state) => state.hasRestored);
+  // Nothing to show until we know who this is: rendering first would flash
+  // step 1 before jumping to the restored step.
+  if (!hasRestored) return null;
+  return <OnboardingWizard key={userId ?? "signed-out"} />;
+}
+
+function OnboardingWizard() {
   const toast = useToast();
   const router = useRouter();
   const userId = useAuthStore((state) => state.user?.id);
   const organizationName = useAuthStore((state) => state.user?.organizationName);
-  const hasRestored = useAuthStore((state) => state.hasRestored);
 
-  // Gates both restoring and saving. Without it the save effect fires on
-  // first render with the empty initial state and wipes the very
-  // progress we're about to read back.
-  const [isRestored, setIsRestored] = useState(false);
+  // Read once, when the wizard is created — see initialWizardState.
+  const [initial] = useState(() => initialWizardState(userId, organizationName));
 
   // 1-indexed to match StepProgress and the spec's "Step 1 of 6"
   // framing. Going "back" is just decrementing this; going forward is
   // incrementing it — no routing involved, which is why back/forward
   // never loses data (see below).
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(initial.currentStep);
 
   // Accumulates every step's validated data as the user moves forward.
   // It's a Partial<OnboardingPayload> because, until step 6, most of
   // these keys are still undefined — TypeScript makes us handle that
   // explicitly rather than pretending the data exists before it does.
-  const [payload, setPayload] = useState<Partial<OnboardingPayload>>({});
+  const [payload, setPayload] = useState<Partial<OnboardingPayload>>(initial.payload);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -84,62 +136,17 @@ export default function OnboardingPage() {
     router.push(`/onboarding/welcome?org=${encodeURIComponent(orgName)}`);
   }
 
-  // Restore once the auth store has settled, so we know whose progress
-  // to look for.
+  // The signup industry hint is single-use (see lib/onboarding-hint.ts).
+  // Read above without clearing, cleared here — an effect, so React running
+  // the initializer twice in development can't lose it. No state changes.
   useEffect(() => {
-    if (!hasRestored) return;
-
-    let restoredFromSavedProgress = false;
-
-    if (userId) {
-      try {
-        const raw = localStorage.getItem(getProgressKey(userId));
-        if (raw) {
-          const saved = JSON.parse(raw) as SavedProgress;
-          setPayload(saved.payload ?? {});
-          // Clamp: a saved step from an older build with a different
-          // number of steps shouldn't strand someone on a blank screen.
-          setCurrentStep(Math.min(Math.max(saved.currentStep ?? 1, 1), 6));
-          restoredFromSavedProgress = true;
-        }
-      } catch {
-        // Corrupt or unreadable — start fresh rather than crash.
-      }
-    }
-
-    // First time reaching this wizard, not a resumed one (no saved
-    // progress at all): step 1 asks for the organization name and
-    // industry again even though verify-organization just collected
-    // both. Prefill them instead of asking twice.
-    //
-    // Gated on `!restoredFromSavedProgress` specifically — someone who
-    // left step 1 with different values and came back to "Continue
-    // setup" must see THEIR edit, not have it silently replaced by
-    // whatever they originally typed at signup.
-    if (!restoredFromSavedProgress) {
-      const industryHint = consumeOnboardingIndustryHint();
-      if (organizationName || industryHint) {
-        setPayload((prev) => ({
-          ...prev,
-          orgProfile: {
-            // Same fallback StepOrgProfile uses on its own — the only
-            // option today, so there's nothing to prefill it FROM yet.
-            timezone: DEFAULT_TIMEZONE,
-            organizationName: organizationName ?? "",
-            industry: industryHint ?? "",
-            ...prev.orgProfile,
-          },
-        }));
-      }
-    }
-
-    setIsRestored(true);
-  }, [hasRestored, userId, organizationName]);
+    clearOnboardingIndustryHint();
+  }, []);
 
   // Save on every change, so progress survives a closed tab, not just an
   // in-app navigation.
   useEffect(() => {
-    if (!isRestored || !userId) return;
+    if (!userId) return;
     try {
       localStorage.setItem(
         getProgressKey(userId),
@@ -149,7 +156,7 @@ export default function OnboardingPage() {
       // Storage full or blocked — the wizard still works, it just won't
       // resume.
     }
-  }, [isRestored, userId, currentStep, payload]);
+  }, [userId, currentStep, payload]);
 
   // Called by a step's onNext. Merges that step's data into the
   // accumulated payload under the given key, then advances the step.
@@ -367,11 +374,6 @@ export default function OnboardingPage() {
       setIsSubmitting(false);
     }
   }
-
-  // Saved progress is read in an effect, so the first render always has
-  // the empty initial state. Rendering it would flash step 1 before
-  // jumping to the restored step.
-  if (!isRestored) return null;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4 sm:p-8">

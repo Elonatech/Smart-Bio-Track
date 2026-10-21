@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { useAuthStore } from "@/lib/store/auth-store";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { OrgTodayPanel } from "@/app/components/dashboard/OrgTodayPanel";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
@@ -73,9 +72,6 @@ const SERIES = [
 ] as const;
 
 export default function HRAdminDashboardPage() {
-  const orgName =
-    useAuthStore((state) => state.user?.organizationName) ??
-    "Your organization";
   const today = new Date().toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",
@@ -398,17 +394,22 @@ function TrendChart() {
 // Donut drawn with a single circle per slice: stroke-dasharray sets how
 // much of the ring that slice covers, stroke-dashoffset rotates it to
 // start where the previous slice ended.
-function TrustDonut() {
-  const RADIUS = 70;
-  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+// Worked out once, outside render: the data is fixed, and a running total
+// reassigned inside a render function is what React's lint rule flags. Each
+// slice starts where the ones before it end.
+const RADIUS = 70;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const DONUT_SLICES = TRUST_OUTCOMES.map((outcome, index) => ({
+  ...outcome,
+  length: (outcome.value / 100) * CIRCUMFERENCE,
+  offset: TRUST_OUTCOMES.slice(0, index).reduce(
+    (sum, previous) => sum + (previous.value / 100) * CIRCUMFERENCE,
+    0
+  ),
+}));
 
-  let offset = 0;
-  const slices = TRUST_OUTCOMES.map((outcome) => {
-    const length = (outcome.value / 100) * CIRCUMFERENCE;
-    const slice = { ...outcome, length, offset };
-    offset += length;
-    return slice;
-  });
+function TrustDonut() {
+  const slices = DONUT_SLICES;
 
   return (
     <div className="mt-6 flex items-center justify-center h-56">

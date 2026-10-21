@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Lock, Search } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
@@ -97,7 +97,6 @@ export default function SuperAdminAuditLogsPage() {
     useAuthStore((state) => state.user?.organizationName) ?? "Your organization";
 
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -111,21 +110,31 @@ export default function SuperAdminAuditLogsPage() {
   // once the trail outgrows one page it would search 25 entries and report
   // "no matching entries" for everything before them — which, on an audit
   // screen, reads as "it never happened".
+  //
+  // A new search or filter starts at page 1, or you ask for page 7 of a much
+  // shorter result and get an empty table. Done where the change happens —
+  // here and in the action filter's onChange — not in an effect watching
+  // for it, which costs an extra render and is what React's lint flags.
+  const lastSearchRef = useRef("");
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    const id = setTimeout(() => {
+      const next = search.trim();
+      if (next === lastSearchRef.current) return;
+      lastSearchRef.current = next;
+      setDebouncedSearch(next);
+      setPage(1);
+    }, 300);
     return () => clearTimeout(id);
   }, [search]);
 
-  // A new search or filter starts at the beginning, or you ask for page 7 of a
-  // much shorter result and get an empty table.
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, action]);
+  // Loading = the query on screen isn't the one last answered. Derived, so
+  // nothing has to be set synchronously when a fetch starts.
+  const queryKey = `${page}|${debouncedSearch}|${action}`;
+  const [answeredKey, setAnsweredKey] = useState<string | null>(null);
+  const isLoading = answeredKey !== queryKey;
 
   const fetchLogs = useCallback(() => {
-    setIsLoading(true);
-    setError(null);
-
+    const key = `${page}|${debouncedSearch}|${action}`;
     appClient
       .get<AuditLogPage>("/audit-logs", {
         params: {
@@ -139,9 +148,10 @@ export default function SuperAdminAuditLogsPage() {
         setLogs(res.data.items);
         setTotal(res.data.total);
         setTotalPages(res.data.totalPages);
+        setError(null);
       })
       .catch(() => setError("Couldn't load the audit trail. Please try again."))
-      .finally(() => setIsLoading(false));
+      .finally(() => setAnsweredKey(key));
   }, [page, debouncedSearch, action]);
 
   useEffect(() => {
@@ -169,7 +179,10 @@ export default function SuperAdminAuditLogsPage() {
 
         <select
           value={action}
-          onChange={(e) => setAction(e.target.value)}
+          onChange={(e) => {
+            setAction(e.target.value);
+            setPage(1);
+          }}
           aria-label="Filter by action"
           className="rounded-md border border-neutral/40 px-3 py-2 text-sm text-heading focus:outline-none focus:ring-2 focus:ring-primary"
         >

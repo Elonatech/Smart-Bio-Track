@@ -85,26 +85,24 @@ interface ClockInFlowProps {
 
 export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
   const toast = useToast();
-  const [location, setLocation] = useState<LocationState>({
-    status: "checking",
-  });
+  // A browser with no geolocation at all is known before the first render,
+  // so it's the initial state rather than something an effect discovers.
+  const [location, setLocation] = useState<LocationState>(() =>
+    typeof navigator !== "undefined" && navigator.geolocation
+      ? { status: "checking" }
+      : { status: "denied", message: "This browser does not support location access." }
+  );
   const [isConfirming, setIsConfirming] = useState(false);
   const [result, setResult] = useState<ClockInOutcome | null>(null);
   // Sent with the punch for the audit trail. A ref, not state: nothing
   // renders from it.
   const positionRef = useRef<PunchLocation | null>(null);
 
-  function runLocationCheck() {
-    setLocation({ status: "checking" });
-
-    if (!navigator.geolocation) {
-      setLocation({
-        status: "denied",
-        message: "This browser does not support location access.",
-      });
-      return;
-    }
-
+  // Asks the browser for a position and judges it against the branches.
+  // Every state change here happens in a callback, once the browser or the
+  // server answers — which is what lets the mount effect below call it.
+  function readLocation() {
+    if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (position) => {
         positionRef.current = {
@@ -146,9 +144,17 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
     );
   }
 
+  /** "Check again" / retry: show the checking state, then read again. */
+  function runLocationCheck() {
+    setLocation({ status: "checking" });
+    readLocation();
+  }
+
+  // Mount only. The initial state is already "checking", so there's nothing
+  // to set before reading — setting state synchronously in an effect is what
+  // the React lint rule flags (an extra render for nothing).
   useEffect(() => {
-    runLocationCheck();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    readLocation();
   }, []);
 
   const isWithinFence =
