@@ -27,8 +27,13 @@ function kindOf(day: AttendanceDay): DayKind {
   if (day.status === "REST_DAY") return "REST_DAY";
   // PRESENT from here on.
   if (day.isIncomplete) return "INCOMPLETE";
+  // Lateness before "in progress": the server knows someone is late the
+  // moment they clock in, and checking the open shift first hid it all day
+  // (found in the Phase 3 exit-demo rehearsal). A late day still in
+  // progress also gets an "In progress" tag — see KindBadge.
+  if (day.isLate) return "LATE";
   if (!day.lastClockOut) return "IN_PROGRESS";
-  return day.isLate ? "LATE" : "ON_TIME";
+  return "ON_TIME";
 }
 
 // Next to the type so a new kind can't be added without a label and colour.
@@ -80,10 +85,22 @@ function formatMinutes(minutes: number): string {
 function KindBadge({ day }: { day: AttendanceDay }) {
   const kind = kindOf(day);
   const style = KIND_STYLES[kind];
-  return (
+  const badge = (
     <span className={`inline-block rounded px-2 py-1 text-xs font-medium whitespace-nowrap ${style.className}`}>
       {style.label}
       {kind === "LATE" && day.lateMinutes > 0 ? ` · ${day.lateMinutes}m` : ""}
+    </span>
+  );
+  // A late day that's still going shows both facts.
+  if (kind !== "LATE" || day.lastClockOut) return badge;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {badge}
+      <span
+        className={`inline-block rounded px-2 py-1 text-xs font-medium whitespace-nowrap ${KIND_STYLES.IN_PROGRESS.className}`}
+      >
+        {KIND_STYLES.IN_PROGRESS.label}
+      </span>
     </span>
   );
 }

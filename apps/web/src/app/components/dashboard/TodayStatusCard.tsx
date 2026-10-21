@@ -310,6 +310,9 @@ export function TodayStatusCard() {
           // The punch is already saved; re-read so the card shows the
           // server's state rather than a guess.
           onConfirmed={() => load()}
+          // A refusal ("You are already clocked in.") means this card was out
+          // of date — another tab or device punched. Re-read it.
+          onFailed={() => load()}
         />
       )}
     </div>

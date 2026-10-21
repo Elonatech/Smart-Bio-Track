@@ -200,7 +200,9 @@ export default function EmployeeDashboardPage() {
 
   return (
     <div>
-      <SampleDataBanner describes="attendance records" />
+      {/* Partial: the status card at the top is real (Phase 3); the week
+          and month charts below are still examples. */}
+      <SampleDataBanner partial />
       {/* Today's status, plus its own clock-in/out/working-hours readouts —
           TodayStatusCard already renders that trio internally (see its
           MiniStat grid), so a second, hardcoded copy used to sit beside it
@@ -215,8 +217,8 @@ export default function EmployeeDashboardPage() {
           repeating a caveat inside each card. */}
       <div className="flex items-center gap-2 bg-primary/10 text-primary text-sm rounded-md px-4 py-2.5 mt-6">
         <Info className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-        Example figures — your real attendance appears here once the attendance
-        service is connected.
+        The charts below are example figures. Your real days are on the
+        Attendance History page.
       </div>
 
       {/* Row 2 — this week's bars + this month's calendar */}

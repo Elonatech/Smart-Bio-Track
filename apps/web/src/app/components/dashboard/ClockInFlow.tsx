@@ -81,9 +81,15 @@ interface ClockInFlowProps {
   /** Called for approved and flagged outcomes — both are recorded punches.
    * Not called for rejected, which records nothing. */
   onConfirmed: (outcome: RecordedClockIn) => void;
+  /**
+   * Called when the clock-in fails. The server may have refused because the
+   * screen was out of date (another tab already clocked in), so the parent
+   * re-reads the real state.
+   */
+  onFailed?: () => void;
 }
 
-export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
+export function ClockInFlow({ onClose, onConfirmed, onFailed }: ClockInFlowProps) {
   const toast = useToast();
   // A browser with no geolocation at all is known before the first render,
   // so it's the initial state rather than something an effect discovers.
@@ -192,6 +198,7 @@ export function ClockInFlow({ onClose, onConfirmed }: ClockInFlowProps) {
       // refusals ("You are already clocked in.") are written for people, so
       // they're shown as-is.
       toast.error("Couldn't clock you in", punchErrorMessage(error));
+      onFailed?.();
     } finally {
       setIsConfirming(false);
     }

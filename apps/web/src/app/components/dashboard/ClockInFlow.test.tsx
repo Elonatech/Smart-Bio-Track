@@ -138,3 +138,20 @@ it("shows the server's own words when it refuses", async () => {
     expect(error).toHaveBeenCalledWith("Couldn't clock you in", "You are already clocked in.")
   );
 });
+
+it("asks the card to re-read the real state when the server refuses", async () => {
+  // Found in the exit-demo rehearsal: with two tabs open, the second tab's
+  // clock-in was refused ("You are already clocked in.") but its card kept
+  // saying "Clocked Out".
+  deviceAt({ latitude: HQ.latitude, longitude: HQ.longitude });
+  mockPost.mockRejectedValueOnce(
+    Object.assign(new Error("You are already clocked in."), { isAxiosError: true, response: { status: 409 } })
+  );
+  const onFailed = jest.fn();
+  render(<ClockInFlow onClose={jest.fn()} onConfirmed={jest.fn()} onFailed={onFailed} />);
+  await screen.findByText(/Within Lagos HQ's geo-fence/);
+
+  await userEvent.click(confirmButton());
+
+  await waitFor(() => expect(onFailed).toHaveBeenCalled());
+});

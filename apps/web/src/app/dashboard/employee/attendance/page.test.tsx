@@ -137,3 +137,21 @@ it("shows the error and retries", async () => {
 
   expect((await screen.findAllByText("On time")).length).toBeGreaterThan(0);
 });
+
+it("shows a late arrival as late while their shift is still going", async () => {
+  // Found in the Phase 3 exit-demo rehearsal: in at 15:45 against an 08:00
+  // start, not yet clocked out — the server says isLate, and the page used
+  // to say only "In progress", hiding the lateness until clock-out.
+  mockGet.mockResolvedValue(
+    history([day("2026-10-21", { lastClockOut: null, isLate: true, lateMinutes: 455 })])
+  );
+  renderWithProviders(<EmployeeAttendancePage />);
+
+  expect((await screen.findAllByText("Late · 455m")).length).toBeGreaterThan(0);
+  expect(screen.getAllByText("In progress").length).toBeGreaterThan(0);
+
+  // And the Late filter finds it.
+  const filters = screen.getByRole("button", { name: "All" }).parentElement as HTMLElement;
+  await userEvent.click(within(filters).getByRole("button", { name: "Late" }));
+  expect(screen.getAllByText("Late · 455m").length).toBeGreaterThan(0);
+});
