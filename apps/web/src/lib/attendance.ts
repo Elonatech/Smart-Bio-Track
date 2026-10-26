@@ -66,6 +66,26 @@ export interface AttendanceHistory {
   days: AttendanceDay[];
 }
 
+// What a day means to the person, derived from the server's summary. Shared
+// by the History page and the Overview charts so "late" or "no clock-out"
+// can never mean different things on the two.
+export type DayKind = "ON_TIME" | "LATE" | "IN_PROGRESS" | "INCOMPLETE" | "ABSENT" | "HOLIDAY" | "REST_DAY";
+
+export function kindOf(day: AttendanceDay): DayKind {
+  if (day.status === "ABSENT") return "ABSENT";
+  if (day.status === "ON_HOLIDAY") return "HOLIDAY";
+  if (day.status === "REST_DAY") return "REST_DAY";
+  // PRESENT from here on.
+  if (day.isIncomplete) return "INCOMPLETE";
+  // Lateness before "in progress": the server knows someone is late the
+  // moment they clock in, and checking the open shift first hid it all day
+  // (found in the Phase 3 exit-demo rehearsal). A late day still in
+  // progress also gets an "In progress" tag — see KindBadge.
+  if (day.isLate) return "LATE";
+  if (!day.lastClockOut) return "IN_PROGRESS";
+  return "ON_TIME";
+}
+
 /** The server caps a request at 93 days. */
 export const MAX_HISTORY_DAYS = 93;
 

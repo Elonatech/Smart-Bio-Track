@@ -5,7 +5,7 @@ import { RefreshCw } from "lucide-react";
 import { DataTable } from "@/app/components/dashboard/DataTable";
 import { formatRecordedTime } from "@/app/components/dashboard/clockInOutcome";
 import { extractErrorMessage } from "@/lib/api-client";
-import { fetchHistory, type AttendanceDay } from "@/lib/attendance";
+import { fetchHistory, kindOf, type AttendanceDay, type DayKind } from "@/lib/attendance";
 
 // The signed-in person's own attendance, one row per day, from
 // GET /attendance/history (Phase 3). Read-only. Shared by every role that
@@ -17,24 +17,6 @@ import { fetchHistory, type AttendanceDay } from "@/lib/attendance";
 // summary doesn't record which branch) and "Trust score" (no scoring exists
 // until Phase 4). Showing invented values there would be worse than not
 // showing the column.
-
-// What a row means to the person, derived from the server's summary.
-type DayKind = "ON_TIME" | "LATE" | "IN_PROGRESS" | "INCOMPLETE" | "ABSENT" | "HOLIDAY" | "REST_DAY";
-
-function kindOf(day: AttendanceDay): DayKind {
-  if (day.status === "ABSENT") return "ABSENT";
-  if (day.status === "ON_HOLIDAY") return "HOLIDAY";
-  if (day.status === "REST_DAY") return "REST_DAY";
-  // PRESENT from here on.
-  if (day.isIncomplete) return "INCOMPLETE";
-  // Lateness before "in progress": the server knows someone is late the
-  // moment they clock in, and checking the open shift first hid it all day
-  // (found in the Phase 3 exit-demo rehearsal). A late day still in
-  // progress also gets an "In progress" tag — see KindBadge.
-  if (day.isLate) return "LATE";
-  if (!day.lastClockOut) return "IN_PROGRESS";
-  return "ON_TIME";
-}
 
 // Next to the type so a new kind can't be added without a label and colour.
 const KIND_STYLES: Record<DayKind, { label: string; className: string }> = {
@@ -65,7 +47,7 @@ function startOfRange(days: Range): string {
  * "Fri 16 Oct 2026". workDate is a calendar date in the organisation's zone,
  * not an instant — formatted as UTC so no timezone can move it a day.
  */
-function formatWorkDate(workDate: string): string {
+export function formatWorkDate(workDate: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     weekday: "short",
     day: "2-digit",
@@ -75,7 +57,7 @@ function formatWorkDate(workDate: string): string {
   }).format(new Date(`${workDate}T00:00:00Z`));
 }
 
-function formatMinutes(minutes: number): string {
+export function formatMinutes(minutes: number): string {
   if (minutes <= 0) return "—";
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
