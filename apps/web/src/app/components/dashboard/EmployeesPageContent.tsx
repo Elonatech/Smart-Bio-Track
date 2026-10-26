@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Plus, Search } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
 import type { Page, UserListItem } from "@smartbiotrack/types";
@@ -73,22 +74,20 @@ const STATUS_STYLE: Record<EmployeeListItem["status"], string> = {
 /** Removed staff are only listed when a super admin explicitly asks. */
 const REMOVED_LABEL = "Removed";
 
+// Stable empty lists, so a missing answer doesn't make a new array each render.
+const NO_DEPARTMENTS: Department[] = [];
+const NO_OFFICES: Office[] = [];
+const NO_EMPLOYEES: EmployeeListItem[] = [];
+
 export function EmployeesPageContent() {
   const currentRole = useAuthStore((state) => state.user?.role);
 
   const allowedRoles = currentRole ? ROLE_CREATION_MATRIX[currentRole] : [];
   const canAddPeople = allowedRoles.length > 0;
 
-  const [employees, setEmployees] = useState<EmployeeListItem[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [offices, setOffices] = useState<Office[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   // Only a SUPER_ADMIN may ask for removed staff — the API returns 403 for
   // anyone else rather than quietly dropping the filter, so the toggle is
@@ -104,64 +103,78 @@ export function EmployeesPageContent() {
   // Debounced so typing does not fire a request per keystroke. Searching is
   // the server's job now: with only one page in memory, filtering client-side
   // would search the ten rows on screen and quietly miss everyone else.
-  useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(search.trim()), 300);
-    return () => clearTimeout(id);
-  }, [search]);
-
+  //
   // A new search starts at the beginning. Without this, searching while on
   // page 7 asks for page 7 of a much shorter result and shows an empty table.
-  // Toggling removed staff changes the result size the same way.
+  // Toggling removed staff changes the result size the same way (see its
+  // onChange). Reset where the change happens, not in a separate effect.
   useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, includeRemoved]);
+    const id = setTimeout(() => {
+      const next = search.trim();
+      if (next === debouncedSearch) return;
+      setDebouncedSearch(next);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(id);
+  }, [search, debouncedSearch]);
+
+  // Both reads are cached (lib/queryClient.ts): coming back to this page,
+  // or to a page or search already seen, shows it at once while it re-reads.
+  // The signed-in person is part of every key.
+  const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id) ?? "signed-out";
 
   // Departments and offices are small, unpaginated lookups used only to turn
-  // ids into names. Fetched once rather than alongside every page of users,
-  // which is what the previous single fetchAll did.
-  useEffect(() => {
-    Promise.all([
+  // ids into names. Fetched once rather than alongside every page of users.
+  const lookupsQuery = useQuery({
+    queryKey: ["employees", userId, "lookups"],
+    queryFn: async () => {
+      const [deptRes, officeRes] = await Promise.all([
+        appClient
+          .get<Department[]>("/departments")
+          .catch(() => ({ data: [] as Department[] })),
+        appClient.get<Office[]>("/offices").catch(() => ({ data: [] as Office[] })),
+      ]);
+      return { departments: deptRes.data, offices: officeRes.data };
+    },
+  });
+  const departments = lookupsQuery.data?.departments ?? NO_DEPARTMENTS;
+  const offices = lookupsQuery.data?.offices ?? NO_OFFICES;
+
+  const usersQuery = useQuery({
+    queryKey: ["employees", userId, "list", { page, q: debouncedSearch, includeRemoved }],
+    queryFn: () =>
       appClient
-        .get<Department[]>("/departments")
-        .catch(() => ({ data: [] as Department[] })),
-      appClient.get<Office[]>("/offices").catch(() => ({ data: [] as Office[] })),
-    ]).then(([deptRes, officeRes]) => {
-      setDepartments(deptRes.data);
-      setOffices(officeRes.data);
-    });
-  }, []);
+        .get<UserPage>("/users", {
+          params: {
+            page,
+            limit: PAGE_SIZE,
+            ...(debouncedSearch ? { q: debouncedSearch } : {}),
+            // Omitted entirely when off, rather than sent as false. The API
+            // rejects this parameter for non-super-admins, and sending it on
+            // every request would 403 the staff list for every HR admin.
+            ...(includeRemoved ? { includeRemoved: true } : {}),
+          },
+        })
+        .then((res) => res.data),
+    // Paging or searching keeps the current rows up until the next arrive.
+    placeholderData: keepPreviousData,
+  });
+  const employees = usersQuery.data?.items ?? NO_EMPLOYEES;
+  const total = usersQuery.data?.total ?? 0;
+  const totalPages = usersQuery.data?.totalPages ?? 1;
+  // Only the very first load shows "Loading…"; later ones keep rows up.
+  const isLoading = usersQuery.isPending;
+  // Typed but not yet sent (the 300 ms pause), or sent and still on its way
+  // while the old rows are on screen.
+  const isUpdating =
+    search.trim() !== debouncedSearch || (usersQuery.isFetching && usersQuery.isPlaceholderData);
+  const error = usersQuery.isError ? "Couldn't load employees. Please try again." : null;
 
-  const fetchUsers = useCallback(() => {
-    setIsLoading(true);
-    setError(null);
-
-    appClient
-      .get<UserPage>("/users", {
-        params: {
-          page,
-          limit: PAGE_SIZE,
-          ...(debouncedSearch ? { q: debouncedSearch } : {}),
-          // Omitted entirely when off, rather than sent as false. The API
-          // rejects this parameter for non-super-admins, and sending it on
-          // every request would 403 the staff list for every HR admin.
-          ...(includeRemoved ? { includeRemoved: true } : {}),
-        },
-      })
-      .then((res) => {
-        setEmployees(res.data.items);
-        setTotal(res.data.total);
-        setTotalPages(res.data.totalPages);
-      })
-      .catch(() => setError("Couldn't load employees. Please try again."))
-      .finally(() => setIsLoading(false));
-  }, [page, debouncedSearch, includeRemoved]);
-
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
-
-  /** Refetches after an add, edit, suspend or delete. */
-  const fetchAll = fetchUsers;
+  /** Refetches after an add, edit, suspend or delete — every page and search. */
+  const fetchAll = () => {
+    void queryClient.invalidateQueries({ queryKey: ["employees", userId] });
+  };
 
   usePageHeader("Employees", `${total} record${total === 1 ? "" : "s"}`);
 
@@ -191,8 +204,19 @@ export function EmployeesPageContent() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search employees"
-            className="w-full rounded-md border border-neutral/40 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-md border border-neutral/40 pl-9 pr-24 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          {/* The previous rows stay up while a new search or page loads, so
+              without this a slow answer looked like nothing had happened. */}
+          {isUpdating && (
+            <span
+              role="status"
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 text-xs text-neutral"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Searching…
+            </span>
+          )}
         </div>
 
         {canSeeRemoved && (
@@ -200,7 +224,10 @@ export function EmployeesPageContent() {
             <input
               type="checkbox"
               checked={includeRemoved}
-              onChange={(e) => setIncludeRemoved(e.target.checked)}
+              onChange={(e) => {
+                setIncludeRemoved(e.target.checked);
+                setPage(1);
+              }}
               className="h-4 w-4 rounded border-neutral/40 text-primary focus:ring-primary"
             />
             Show removed

@@ -4,7 +4,9 @@
 import { StrictMode } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { TodayStatusCard } from "./TodayStatusCard";
+import { makeTestQueryClient } from "@/test/render";
 import { appClient } from "@/lib/api-client";
 
 /**
@@ -58,7 +60,9 @@ function today(state: string, punches: { type: string; occurredAt: string }[]) {
 function renderCard() {
   return render(
     <StrictMode>
-      <TodayStatusCard />
+      <QueryClientProvider client={makeTestQueryClient()}>
+        <TodayStatusCard />
+      </QueryClientProvider>
     </StrictMode>
   );
 }
@@ -121,9 +125,8 @@ describe("showing today", () => {
   });
 
   it("offers a retry when today's attendance can't load", async () => {
-    // Twice: StrictMode mounts the card twice, so both first loads must fail.
+    // Once: StrictMode mounts the card twice, but the cache shares one request.
     mockGet
-      .mockRejectedValueOnce(new Error("Network Error"))
       .mockRejectedValueOnce(new Error("Network Error"))
       .mockResolvedValue(today("NOT_STARTED", []));
     renderCard();
@@ -139,7 +142,6 @@ describe("showing today", () => {
 describe("punching", () => {
   it("starts a break through the API, then re-reads the server state", async () => {
     mockGet
-      .mockResolvedValueOnce(today("CLOCKED_IN", [{ type: "CLOCK_IN", occurredAt: at("08:00") }]))
       .mockResolvedValueOnce(today("CLOCKED_IN", [{ type: "CLOCK_IN", occurredAt: at("08:00") }]))
       .mockResolvedValue(
         today("ON_BREAK", [

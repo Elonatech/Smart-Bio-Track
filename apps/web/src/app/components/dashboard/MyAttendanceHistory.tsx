@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { DataTable } from "@/app/components/dashboard/DataTable";
 import { formatRecordedTime } from "@/app/components/dashboard/clockInOutcome";
 import { extractErrorMessage } from "@/lib/api-client";
-import { fetchHistory, kindOf, type AttendanceDay, type DayKind } from "@/lib/attendance";
+import { useAttendanceHistory } from "@/lib/attendanceQueries";
+import { kindOf, type AttendanceDay, type DayKind } from "@/lib/attendance";
 
 // The signed-in person's own attendance, one row per day, from
 // GET /attendance/history (Phase 3). Read-only. Shared by every role that
@@ -90,29 +91,13 @@ function KindBadge({ day }: { day: AttendanceDay }) {
 export function MyAttendanceHistory() {
   const [range, setRange] = useState<Range>(30);
   const [filter, setFilter] = useState<Filter>("ALL");
-  const [days, setDays] = useState<AttendanceDay[] | null>(null);
+  // Cached per range (lib/attendanceQueries.ts): switching back to a range
+  // you've seen, or returning to this page, shows it at once.
+  const historyQuery = useAttendanceHistory(startOfRange(range));
+  const days: AttendanceDay[] | null = historyQuery.data?.days ?? null;
   // From the response: times show in the organisation's zone (decision 1.1).
-  const [timeZone, setTimeZone] = useState<string | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
-
-
-  useEffect(() => {
-    let isActive = true;
-    fetchHistory(startOfRange(range))
-      .then((history) => {
-        if (!isActive) return;
-        setDays(history.days);
-        setTimeZone(history.timeZone);
-        setError(null);
-      })
-      .catch((err) => {
-        if (isActive) setError(extractErrorMessage(err));
-      });
-    return () => {
-      isActive = false;
-    };
-  }, [range, reloadKey]);
+  const timeZone = historyQuery.data?.timeZone;
+  const error = historyQuery.error ? extractErrorMessage(historyQuery.error) : null;
 
   const filteredDays = useMemo(
     () => (days ?? []).filter((day) => filter === "ALL" || kindOf(day) === filter),
@@ -163,7 +148,7 @@ export function MyAttendanceHistory() {
           </p>
           <button
             type="button"
-            onClick={() => setReloadKey((k) => k + 1)}
+            onClick={() => void historyQuery.refetch()}
             className="inline-flex items-center gap-2 text-sm font-medium text-heading hover:underline"
           >
             <RefreshCw className="h-4 w-4" strokeWidth={2} />

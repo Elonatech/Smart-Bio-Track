@@ -171,3 +171,18 @@ it("shows the reason and a retry when it can't load", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByText(/of \d+ expected are in/)).toBeInTheDocument();
 });
+
+it("spins the Refresh icon visibly, even though the sample numbers come back instantly", async () => {
+  // Found in testing: the spinner switched off before it could be drawn.
+  renderWithProviders(<OrgTodayPanel />);
+  await screen.findByText(/of \d+ expected are in/);
+  const button = screen.getByRole("button", { name: "Refresh" });
+
+  await userEvent.click(button);
+
+  // Still spinning once the instant refresh has settled…
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(button.querySelector("svg")).toHaveClass("animate-spin");
+  // …and stops by itself.
+  await waitFor(() => expect(button.querySelector("svg")).not.toHaveClass("animate-spin"));
+});

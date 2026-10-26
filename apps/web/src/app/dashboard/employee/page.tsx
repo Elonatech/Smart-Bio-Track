@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import {
   CalendarDays,
   CalendarOff,
@@ -22,8 +21,8 @@ import {
 } from "@/app/components/dashboard/MyAttendanceHistory";
 import { formatRecordedTime } from "@/app/components/dashboard/clockInOutcome";
 import { extractErrorMessage } from "@/lib/api-client";
+import { useAttendanceHistory } from "@/lib/attendanceQueries";
 import {
-  fetchHistory,
   kindOf,
   type AttendanceDay,
   type AttendanceHistory,
@@ -154,23 +153,12 @@ export default function EmployeeDashboardPage() {
   // chip already shows who is signed in.
   usePageHeader("Today", `${formattedToday}${timeZone ? ` · ${zoneLabel(timeZone)}` : ""}`);
 
-  const [history, setHistory] = useState<AttendanceHistory | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  // State is only set when the request settles, never synchronously in the
-  // effect (React's set-state-in-effect lint).
-  const load = useCallback(() => {
-    fetchHistory(historyStart())
-      .then((data) => {
-        setHistory(data);
-        setLoadError(null);
-      })
-      .catch((error) => setLoadError(extractErrorMessage(error)));
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Cached and shared with the status card's refresh (lib/attendanceQueries.ts):
+  // a punch re-reads this too, so the charts update without a page refresh.
+  const historyQuery = useAttendanceHistory(historyStart());
+  const history = historyQuery.data ?? null;
+  const loadError = historyQuery.error ? extractErrorMessage(historyQuery.error) : null;
+  const load = () => void historyQuery.refetch();
 
   return (
     <div>

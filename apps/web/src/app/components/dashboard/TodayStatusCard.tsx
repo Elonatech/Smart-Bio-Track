@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { LogIn, LogOut, Coffee, Timer, RefreshCw } from "lucide-react";
 import { ClockInFlow } from "@/app/components/dashboard/ClockInFlow";
@@ -8,7 +8,11 @@ import { formatRecordedTime } from "@/app/components/dashboard/clockInOutcome";
 import { useToast } from "@/app/components/Toast";
 import { extractErrorMessage } from "@/lib/api-client";
 import {
-  fetchToday,
+  useRefreshAttendance,
+  useTodayAttendance,
+  useUpdateTodayAttendance,
+} from "@/lib/attendanceQueries";
+import {
   punchErrorMessage,
   readPositionQuietly,
   recordPunch,
@@ -77,25 +81,16 @@ function MiniStat({
 
 export function TodayStatusCard() {
   const toast = useToast();
-  const [today, setToday] = useState<TodayAttendance | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // Cached (lib/attendanceQueries.ts): coming back to the overview shows the
+  // last answer at once while it re-reads, instead of "Loading…" every time.
+  const todayQuery = useTodayAttendance();
+  const today = todayQuery.data ?? null;
+  const loadError = todayQuery.error ? extractErrorMessage(todayQuery.error) : null;
+  const setToday = useUpdateTodayAttendance();
+  // Re-reads the card AND the Overview charts, so they agree after a punch.
+  const load = useRefreshAttendance();
   const [pending, setPending] = useState<CardPunch | null>(null);
   const [isClockInOpen, setIsClockInOpen] = useState(false);
-
-  // State is only ever set when the request settles — never synchronously
-  // inside the effect, which React's lint rule rightly flags.
-  const load = useCallback(() => {
-    fetchToday()
-      .then((data) => {
-        setToday(data);
-        setLoadError(null);
-      })
-      .catch((error) => setLoadError(extractErrorMessage(error)));
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   const state = today?.state ?? "NOT_STARTED";
   const punches = today?.punches ?? [];
@@ -154,7 +149,7 @@ export function TodayStatusCard() {
       // server's punch, and on a refusal ("You are already on a break.") it
       // restores what's really recorded — another tab or device may have
       // punched since.
-      load();
+      void load();
     }
   }
 
@@ -169,7 +164,7 @@ export function TodayStatusCard() {
         </div>
         <button
           type="button"
-          onClick={load}
+          onClick={() => void load()}
           className="inline-flex items-center gap-2 border border-neutral/30 text-heading text-sm font-medium px-4 py-2 rounded-md hover:bg-neutral/10"
         >
           <RefreshCw className="h-4 w-4" strokeWidth={2} />

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
@@ -12,7 +13,6 @@ import {
   localToday,
   type OrgTodayLate,
   type OrgTodayPerson,
-  type OrgTodaySummary,
 } from "@/lib/orgToday";
 import { formatRecordedTime } from "@/app/components/dashboard/clockInOutcome";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -27,6 +27,7 @@ import { useAuthStore } from "@/lib/store/auth-store";
 // filter, and the holiday / rest day / no-rule states.
 
 const REFRESH_MS = 2 * 60 * 1000;
+const MIN_SPIN_MS = 500;
 const PREVIEW_ROWS = 3;
 
 interface Branch {
@@ -67,66 +68,74 @@ function quietDay(ctx: Context, branchId: string | null): { title: string; body:
   return null;
 }
 
+async function loadContext(): Promise<Context> {
+  const [org, rules, branches] = await Promise.all([
+    fetchOrganization(),
+    fetchWorkRules(),
+    appClient.get<Branch[]>("/offices").then((res) => res.data),
+  ]);
+  const { date, weekday } = localToday(new Date(), org.timezone);
+  const holidays = await fetchHolidays(Number(date.slice(0, 4)));
+  return {
+    timeZone: org.timezone,
+    workDate: date,
+    weekday,
+    branches,
+    rules,
+    holidayName: holidays.find((h) => h.onDate === date)?.name ?? null,
+  };
+}
+
 export function OrgTodayPanel() {
-  const [ctx, setCtx] = useState<Context | null>(null);
-  const [summary, setSummary] = useState<OrgTodaySummary | null>(null);
   const [branchId, setBranchId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAllLate, setShowAllLate] = useState(false);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
   // Time Regulation is a Super Admin page; HR sees this panel too.
   const canEditRules = useAuthStore((state) => state.user?.role === "SUPER_ADMIN");
+  // Part of every cache key, so one person's answers never reach another.
+  const userId = useAuthStore((state) => state.user?.id) ?? "signed-out";
 
-  // The slow-changing context: once per mount (or on retry).
-  const loadContext = useCallback(() => {
-    Promise.all([
-      fetchOrganization(),
-      fetchWorkRules(),
-      appClient.get<Branch[]>("/offices").then((res) => res.data),
-    ])
-      .then(async ([org, rules, branches]) => {
-        const { date, weekday } = localToday(new Date(), org.timezone);
-        const holidays = await fetchHolidays(Number(date.slice(0, 4)));
-        setCtx({
-          timeZone: org.timezone,
-          workDate: date,
-          weekday,
-          branches,
-          rules,
-          holidayName: holidays.find((h) => h.onDate === date)?.name ?? null,
-        });
-        setError(null);
-      })
-      .catch((err) => setError(extractErrorMessage(err)));
-  }, []);
+  // Both reads are cached (lib/queryClient.ts): returning to the overview
+  // shows the last numbers at once while they re-read.
 
-  useEffect(() => {
-    loadContext();
-  }, [loadContext]);
+  // The slow-changing context: zone, rules, branches, today's holiday.
+  const contextQuery = useQuery({
+    queryKey: ["orgToday", userId, "context"],
+    queryFn: loadContext,
+  });
+  const ctx = contextQuery.data ?? null;
 
-  // State is only set when the request settles — never synchronously in
-  // the effect below. The spinner is for a refresh someone asked for.
-  const loadSummary = useCallback(() => {
-    if (!ctx) return;
-    fetchOrgToday({ officeId: branchId, branches: ctx.branches, workDate: ctx.workDate })
-      .then((data) => {
-        setSummary(data);
-        setUpdatedAt(new Date());
-        setError(null);
-      })
-      .catch((err) => setError(extractErrorMessage(err)))
-      .finally(() => setIsRefreshing(false));
-  }, [ctx, branchId]);
+  // The numbers, per branch. Kept fresh while the page is open — a
+  // dashboard left up all morning shouldn't show 08:00's numbers at 11:00.
+  const summaryQuery = useQuery({
+    queryKey: ["orgToday", userId, "summary", ctx?.workDate, branchId],
+    queryFn: () =>
+      fetchOrgToday({ officeId: branchId, branches: ctx!.branches, workDate: ctx!.workDate }),
+    enabled: ctx !== null,
+    refetchInterval: REFRESH_MS,
+    // Switching branch keeps the old numbers up until the new ones land.
+    placeholderData: keepPreviousData,
+  });
+  const summary = summaryQuery.data ?? null;
+  const updatedAt = summaryQuery.dataUpdatedAt ? new Date(summaryQuery.dataUpdatedAt) : null;
 
-  // Load, then keep fresh while the page is open — a dashboard left up all
-  // morning shouldn't show 08:00's numbers at 11:00.
-  useEffect(() => {
-    loadSummary();
-    const timer = setInterval(loadSummary, REFRESH_MS);
-    return () => clearInterval(timer);
-  }, [loadSummary]);
+  const queryError = contextQuery.error ?? summaryQuery.error;
+  const error = queryError ? extractErrorMessage(queryError) : null;
+
+  // The spinner is for a refresh someone asked for, not the timed one. It
+  // turns for at least MIN_SPIN_MS: the sample numbers come back in about a
+  // millisecond, too fast to paint, so a press looked like it did nothing.
+  function refresh() {
+    setIsRefreshing(true);
+    const minimumSpin = new Promise((resolve) => setTimeout(resolve, MIN_SPIN_MS));
+    void Promise.allSettled([summaryQuery.refetch(), minimumSpin]).then(() =>
+      setIsRefreshing(false)
+    );
+  }
+  function retry() {
+    void (ctx ? summaryQuery.refetch() : contextQuery.refetch());
+  }
 
   const quiet = ctx ? quietDay(ctx, branchId) : null;
   const counts = summary?.counts;
@@ -182,10 +191,7 @@ export function OrgTodayPanel() {
             )}
             <button
               type="button"
-              onClick={() => {
-                setIsRefreshing(true);
-                loadSummary();
-              }}
+              onClick={refresh}
               disabled={!ctx || isRefreshing}
               aria-label="Refresh"
               className="rounded-md p-2 text-neutral hover:bg-neutral/10 hover:text-heading disabled:opacity-50"
@@ -202,7 +208,7 @@ export function OrgTodayPanel() {
             </p>
             <button
               type="button"
-              onClick={ctx ? loadSummary : loadContext}
+              onClick={retry}
               className="text-sm font-medium text-heading hover:underline"
             >
               Try again

@@ -5,6 +5,7 @@ import EmployeeDashboardPage from "./page";
 import { appClient } from "@/lib/api-client";
 import { localToday } from "@/lib/orgToday";
 import { renderWithProviders, screen, waitFor, within } from "@/test/render";
+import userEvent from "@testing-library/user-event";
 
 /**
  * The employee overview's week bars, month calendar and recent activity,
@@ -20,6 +21,7 @@ jest.mock("@/lib/api-client", () => ({
 }));
 
 const mockGet = appClient.get as jest.Mock;
+const mockPost = appClient.post as jest.Mock;
 const ZONE = "Africa/Lagos";
 
 // Dates relative to the real today, so the tests hold on any day.
@@ -174,4 +176,32 @@ it("offers a retry when the history can't be loaded", async () => {
 
   expect(await screen.findByText("Couldn't load your attendance")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Try again/ })).toBeInTheDocument();
+});
+
+it("re-reads the charts after a punch, without a page refresh", async () => {
+  serve([]);
+  mockPost.mockResolvedValue({ data: {} });
+  // Clocked in, so the card offers Start Break.
+  const base = mockGet.getMockImplementation()!;
+  mockGet.mockImplementation((url: string) =>
+    url === "/attendance/today"
+      ? Promise.resolve({
+          data: {
+            workDate: today,
+            timeZone: ZONE,
+            state: "CLOCKED_IN",
+            punches: [{ id: "p1", type: "CLOCK_IN", occurredAt: `${today}T08:00:00.000Z` }],
+          },
+        })
+      : base(url)
+  );
+  renderWithProviders(<EmployeeDashboardPage />);
+  await screen.findByText("Recent activity");
+  const historyReads = () =>
+    mockGet.mock.calls.filter(([url]) => url === "/attendance/history").length;
+  expect(historyReads()).toBe(1);
+
+  await userEvent.click(await screen.findByRole("button", { name: /Start Break/ }));
+
+  await waitFor(() => expect(historyReads()).toBe(2));
 });
