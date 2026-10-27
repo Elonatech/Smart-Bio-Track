@@ -1,4 +1,4 @@
-import { AttendanceStatus, PunchType } from '@prisma/client';
+import { AttendanceStatus, OvertimeBasis, PunchType } from '@prisma/client';
 import {
   BREAKS_ARE_PAID,
   computeDaySummary,
@@ -36,6 +36,7 @@ const STANDARD: RuleSnapshot = {
   startMinutes: 8 * 60,
   endMinutes: 17 * 60,
   gracePeriodMinutes: 10,
+  overtimeBasis: OvertimeBasis.DAILY_HOURS,
   overtimeAfterMinutes: 8 * 60,
 };
 
@@ -211,7 +212,11 @@ describe('overtime', () => {
   it('is zero when the rule does not track overtime', () => {
     const s = computeDaySummary(
       day({
-        rule: { ...STANDARD, overtimeAfterMinutes: null },
+        rule: {
+          ...STANDARD,
+          overtimeBasis: OvertimeBasis.NONE,
+          overtimeAfterMinutes: null,
+        },
         punches: punches(['CLOCK_IN', '08:00'], ['CLOCK_OUT', '20:00']),
       }),
     )!;
@@ -231,6 +236,81 @@ describe('overtime', () => {
     )!;
     expect(s.workedMinutes).toBe(8 * 60);
     expect(s.overtimeMinutes).toBe(0);
+  });
+});
+
+describe('overtime after the end time (END_TIME — decided 27 Oct)', () => {
+  // "Work is set from 9 to 5, anything after 5pm is tagged as overtime."
+  const NINE_TO_FIVE: RuleSnapshot = {
+    ...STANDARD,
+    startMinutes: 9 * 60,
+    endMinutes: 17 * 60,
+    overtimeBasis: OvertimeBasis.END_TIME,
+    overtimeAfterMinutes: null,
+  };
+  const at9to5 = (...pairs: [PunchType, string][]) =>
+    computeDaySummary(day({ rule: NINE_TO_FIVE, punches: punches(...pairs) }))!;
+
+  it('counts every minute worked after 17:00', () => {
+    expect(
+      at9to5(['CLOCK_IN', '09:00'], ['CLOCK_OUT', '18:30']).overtimeMinutes,
+    ).toBe(90);
+  });
+
+  it('counts it even after a late start — time after 5pm is overtime, full stop', () => {
+    const s = at9to5(['CLOCK_IN', '11:00'], ['CLOCK_OUT', '18:00']);
+    expect(s.isLate).toBe(true);
+    expect(s.overtimeMinutes).toBe(60);
+  });
+
+  it('is zero for someone who leaves at 17:00 — arriving early is not overtime', () => {
+    expect(
+      at9to5(['CLOCK_IN', '07:00'], ['CLOCK_OUT', '17:00']).overtimeMinutes,
+    ).toBe(0);
+  });
+
+  it('does not count a break taken after 17:00', () => {
+    const s = at9to5(
+      ['CLOCK_IN', '09:00'],
+      ['BREAK_START', '17:30'],
+      ['BREAK_END', '18:00'],
+      ['CLOCK_OUT', '19:00'],
+    );
+    // 17:00–17:30 and 18:00–19:00 worked after the end; the break is not.
+    expect(s.overtimeMinutes).toBe(90);
+  });
+
+  it('counts a second session in the evening', () => {
+    const s = at9to5(
+      ['CLOCK_IN', '09:00'],
+      ['CLOCK_OUT', '17:00'],
+      ['CLOCK_IN', '19:00'],
+      ['CLOCK_OUT', '20:15'],
+    );
+    expect(s.overtimeMinutes).toBe(75);
+  });
+
+  it("measures in the organisation's timezone — 17:30 Lagos is 16:30 UTC", () => {
+    expect(
+      at9to5(['CLOCK_IN', '09:00'], ['CLOCK_OUT', '17:30']).overtimeMinutes,
+    ).toBe(30);
+  });
+});
+
+describe('overtime by hours worked (DAILY_HOURS — "8 hours a day")', () => {
+  it("ignores the clock: 07:00–17:00 with an hour's lunch is 9 h worked, 1 h over", () => {
+    const s = computeDaySummary(
+      day({
+        punches: punches(
+          ['CLOCK_IN', '07:00'],
+          ['BREAK_START', '12:00'],
+          ['BREAK_END', '13:00'],
+          ['CLOCK_OUT', '17:00'],
+        ),
+      }),
+    )!;
+    expect(s.workedMinutes).toBe(9 * 60);
+    expect(s.overtimeMinutes).toBe(60);
   });
 });
 

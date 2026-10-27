@@ -1,4 +1,4 @@
-import { AttendanceStatus, PunchType } from '@prisma/client';
+import { AttendanceStatus, OvertimeBasis, PunchType } from '@prisma/client';
 import { planDayClose, type DayCloseInput } from './day-close-plan';
 import type { RuleSnapshot } from './day-summary';
 
@@ -17,6 +17,7 @@ const RULE: RuleSnapshot = {
   startMinutes: 480,
   endMinutes: 1020,
   gracePeriodMinutes: 10,
+  overtimeBasis: OvertimeBasis.DAILY_HOURS,
   overtimeAfterMinutes: 480,
 };
 

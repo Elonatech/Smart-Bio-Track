@@ -291,8 +291,17 @@ model WorkRule {
   /// grace 10, arrival 493 → 3 minutes late, not 13.
   gracePeriodMinutes Int @default(0)
 
-  /// Worked minutes in a day beyond which the rest is overtime. Null = this
-  /// rule does not track overtime.
+  /// How overtime is counted — decided 27 Oct 2026, and flexible per rule
+  /// because companies mean different things by it:
+  ///   END_TIME    — time worked after `endMinutes` ("9 to 5, anything after
+  ///                 5pm"). The default for new rules.
+  ///   DAILY_HOURS — worked time beyond `overtimeAfterMinutes` ("8 hours a
+  ///                 day"), wherever in the day it fell.
+  ///   NONE        — not tracked.
+  overtimeBasis OvertimeBasis @default(END_TIME)
+
+  /// The daily threshold for DAILY_HOURS, in worked minutes. Required for
+  /// DAILY_HOURS (CHECK in the migration) and ignored otherwise.
   overtimeAfterMinutes Int?
 
   /// Pay multiplier for overtime. Stored because onboarding already collects
@@ -307,6 +316,12 @@ model WorkRule {
   summaries AttendanceSummary[]
 
   @@unique([organizationId, name])
+}
+
+enum OvertimeBasis {
+  NONE
+  END_TIME
+  DAILY_HOURS
 }
 
 enum HolidayType {

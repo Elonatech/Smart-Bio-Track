@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,7 +14,12 @@ import {
   type AttendanceState,
 } from './attendance-state';
 import { computeDaySummary, type RuleSnapshot } from './day-summary';
-import { isHolidayOn, RULE_SELECT, shiftDays } from './attendance-rules';
+import {
+  ATTENDANCE_EXEMPT_ROLES,
+  isHolidayOn,
+  RULE_SELECT,
+  shiftDays,
+} from './attendance-rules';
 import {
   fromDbDate,
   localMoment,
@@ -210,6 +216,15 @@ export class AttendanceService {
     location: PunchLocationDto | undefined,
     ip: string | undefined,
   ) {
+    // Super Admins are not tracked (decided 27 Oct 2026) — refused here so
+    // the record cannot hold a stray PRESENT day for someone who is never
+    // absent. See ATTENDANCE_EXEMPT_ROLES.
+    if (ATTENDANCE_EXEMPT_ROLES.includes(caller.role)) {
+      throw new ForbiddenException(
+        'Attendance is not recorded for super administrators.',
+      );
+    }
+
     // Read-only and slow-changing, so outside the lock: which timezone, which
     // rule. Holding a row lock across these would only lengthen the window in
     // which a second tap waits.

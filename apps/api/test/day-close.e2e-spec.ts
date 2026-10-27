@@ -215,6 +215,28 @@ describe('End-of-day job (integration)', () => {
     expect(newcomerDays).toEqual([WED]);
   });
 
+  it('never marks a super admin absent — they are exempt (decided 27 Oct)', async () => {
+    const org = await orgWithRule('superadmin');
+    const owner = await ctx.prisma.user.create({
+      data: {
+        employeeId: 'EMP-CLOSE-OWNER',
+        name: 'Company Owner',
+        email: 'close-owner@test.local',
+        role: 'SUPER_ADMIN',
+        status: 'ACTIVE',
+        organizationId: org,
+        createdAt: new Date('2026-09-01T09:00:00Z'),
+      },
+    });
+    const staff = await employee(org, 'beside-owner');
+
+    await job().closeEndedDays(NOW);
+
+    expect(await summaries(owner.id)).toEqual([]);
+    // The rule still applies to the staff beside them.
+    expect(await summaries(staff.id)).toHaveLength(3);
+  });
+
   it('writes nothing for an organisation that has configured no hours', async () => {
     // Nobody is absent from hours that were never set.
     const email = 'close-norule@test.local';

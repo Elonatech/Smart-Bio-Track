@@ -20,16 +20,39 @@ import { hashPassword } from '../src/common/password.util';
 describe('Attendance (integration)', () => {
   let ctx: TestContext;
 
+  /**
+   * A fresh organisation and a signed-in EMPLOYEE in it — the person whose
+   * attendance is tracked. The organisation's own admin is a Super Admin, and
+   * Super Admins are exempt from attendance (decided 27 Oct), so they cannot
+   * be the one clocking in. `adminToken` is there for the tests that need it.
+   */
   const signUp = async (suffix: string) => {
-    const { accessToken } = await registerOrganization(ctx, {
+    const { accessToken: adminToken } = await registerOrganization(ctx, {
       organizationName: `Attend ${suffix}`,
       email: `attend-${suffix}@test.local`,
-      adminName: `Person ${suffix}`,
+      adminName: `Admin ${suffix}`,
     });
-    const user = await ctx.prisma.user.findUniqueOrThrow({
+    const admin = await ctx.prisma.user.findUniqueOrThrow({
       where: { email: `attend-${suffix}@test.local` },
     });
-    return { token: accessToken, user };
+    const email = `attend-emp-${suffix}@test.local`;
+    const user = await ctx.prisma.user.create({
+      data: {
+        employeeId: `EMP-ATT-${suffix}`,
+        name: `Person ${suffix}`,
+        email,
+        role: 'EMPLOYEE',
+        status: 'ACTIVE',
+        organizationId: admin.organizationId,
+        passwordHash: await hashPassword('Passw0rd!'),
+      },
+    });
+    const login = await request(httpServer(ctx))
+      .post('/api/auth/login')
+      .send({ identifier: email, password: 'Passw0rd!' })
+      .expect(200);
+    const token = (login.body.data as { accessToken: string }).accessToken;
+    return { token, user, adminToken };
   };
 
   const punch = (token: string, action: string, body: object = {}) =>
@@ -74,6 +97,26 @@ describe('Attendance (integration)', () => {
           .expect(401);
       },
     );
+  });
+
+  describe('super admins are exempt (decided 27 Oct)', () => {
+    it.each(['clock-in', 'clock-out', 'break-start', 'break-end'])(
+      'refuses a super admin %s with 403 — and records nothing',
+      async (action) => {
+        const { adminToken } = await signUp(`exempt-${action}`);
+        await punch(adminToken, action).expect(403);
+        expect(await ctx.prisma.punchEvent.count()).toBe(0);
+      },
+    );
+
+    it('still lets a super admin read their (empty) day', async () => {
+      const { adminToken } = await signUp('exempt-today');
+      const res = await get(adminToken, 'today').expect(200);
+      expect(res.body.data).toMatchObject({
+        state: 'NOT_STARTED',
+        punches: [],
+      });
+    });
   });
 
   describe('a working day', () => {

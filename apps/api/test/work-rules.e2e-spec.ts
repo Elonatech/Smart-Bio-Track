@@ -293,6 +293,61 @@ describe('Work rules, holidays and organisation settings (integration)', () => {
     });
   });
 
+  describe('overtime basis (decided 27 Oct)', () => {
+    it('defaults a new rule to END_TIME — anything after the end time', async () => {
+      const { token } = await signUp('ot-default');
+      const res = await api(token)
+        .post('/work-rules', { ...STANDARD, overtimeAfterMinutes: undefined })
+        .expect(201);
+      expect(res.body.data).toMatchObject({
+        overtimeBasis: 'END_TIME',
+        overtimeAfterMinutes: null,
+      });
+    });
+
+    it('reads a threshold sent without a basis as DAILY_HOURS, as it always meant', async () => {
+      // The time-regulation screen sends overtimeAfterMinutes and no basis.
+      const { token } = await signUp('ot-compat');
+      const res = await api(token).post('/work-rules', STANDARD).expect(201);
+      expect(res.body.data).toMatchObject({
+        overtimeBasis: 'DAILY_HOURS',
+        overtimeAfterMinutes: 480,
+      });
+    });
+
+    it('refuses DAILY_HOURS with no threshold', async () => {
+      const { token } = await signUp('ot-nothreshold');
+      await api(token)
+        .post('/work-rules', {
+          ...STANDARD,
+          overtimeBasis: 'DAILY_HOURS',
+          overtimeAfterMinutes: undefined,
+        })
+        .expect(400);
+    });
+
+    it('refuses a threshold on an END_TIME rule as contradictory', async () => {
+      const { token } = await signUp('ot-contradict');
+      await api(token)
+        .post('/work-rules', { ...STANDARD, overtimeBasis: 'END_TIME' })
+        .expect(400);
+    });
+
+    it('switching to END_TIME clears the old threshold', async () => {
+      const { token } = await signUp('ot-switch');
+      const rule = await api(token).post('/work-rules', STANDARD).expect(201);
+      const res = await api(token)
+        .patch(`/work-rules/${rule.body.data.id}`, {
+          overtimeBasis: 'END_TIME',
+        })
+        .expect(200);
+      expect(res.body.data).toMatchObject({
+        overtimeBasis: 'END_TIME',
+        overtimeAfterMinutes: null,
+      });
+    });
+  });
+
   describe('rules feeding attendance', () => {
     it("an office's rule beats the company default", async () => {
       const { token, organizationId } = await signUp('precedence');
@@ -338,14 +393,17 @@ describe('Work rules, holidays and organisation settings (integration)', () => {
     });
 
     it('nobody is late on a holiday', async () => {
-      const { token } = await signUp('holiday-late');
+      const { token, organizationId } = await signUp('holiday-late');
+      // The admin sets things up; an employee clocks in — super admins are
+      // exempt from attendance (decided 27 Oct).
+      const worker = await colleague(organizationId, 'EMPLOYEE', 'hl-worker');
       await api(token).post('/work-rules', MIDNIGHT).expect(201);
       const today = localMoment(new Date(), 'Africa/Lagos').date;
       await api(token)
         .post('/holidays', { name: 'Founders Day', date: today })
         .expect(201);
 
-      const res = await api(token).post('/attendance/clock-in').expect(201);
+      const res = await api(worker).post('/attendance/clock-in').expect(201);
       expect(res.body.data.summary).toMatchObject({
         isLate: false,
         lateMinutes: 0,
@@ -425,14 +483,15 @@ describe('Work rules, holidays and organisation settings (integration)', () => {
     });
 
     it('moves which day a punch belongs to', async () => {
-      const { token } = await signUp('tz');
+      const { token, organizationId } = await signUp('tz');
+      const worker = await colleague(organizationId, 'EMPLOYEE', 'tz-worker');
       // UTC+14: for most of the day this is a different calendar date from
       // Lagos, so the punch's day must follow the setting, not the server.
       await api(token)
         .patch('/organization', { timezone: 'Pacific/Kiritimati' })
         .expect(200);
 
-      const res = await api(token).post('/attendance/clock-in').expect(201);
+      const res = await api(worker).post('/attendance/clock-in').expect(201);
       const expected = localMoment(
         new Date(res.body.data.punch.occurredAt as string),
         'Pacific/Kiritimati',

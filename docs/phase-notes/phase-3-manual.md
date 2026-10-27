@@ -6,7 +6,7 @@
 | **Team** | Enoch (attendance logic, punch API, review) · Emmanuel (work rules, holidays, end-of-day job) · Stephanie (clock-in screen, history, setup wizard wiring) |
 | **Target duration** | Roadmap: 2–3 weeks. Our estimate: **3–4 weeks** (Phase 2 ran at about twice its first estimate). |
 | **Exit condition** | *An employee can clock in, clock out, and see an accurate daily summary* — demonstrated live, with the sign-off **recorded in writing** before Phase 4 begins. |
-| **Last updated** | 20 October 2026 |
+| **Last updated** | 27 October 2026 |
 
 **Before you start:** pull `testing` (backend) or `frontend-testing` (frontend),
 run `pnpm install`, and confirm your database has migration 18:
@@ -111,18 +111,27 @@ looks wrong, raise it; changing one is a decision, not an edit.
 | 8 | **Night shifts stay refused** (confirmed 15 Oct) | The setup wizard must refuse an end before the start, too (§8.1) |
 | 9 | **Department rules deferred** | Additive later: a `departmentId` on WorkRule and one more resolution step |
 
-### Open — needs an answer before the wizard is wired
+### Decided 27 October 2026
 
-**What is overtime?** The two halves currently disagree:
+**10. Overtime is flexible, chosen per rule** (`WorkRule.overtimeBasis`):
 
-- **Setup wizard** (`StepWorkRules.tsx`, `overtimeAfterHours`): time worked
-  *after a clock time*, derived from the end time — after 17:00.
-- **Server** (`WorkRule.overtimeAfterMinutes`): worked time *beyond a length of
-  day* — beyond 480 minutes.
+| Basis | Meaning | 09:00–17:00 rule, in 09:00, out 18:30, 1 h lunch |
+|---|---|---|
+| `END_TIME` — **the default** | Time worked after the rule's end is overtime ("9 to 5, anything after 5pm") | 1 h 30 |
+| `DAILY_HOURS` | Worked time beyond `overtimeAfterMinutes` ("8 hours a day") | 30 min |
+| `NONE` | Not tracked | 0 |
 
-They differ on real days: in at 10:00, out at 18:00 is **1 hour** of overtime by
-the first and **none** by the second. It decides pay. **Do not wire the
-wizard's overtime fields until this is settled.**
+`END_TIME` counts only work after the end — a break taken after 17:00 is not
+overtime, and arriving early is not overtime. It counts regardless of
+lateness. A request that sends `overtimeAfterMinutes` with no basis means
+`DAILY_HOURS` (how it worked before); one that sends neither gets `END_TIME`.
+Migration `20261027090000_add_overtime_basis`; existing rules keep their
+meaning (threshold → `DAILY_HOURS`, none → `NONE`).
+
+**11. Super Admins are exempt from attendance** (`ATTENDANCE_EXEMPT_ROLES` in
+`attendance/attendance-rules.ts`). The punch API refuses them (403) and the
+end-of-day job never marks them absent. HR Admins and Team Leads are staff and
+stay tracked.
 
 ---
 

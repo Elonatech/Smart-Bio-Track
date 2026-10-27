@@ -7,7 +7,12 @@ import {
 import { AttendanceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { isHolidayOn, RULE_SELECT, shiftDays } from './attendance-rules';
+import {
+  ATTENDANCE_EXEMPT_ROLES,
+  isHolidayOn,
+  RULE_SELECT,
+  shiftDays,
+} from './attendance-rules';
 import { localMoment, toDbDate, type LocalDate } from './attendance-time';
 import { planDayClose } from './day-close-plan';
 
@@ -178,7 +183,12 @@ export class DayCloseService implements OnModuleInit, OnModuleDestroy {
       // Only ACTIVE people can be absent. Suspended, removed and
       // not-yet-activated accounts are not expected at work.
       const users = await this.prisma.user.findMany({
-        where: { organizationId, status: 'ACTIVE' },
+        where: {
+          organizationId,
+          status: 'ACTIVE',
+          // Not tracked at all (decided 27 Oct): never absent, never late.
+          role: { notIn: [...ATTENDANCE_EXEMPT_ROLES] },
+        },
         select: {
           id: true,
           createdAt: true,
