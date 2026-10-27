@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { fromDbDate, toDbDate, type LocalDate } from './attendance-time';
 
 /**
@@ -16,6 +16,7 @@ export const RULE_SELECT = {
   startMinutes: true,
   endMinutes: true,
   gracePeriodMinutes: true,
+  overtimeBasis: true,
   overtimeAfterMinutes: true,
 } satisfies Prisma.WorkRuleSelect;
 
@@ -53,3 +54,17 @@ export function shiftDays(date: LocalDate, days: number): LocalDate {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * Roles not tracked by attendance (Enoch, 27 Oct 2026: "i don't think it's
+ * necessary to have super admin having attendance").
+ *
+ * Exempt means BOTH halves: the end-of-day job never marks them absent, and
+ * the punch API refuses their punches. One without the other is worse than
+ * either — an owner who clocked in once would show as present on that day and
+ * have no record on any other, which reads as a broken report. HR Admins and
+ * Team Leads are staff and stay tracked.
+ */
+export const ATTENDANCE_EXEMPT_ROLES: readonly UserRole[] = [
+  UserRole.SUPER_ADMIN,
+];

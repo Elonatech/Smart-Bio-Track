@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { OvertimeBasis, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { formatClockTime, parseClockTime } from '../attendance/attendance-time';
@@ -25,6 +25,7 @@ const RULE_SELECT = {
   startMinutes: true,
   endMinutes: true,
   gracePeriodMinutes: true,
+  overtimeBasis: true,
   overtimeAfterMinutes: true,
   overtimeMultiplier: true,
   offices: { select: { id: true, name: true }, orderBy: { name: 'asc' } },
@@ -63,6 +64,7 @@ export class WorkRulesService {
 
   async create(dto: CreateWorkRuleDto, caller: WorkRuleCaller, ip?: string) {
     const { startMinutes, endMinutes } = toMinutes(dto.startTime, dto.endTime);
+    const overtime = resolveOvertime(dto, null);
 
     return this.withUniqueName(dto.name, caller.organizationId, null, () =>
       this.prisma.$transaction(async (tx) => {
@@ -95,7 +97,7 @@ export class WorkRulesService {
             startMinutes,
             endMinutes,
             gracePeriodMinutes: dto.gracePeriodMinutes ?? 0,
-            overtimeAfterMinutes: dto.overtimeAfterMinutes ?? null,
+            ...overtime,
             ...(dto.overtimeMultiplier !== undefined && {
               overtimeMultiplier: dto.overtimeMultiplier,
             }),
@@ -124,6 +126,8 @@ export class WorkRulesService {
       dto.startTime ?? formatClockTime(existing.startMinutes),
       dto.endTime ?? formatClockTime(existing.endMinutes),
     );
+
+    const overtime = resolveOvertime(dto, existing);
 
     if (dto.isDefault === false && existing.isDefault) {
       throw new BadRequestException(
@@ -156,9 +160,7 @@ export class WorkRulesService {
               ...(dto.gracePeriodMinutes !== undefined && {
                 gracePeriodMinutes: dto.gracePeriodMinutes,
               }),
-              ...(dto.overtimeAfterMinutes !== undefined && {
-                overtimeAfterMinutes: dto.overtimeAfterMinutes,
-              }),
+              ...overtime,
               ...(dto.overtimeMultiplier !== undefined && {
                 overtimeMultiplier: dto.overtimeMultiplier,
               }),
@@ -285,6 +287,65 @@ function toMinutes(startTime: string, endTime: string) {
   return { startMinutes, endMinutes };
 }
 
+/**
+ * The overtime basis and threshold a create or update will leave the rule
+ * with, validated as a pair (like the start and end times).
+ *
+ * Backward compatible on purpose. Before 27 Oct the only basis was "after N
+ * minutes worked", and the time-regulation screen sends `overtimeAfterMinutes`
+ * without knowing a basis exists. So a request that sends a threshold and no
+ * basis means DAILY_HOURS, exactly as it always did; a request that sends
+ * neither gets the new default, END_TIME. An explicit basis always wins, and
+ * a contradictory pair is refused rather than half-applied.
+ *
+ * The threshold is cleared for any basis but DAILY_HOURS, so a stored number
+ * can never be mistaken for one that is in use.
+ */
+function resolveOvertime(
+  dto: Pick<CreateWorkRuleDto, 'overtimeBasis' | 'overtimeAfterMinutes'>,
+  existing: {
+    overtimeBasis: OvertimeBasis;
+    overtimeAfterMinutes: number | null;
+  } | null,
+): { overtimeBasis: OvertimeBasis; overtimeAfterMinutes: number | null } {
+  const sentThreshold = dto.overtimeAfterMinutes !== undefined;
+  const threshold = sentThreshold
+    ? (dto.overtimeAfterMinutes ?? null)
+    : (existing?.overtimeAfterMinutes ?? null);
+
+  let basis: OvertimeBasis;
+  if (dto.overtimeBasis !== undefined) {
+    basis = dto.overtimeBasis;
+    if (
+      basis !== OvertimeBasis.DAILY_HOURS &&
+      sentThreshold &&
+      threshold !== null
+    ) {
+      throw new BadRequestException(
+        'overtimeAfterMinutes only applies when overtimeBasis is DAILY_HOURS.',
+      );
+    }
+  } else if (sentThreshold) {
+    // The pre-27-Oct meaning: a number is "after this many minutes", and null
+    // was "no overtime".
+    basis = threshold === null ? OvertimeBasis.NONE : OvertimeBasis.DAILY_HOURS;
+  } else {
+    basis = existing?.overtimeBasis ?? OvertimeBasis.END_TIME;
+  }
+
+  if (basis === OvertimeBasis.DAILY_HOURS && threshold === null) {
+    throw new BadRequestException(
+      'Say how many minutes of work a day count before overtime (overtimeAfterMinutes).',
+    );
+  }
+
+  return {
+    overtimeBasis: basis,
+    overtimeAfterMinutes:
+      basis === OvertimeBasis.DAILY_HOURS ? threshold : null,
+  };
+}
+
 function sortDays(days: number[]) {
   return [...days].sort((a, b) => a - b);
 }
@@ -298,6 +359,7 @@ function present(rule: RuleRow) {
     startTime: formatClockTime(rule.startMinutes),
     endTime: formatClockTime(rule.endMinutes),
     gracePeriodMinutes: rule.gracePeriodMinutes,
+    overtimeBasis: rule.overtimeBasis,
     overtimeAfterMinutes: rule.overtimeAfterMinutes,
     // Decimal on the wire would be a string; a multiplier is a plain number.
     overtimeMultiplier: rule.overtimeMultiplier.toNumber(),

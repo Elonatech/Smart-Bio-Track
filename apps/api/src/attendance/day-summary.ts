@@ -1,4 +1,4 @@
-import { AttendanceStatus, PunchType } from '@prisma/client';
+import { AttendanceStatus, OvertimeBasis, PunchType } from '@prisma/client';
 import { isoWeekday, localMoment, type LocalDate } from './attendance-time';
 
 /**
@@ -32,6 +32,14 @@ export interface RuleSnapshot {
   startMinutes: number;
   endMinutes: number;
   gracePeriodMinutes: number;
+  /**
+   * How overtime is counted (decided 27 Oct 2026 — see overtimeFor below):
+   * END_TIME = time worked after the rule's end ("9 to 5, anything after 5pm");
+   * DAILY_HOURS = worked time beyond overtimeAfterMinutes ("8 hours a day");
+   * NONE = not tracked.
+   */
+  overtimeBasis: OvertimeBasis;
+  /** Only meaningful for DAILY_HOURS. */
   overtimeAfterMinutes: number | null;
 }
 
@@ -87,6 +95,8 @@ export function computeDaySummary(input: DaySummaryInput): DaySummary | null {
   // known until it ends, and guessing them is how a summary goes wrong.
   let workMs = 0;
   let breakMs = 0;
+  /** Each closed work segment — END_TIME overtime needs WHEN work happened. */
+  const workSegments: { from: Date; to: Date }[] = [];
   let workStartedAt: Date | null = null;
   let breakStartedAt: Date | null = null;
   let firstClockIn: Date | null = null;
@@ -104,7 +114,10 @@ export function computeDaySummary(input: DaySummaryInput): DaySummary | null {
         // The time before the break was WORK. (The service this replaced
         // added it to break time, so an 08:00–17:00 day with an hour's
         // lunch showed four hours of break.)
-        if (workStartedAt) workMs += t.getTime() - workStartedAt.getTime();
+        if (workStartedAt) {
+          workMs += t.getTime() - workStartedAt.getTime();
+          workSegments.push({ from: workStartedAt, to: t });
+        }
         workStartedAt = null;
         breakStartedAt = t;
         break;
@@ -116,7 +129,10 @@ export function computeDaySummary(input: DaySummaryInput): DaySummary | null {
         break;
 
       case PunchType.CLOCK_OUT:
-        if (workStartedAt) workMs += t.getTime() - workStartedAt.getTime();
+        if (workStartedAt) {
+          workMs += t.getTime() - workStartedAt.getTime();
+          workSegments.push({ from: workStartedAt, to: t });
+        }
         workStartedAt = null;
         lastClockOut = t;
         break;
@@ -145,10 +161,9 @@ export function computeDaySummary(input: DaySummaryInput): DaySummary | null {
     );
   }
 
-  const overtimeMinutes =
-    rule?.overtimeAfterMinutes != null
-      ? Math.max(0, workedMinutes - rule.overtimeAfterMinutes)
-      : 0;
+  const overtimeMinutes = rule
+    ? overtimeFor(rule, workedMinutes, workSegments, timeZone)
+    : 0;
 
   // ── status ──────────────────────────────────────────────────────────────
   let status: AttendanceStatus;
@@ -181,4 +196,55 @@ export function computeDaySummary(input: DaySummaryInput): DaySummary | null {
     scheduledEndMinutes: rule?.endMinutes ?? null,
     gracePeriodMinutes: rule?.gracePeriodMinutes ?? null,
   };
+}
+
+const DAY_MS = 1440 * MINUTE_MS;
+
+/**
+ * Overtime, by the rule's chosen basis (Enoch, 27 Oct 2026: "work is set from
+ * 9 to 5, anything after 5pm is tagged as overtime ... can it be flexible, cos
+ * if a company says you should work 8 hours a day").
+ *
+ * END_TIME counts only WORK segments falling after the rule's end — a break
+ * taken after 17:00 is not overtime, and someone who arrived late and stayed
+ * until 17:00 has none. It is counted whether or not the person was late or
+ * worked a full day: time after the end is overtime, full stop.
+ *
+ * DAILY_HOURS is worked time beyond the threshold, wherever in the day it fell.
+ */
+function overtimeFor(
+  rule: RuleSnapshot,
+  workedMinutes: number,
+  segments: readonly { from: Date; to: Date }[],
+  timeZone: string,
+): number {
+  switch (rule.overtimeBasis) {
+    case OvertimeBasis.NONE:
+      return 0;
+
+    case OvertimeBasis.DAILY_HOURS:
+      return rule.overtimeAfterMinutes == null
+        ? 0
+        : Math.max(0, workedMinutes - rule.overtimeAfterMinutes);
+
+    case OvertimeBasis.END_TIME: {
+      const boundary = rule.endMinutes * MINUTE_MS;
+      let afterEndMs = 0;
+      for (const { from, to } of segments) {
+        // Position within the local day, to the millisecond. Seconds are the
+        // same in every zone (offsets are whole minutes), so the local minute
+        // plus the UTC seconds is the local time exactly.
+        const start =
+          localMoment(from, timeZone).minutes * MINUTE_MS +
+          from.getUTCSeconds() * 1000 +
+          from.getUTCMilliseconds();
+        const end = start + (to.getTime() - from.getTime());
+        afterEndMs += Math.max(
+          0,
+          Math.min(end, DAY_MS) - Math.max(start, boundary),
+        );
+      }
+      return Math.floor(afterEndMs / MINUTE_MS);
+    }
+  }
 }

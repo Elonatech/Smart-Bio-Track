@@ -6,6 +6,7 @@ import {
   ArrayUnique,
   IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -17,6 +18,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
+import { OvertimeBasis } from '@prisma/client';
 
 /** "08:00" — 24-hour, always two digits each side, as the screens send it. */
 const CLOCK_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -60,8 +62,17 @@ export class CreateWorkRuleDto {
   gracePeriodMinutes?: number;
 
   /**
-   * Worked minutes in a day after which the rest counts as overtime. `null`
-   * turns overtime tracking off for this rule.
+   * How overtime is counted: END_TIME (after the end time — the default),
+   * DAILY_HOURS (beyond overtimeAfterMinutes worked) or NONE.
+   */
+  @IsOptional()
+  @IsEnum(OvertimeBasis)
+  overtimeBasis?: OvertimeBasis;
+
+  /**
+   * For DAILY_HOURS: worked minutes in a day after which the rest is
+   * overtime. Sent without a basis, it means DAILY_HOURS (and null means
+   * NONE) — how this field worked before the basis existed.
    */
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
