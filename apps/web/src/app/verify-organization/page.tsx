@@ -97,7 +97,7 @@ function VerifyOrganizationForm() {
 
       toast.success(
         values.organizationName + " created successfully",
-        "You are signed in as its Org Super Admin."
+        "You are signed in as its Organization Owner."
       );
       registerUser(user, accessToken);
 
@@ -155,7 +155,7 @@ function VerifyOrganizationForm() {
       </h2>
       <p className="text-neutral mb-6">
         Your email is verified. This last step creates the workspace and your
-        Org Super Admin account.
+        Organization Owner account.
       </p>
 
       {serverError && (
@@ -337,7 +337,7 @@ export default function VerifyOrganizationPage() {
           <h1 className="text-3xl font-semibold mb-3">Almost there</h1>
           <p className="text-white/80 max-w-sm">
             Tell us what to call your workspace, and we&apos;ll sign you in as
-            its Org Super Admin.
+            its Organization Owner.
           </p>
         </div>
 

@@ -379,7 +379,7 @@ function OnboardingWizard() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4 sm:p-8">
       <div className="w-full max-w-4xl bg-surface rounded-xl border border-neutral/20 p-4 sm:p-8">
         <p className="text-xs font-medium tracking-wide text-neutral uppercase mb-1">
-          Org Super Admin · First Login
+          Organization Owner · First Login
         </p>
         <h1 className="text-xl sm:text-2xl font-semibold text-heading mb-6">
           Set up your workspace

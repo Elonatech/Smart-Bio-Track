@@ -97,7 +97,7 @@ describe('the role dropdown', () => {
 
     const select = (await screen.findByLabelText('Role')) as HTMLSelectElement;
 
-    expect(within(select).getByRole('option', { name: 'HR Administrator' })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: 'HR Manager' })).toBeInTheDocument();
     // The value matching is the actual protection. A select whose value is
     // absent from its options shows the first option instead, so opening the
     // form to change a department would silently stage a demotion.
@@ -121,7 +121,7 @@ describe('the role dropdown', () => {
     const select = await screen.findByLabelText('Role');
     const options = within(select).getAllByRole('option').map((o) => o.textContent);
 
-    expect(options).toEqual(['HR Administrator', 'Team Lead', 'Employee']);
+    expect(options).toEqual(['HR Manager', 'Team Lead', 'Employee']);
   });
 
   it('does not offer a promotion the caller could not make', async () => {
@@ -130,7 +130,7 @@ describe('the role dropdown', () => {
     renderModal({ role: 'EMPLOYEE', allowedRoles: ['TEAM_LEAD', 'EMPLOYEE'] });
 
     const select = await screen.findByLabelText('Role');
-    expect(within(select).queryByRole('option', { name: 'Org Super Admin' })).not.toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: 'Organization Owner' })).not.toBeInTheDocument();
   });
 });
 
@@ -221,7 +221,7 @@ describe('saving', () => {
     // line rather than the first — but a silent failure here would look like
     // the save button being broken.
     mockPatch.mockRejectedValueOnce(
-      new Error('A HR_ADMIN may not assign the role SUPER_ADMIN')
+      new Error("HR Managers can't make someone one of the Organization Owners.")
     );
     renderModal();
     await screen.findByLabelText('Role');
@@ -229,7 +229,7 @@ describe('saving', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     expect(
-      await screen.findByText('A HR_ADMIN may not assign the role SUPER_ADMIN')
+      await screen.findByText("HR Managers can't make someone one of the Organization Owners.")
     ).toBeInTheDocument();
   });
 

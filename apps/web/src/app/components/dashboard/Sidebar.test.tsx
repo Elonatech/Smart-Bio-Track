@@ -236,7 +236,7 @@ describe('the signed-in user panel', () => {
     signedInAs('HR_ADMIN');
     renderSidebar({ role: 'HR_ADMIN', path: '/dashboard/hr-admin' });
 
-    expect(screen.getByText('HR Administrator')).toBeInTheDocument();
+    expect(screen.getByText('HR Manager')).toBeInTheDocument();
     expect(screen.getByText('Acme Ltd')).toBeInTheDocument();
   });
 
@@ -254,7 +254,7 @@ describe('the signed-in user panel', () => {
     signedInAs('HR_ADMIN');
     renderSidebar({ role: 'HR_ADMIN', isCollapsed: true });
 
-    expect(screen.queryByText('HR Administrator')).not.toBeInTheDocument();
+    expect(screen.queryByText('HR Manager')).not.toBeInTheDocument();
   });
 });
 

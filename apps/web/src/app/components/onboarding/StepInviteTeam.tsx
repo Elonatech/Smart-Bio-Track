@@ -103,7 +103,7 @@ const StepInviteTeam = ({
                 {...register(`invites.${index}.role`)}
                 className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                <option value="HR_ADMIN">HR Administrator</option>
+                <option value="HR_ADMIN">HR Manager</option>
                 <option value="TEAM_LEAD">Team Lead</option>
                 <option value="EMPLOYEE">Employee</option>
               </select>

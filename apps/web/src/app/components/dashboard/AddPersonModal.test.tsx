@@ -14,7 +14,7 @@ import type { UserRole } from '@smartbiotrack/types';
  * the API applies ROLE_CREATION_MATRIX itself and 403s a forbidden role
  * regardless of what the browser sends. The client copy exists so the form
  * offers only what will be accepted, instead of letting an HR Admin pick
- * "Org Super Admin" and discover after submitting that it was never allowed.
+ * "Organization Owner" and discover after submitting that it was never allowed.
  *
  * Worth stating plainly because this form's own schema types `role` as a bare
  * `z.string()`. Nothing client-side stops a crafted request; the dropdown is
@@ -78,13 +78,13 @@ describe('the role dropdown', () => {
     expect(options).toEqual(['Team Lead', 'Employee']);
   });
 
-  it('does not offer Org Super Admin to an HR Admin', async () => {
+  it('does not offer Organization Owner to an HR Admin', async () => {
     // The matrix says HR_ADMIN may create TEAM_LEAD and EMPLOYEE only.
     // Offering more would mean a 403 after a filled-in form.
     renderModal(['TEAM_LEAD', 'EMPLOYEE']);
 
     const select = await screen.findByLabelText('Role');
-    expect(within(select).queryByRole('option', { name: 'Org Super Admin' })).not.toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: 'Organization Owner' })).not.toBeInTheDocument();
   });
 
   it('defaults to Employee, which is what an admin is nearly always adding', async () => {

@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event';
 
 /**
  * Step two of organisation signup (#27), and the highest-consequence screen
- * in the product: it creates a tenant and its founding Org Super Admin.
+ * in the product: it creates a tenant and its founding Organization Owner.
  *
  * Two things are specific to this page rather than shared with the other
  * token screens:

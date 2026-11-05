@@ -61,7 +61,7 @@ const desktop = () => within(screen.getAllByRole('table')[0]);
  * Resolves once the first fetch has painted.
  *
  * A regex, not a string. The actor cell renders name and role as one text node
- * — "Ada Okafor (Org Super Admin)" — so an exact-match query finds nothing and
+ * — "Ada Okafor (Organization Owner)" — so an exact-match query finds nothing and
  * the test times out looking like a data problem rather than a query problem.
  */
 async function loaded(match: RegExp = /Ada Okafor/) {
@@ -94,7 +94,7 @@ describe('SuperAdminAuditLogsPage', () => {
     // them — the field exists on the API response (entry() above still
     // includes it, matching what the server actually sends) but this page
     // stopped rendering it; see the removal in this same session.
-    expect(desktop().getByText('Ada Okafor (Org Super Admin)')).toBeInTheDocument();
+    expect(desktop().getByText('Ada Okafor (Organization Owner)')).toBeInTheDocument();
     expect(desktop().getByText('Bola Eze (EMP-0042)')).toBeInTheDocument();
     expect(desktop().queryByText('102.89.33.14')).not.toBeInTheDocument();
   });
