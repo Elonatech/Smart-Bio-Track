@@ -320,8 +320,9 @@ describe('finishing setup', () => {
           startTime: '08:00',
           endTime: '17:00',
           gracePeriodMinutes: 15,
-          // No overtime fields: the overtime definition is still open
-          // (Phase 3 Manual §3), so the rule is created with it untracked.
+          // The step's "overtime starts at the end time" (decided 27 Oct).
+          overtimeBasis: 'END_TIME',
+          overtimeMultiplier: 1.5,
           isDefault: true,
         },
       ],

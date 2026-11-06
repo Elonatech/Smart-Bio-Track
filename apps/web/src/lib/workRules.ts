@@ -7,6 +7,14 @@ import { appClient } from "@/lib/api-client";
 // Shapes mirror work-rules.service.ts `present()` and CreateWorkRuleDto.
 // Times are "HH:mm" both ways — the server converts to minutes internally.
 
+/**
+ * How a rule counts overtime (decided 27 Oct 2026, migration 19):
+ * END_TIME — work after the rule's end time (the server's default);
+ * DAILY_HOURS — worked time beyond overtimeAfterMinutes; NONE — not tracked.
+ * Mirrors Prisma's OvertimeBasis; move to packages/types with the rest.
+ */
+export type OvertimeBasis = "END_TIME" | "DAILY_HOURS" | "NONE";
+
 export interface WorkRule {
   id: string;
   name: string;
@@ -16,7 +24,8 @@ export interface WorkRule {
   startTime: string;
   endTime: string;
   gracePeriodMinutes: number;
-  /** Worked minutes in a day after which the rest is overtime; null = not tracked. */
+  overtimeBasis: OvertimeBasis;
+  /** Only for DAILY_HOURS: worked minutes after which the rest is overtime. Otherwise null. */
   overtimeAfterMinutes: number | null;
   overtimeMultiplier: number;
   /** Branches that use this rule instead of the default. */
@@ -29,10 +38,29 @@ export interface WorkRuleInput {
   startTime: string;
   endTime: string;
   gracePeriodMinutes: number;
+  // Always sent with the basis: a threshold sent alone still means the old
+  // rules (null = NONE), which would silently turn overtime off.
+  overtimeBasis: OvertimeBasis;
+  /** A number only with DAILY_HOURS; null otherwise (the server refuses one). */
   overtimeAfterMinutes: number | null;
   overtimeMultiplier: number;
   isDefault?: boolean;
 }
+
+/** The three choices, in the order a person reads them. */
+export const OVERTIME_BASES: { value: OvertimeBasis; label: string; hint: string }[] = [
+  {
+    value: "END_TIME",
+    label: "After the end time",
+    hint: "Work after the rule's end time is overtime, however late someone started.",
+  },
+  {
+    value: "DAILY_HOURS",
+    label: "After a number of hours worked",
+    hint: "Worked time beyond the hours you set is overtime, whatever the clock says.",
+  },
+  { value: "NONE", label: "Don't track overtime", hint: "All worked time is normal time." },
+];
 
 export async function fetchWorkRules(): Promise<WorkRule[]> {
   const { data } = await appClient.get<WorkRule[]>("/work-rules");

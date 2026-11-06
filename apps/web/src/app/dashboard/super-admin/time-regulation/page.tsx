@@ -29,8 +29,14 @@ import {
 const DEFAULT_LOCKED = "This is the default rule. Make another rule the default before deleting it.";
 
 function overtimeLabel(rule: WorkRule): string {
-  if (rule.overtimeAfterMinutes === null) return "Not tracked";
-  return `After ${formatHours(rule.overtimeAfterMinutes)} · ×${rule.overtimeMultiplier}`;
+  switch (rule.overtimeBasis) {
+    case "NONE":
+      return "Not tracked";
+    case "END_TIME":
+      return `After ${rule.endTime} · ×${rule.overtimeMultiplier}`;
+    case "DAILY_HOURS":
+      return `After ${formatHours(rule.overtimeAfterMinutes ?? 0)} worked · ×${rule.overtimeMultiplier}`;
+  }
 }
 
 function appliesTo(rule: WorkRule): string {

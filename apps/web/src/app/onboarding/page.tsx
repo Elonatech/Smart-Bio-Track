@@ -299,12 +299,11 @@ function OnboardingWizard() {
           startTime: rule.startTime,
           endTime: rule.endTime,
           gracePeriodMinutes: rule.gracePeriodMinutes,
-          // No overtime fields, on purpose. Phase 3 Manual §3: what
-          // "overtime" means is still undecided — the step means "after a
-          // clock time" (17:00), the server means "beyond a length of day"
-          // (480 min), and they disagree on real days and so on pay. Until
-          // that's settled the rule is created with overtime untracked;
-          // it can be switched on in Time Regulation.
+          // The step means "overtime starts at the end time", which is
+          // END_TIME (decided 27 Oct 2026). Sent explicitly rather than
+          // relying on the server's default, with the rate chosen here.
+          overtimeBasis: "END_TIME",
+          overtimeMultiplier: rule.overtimeMultiplier,
           isDefault: true,
         });
       }

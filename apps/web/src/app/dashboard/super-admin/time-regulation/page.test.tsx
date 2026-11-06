@@ -39,6 +39,7 @@ const STANDARD = {
   startTime: "08:00",
   endTime: "17:00",
   gracePeriodMinutes: 15,
+  overtimeBasis: "DAILY_HOURS",
   overtimeAfterMinutes: 540,
   overtimeMultiplier: 1.5,
   offices: [],
@@ -51,6 +52,7 @@ const NIGHT = {
   workingDays: [1, 2, 3, 6, 7],
   startTime: "12:00",
   endTime: "20:00",
+  overtimeBasis: "NONE",
   overtimeAfterMinutes: null,
   offices: [{ id: "o1", name: "Lagos HQ" }],
 };
@@ -73,7 +75,7 @@ describe("the list", () => {
     expect(screen.getAllByText("Default").length).toBeGreaterThan(0);
     expect(screen.getAllByText("08:00 – 17:00, Mon–Fri").length).toBeGreaterThan(0);
     expect(screen.getAllByText("12:00 – 20:00, Mon–Wed, Sat, Sun").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("After 9 h · ×1.5").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("After 9 h worked · ×1.5").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Not tracked").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Lagos HQ").length).toBeGreaterThan(0);
   });
@@ -107,6 +109,7 @@ describe("changing rules", () => {
     for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
       await userEvent.click(within(dialog).getByRole("button", { name: day }));
     }
+    await userEvent.click(within(dialog).getByLabelText(/After a number of hours worked/));
     const hours = within(dialog).getByLabelText("After this many hours worked");
     await userEvent.clear(hours);
     await userEvent.type(hours, "7.5");
@@ -119,6 +122,7 @@ describe("changing rules", () => {
       startTime: "08:00",
       endTime: "17:00",
       gracePeriodMinutes: 15,
+      overtimeBasis: "DAILY_HOURS",
       overtimeAfterMinutes: 450,
       overtimeMultiplier: 1.5,
     });
@@ -153,17 +157,44 @@ describe("changing rules", () => {
     ).toBeInTheDocument();
   });
 
-  it("sends turning overtime off as null", async () => {
+  it("starts a new rule on 'after the end time', and sends the basis with no threshold", async () => {
+    // Sending a threshold alone means the old rules — null would be read as
+    // "no overtime" — so the basis always goes with it.
+    renderWithProviders(<TimeRegulationPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /New time regulation/ }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByLabelText(/After the end time/)).toBeChecked();
+    expect(within(dialog).queryByLabelText("After this many hours worked")).not.toBeInTheDocument();
+    await userEvent.type(within(dialog).getByLabelText("Rule name"), "Standard");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create rule" }));
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalled());
+    expect(mockPost.mock.calls[0][1]).toMatchObject({ overtimeBasis: "END_TIME", overtimeAfterMinutes: null });
+  });
+
+  it("sends turning overtime off as NONE, and hides the rate", async () => {
     renderWithProviders(<TimeRegulationPage />);
     await userEvent.click(await screen.findByRole("button", { name: /New time regulation/ }));
 
     const dialog = screen.getByRole("dialog");
     await userEvent.type(within(dialog).getByLabelText("Rule name"), "No overtime");
-    await userEvent.click(within(dialog).getByLabelText("Track overtime"));
+    await userEvent.click(within(dialog).getByLabelText(/Don't track overtime/));
+    expect(within(dialog).queryByLabelText("Overtime rate")).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Create rule" }));
 
     await waitFor(() => expect(mockPost).toHaveBeenCalled());
-    expect(mockPost.mock.calls[0][1].overtimeAfterMinutes).toBeNull();
+    expect(mockPost.mock.calls[0][1]).toMatchObject({ overtimeBasis: "NONE", overtimeAfterMinutes: null });
+  });
+
+  it("opens an existing rule on its own basis", async () => {
+    renderWithProviders(<TimeRegulationPage />);
+    await screen.findAllByText("Standard hours");
+    await userEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByLabelText(/After a number of hours worked/)).toBeChecked();
+    expect(within(dialog).getByLabelText("After this many hours worked")).toHaveValue(9);
   });
 
   it("makes another rule the default in one click", async () => {

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { useModalA11y } from "@/lib/useModalA11y";
 import { extractErrorMessage } from "@/lib/api-client";
 import {
+  OVERTIME_BASES,
   OVERTIME_RATES,
   WEEKDAYS,
   clockToMinutes,
@@ -37,11 +38,10 @@ const workRuleFormSchema = z
       .int()
       .min(0)
       .max(180, { message: "Grace can't be more than 180 minutes" }),
-    tracksOvertime: z.boolean(),
-    overtimeAfterHours: z
-      .number({ message: "Enter hours" })
-      .min(0.5, { message: "At least half an hour" })
-      .max(24, { message: "At most 24 hours" }),
+    overtimeBasis: z.enum(["END_TIME", "DAILY_HOURS", "NONE"]),
+    // Only checked for DAILY_HOURS (see the refine below): hidden otherwise,
+    // and a stale value there must not block saving.
+    overtimeAfterHours: z.number(),
     overtimeMultiplier: z.number(),
     isDefault: z.boolean(),
   })
@@ -49,7 +49,13 @@ const workRuleFormSchema = z
     // The server's own rule — overnight shifts aren't supported yet.
     message: "End time must be after start time (overnight shifts aren't supported yet)",
     path: ["endTime"],
-  });
+  })
+  .refine(
+    (v) =>
+      v.overtimeBasis !== "DAILY_HOURS" ||
+      (Number.isFinite(v.overtimeAfterHours) && v.overtimeAfterHours >= 0.5 && v.overtimeAfterHours <= 24),
+    { message: "Enter between 0.5 and 24 hours", path: ["overtimeAfterHours"] }
+  );
 
 type WorkRuleFormValues = z.infer<typeof workRuleFormSchema>;
 
@@ -68,7 +74,8 @@ function defaultsFrom(rule?: WorkRule): WorkRuleFormValues {
     startTime: rule?.startTime ?? "08:00",
     endTime: rule?.endTime ?? "17:00",
     gracePeriodMinutes: rule?.gracePeriodMinutes ?? 15,
-    tracksOvertime: rule ? rule.overtimeAfterMinutes !== null : true,
+    // A new rule starts on the server's own default.
+    overtimeBasis: rule?.overtimeBasis ?? "END_TIME",
     overtimeAfterHours: rule?.overtimeAfterMinutes != null ? rule.overtimeAfterMinutes / 60 : 8,
     overtimeMultiplier: rule?.overtimeMultiplier ?? 1.5,
     isDefault: rule?.isDefault ?? false,
@@ -94,7 +101,7 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
     defaultValues: defaultsFrom(rule),
   });
 
-  const tracksOvertime = useWatch({ control, name: "tracksOvertime" });
+  const overtimeBasis = useWatch({ control, name: "overtimeBasis" });
 
   const onSubmit = async (values: WorkRuleFormValues) => {
     setServerError(null);
@@ -105,9 +112,9 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
         startTime: values.startTime,
         endTime: values.endTime,
         gracePeriodMinutes: values.gracePeriodMinutes,
-        overtimeAfterMinutes: values.tracksOvertime
-          ? Math.round(values.overtimeAfterHours * 60)
-          : null,
+        overtimeBasis: values.overtimeBasis,
+        overtimeAfterMinutes:
+          values.overtimeBasis === "DAILY_HOURS" ? Math.round(values.overtimeAfterHours * 60) : null,
         overtimeMultiplier: values.overtimeMultiplier,
         // Only ever sent as true: the server makes the first rule the
         // default itself, and un-defaulting is done by defaulting another.
@@ -249,33 +256,48 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
             )}
           </div>
 
-          <div className="rounded-md border border-neutral/20 p-3 space-y-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-heading">
-              <input type="checkbox" {...register("tracksOvertime")} className="h-4 w-4 accent-primary" />
-              Track overtime
-            </label>
-            {tracksOvertime && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label
-                    htmlFor="overtimeAfterHours"
-                    className="block text-sm font-medium text-heading mb-1"
-                  >
-                    After this many hours worked
-                  </label>
+          <fieldset className="rounded-md border border-neutral/20 p-3 space-y-3">
+            <legend className="px-1 text-sm font-medium text-heading">When does overtime start?</legend>
+            <div className="space-y-2">
+              {OVERTIME_BASES.map((basis) => (
+                <label key={basis.value} className="flex items-start gap-2 text-sm cursor-pointer">
                   <input
-                    id="overtimeAfterHours"
-                    type="number"
-                    step={0.5}
-                    min={0.5}
-                    max={24}
-                    {...register("overtimeAfterHours", { valueAsNumber: true })}
-                    className={inputClass}
+                    type="radio"
+                    value={basis.value}
+                    {...register("overtimeBasis")}
+                    className="mt-0.5 h-4 w-4 accent-primary"
                   />
-                  {errors.overtimeAfterHours && (
-                    <p className="mt-1 text-sm text-alert">{errors.overtimeAfterHours.message}</p>
-                  )}
-                </div>
+                  <span>
+                    <span className="font-medium text-heading">{basis.label}</span>
+                    <span className="block text-xs text-neutral">{basis.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {overtimeBasis !== "NONE" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {overtimeBasis === "DAILY_HOURS" && (
+                  <div>
+                    <label
+                      htmlFor="overtimeAfterHours"
+                      className="block text-sm font-medium text-heading mb-1"
+                    >
+                      After this many hours worked
+                    </label>
+                    <input
+                      id="overtimeAfterHours"
+                      type="number"
+                      step={0.5}
+                      min={0.5}
+                      max={24}
+                      {...register("overtimeAfterHours", { valueAsNumber: true })}
+                      className={inputClass}
+                    />
+                    {errors.overtimeAfterHours && (
+                      <p className="mt-1 text-sm text-alert">{errors.overtimeAfterHours.message}</p>
+                    )}
+                  </div>
+                )}
                 <div>
                   <label
                     htmlFor="overtimeMultiplier"
@@ -297,7 +319,7 @@ export function WorkRuleFormModal({ rule, onClose, onSave }: WorkRuleFormModalPr
                 </div>
               </div>
             )}
-          </div>
+          </fieldset>
 
           {/* Already the default: nothing to toggle — another rule has to
               take over instead, which is the server's rule too. */}
