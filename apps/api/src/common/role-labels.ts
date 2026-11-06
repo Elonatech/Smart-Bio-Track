@@ -11,3 +11,12 @@ export const ROLE_LABEL_PLURAL: Record<UserRole, string> = {
   TEAM_LEAD: 'Team Leads',
   EMPLOYEE: 'Employees',
 };
+
+// One person's role, for sentences about a single user — e.g. the audit
+// entry "role HR Manager to Team Lead".
+export const ROLE_LABEL: Record<UserRole, string> = {
+  SUPER_ADMIN: 'Organization Owner',
+  HR_ADMIN: 'HR Manager',
+  TEAM_LEAD: 'Team Lead',
+  EMPLOYEE: 'Employee',
+};

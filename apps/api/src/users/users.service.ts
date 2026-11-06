@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, UserRole, UserStatus } from '@prisma/client';
-import { ROLE_LABEL_PLURAL as ROLES } from '../common/role-labels';
+import { ROLE_LABEL, ROLE_LABEL_PLURAL as ROLES } from '../common/role-labels';
 import { PrismaService } from '../prisma/prisma.service';
 import type { UserListItemKey } from '@smartbiotrack/types';
 import { MailService } from '../mail/mail.service';
@@ -100,7 +100,7 @@ function describeUserChanges(
     parts.push(`name "${before.name}" to "${dto.name}"`);
   }
   if (dto.role !== undefined && dto.role !== before.role) {
-    parts.push(`role ${before.role} to ${dto.role}`);
+    parts.push(`role ${ROLE_LABEL[before.role]} to ${ROLE_LABEL[dto.role]}`);
   }
   if (dto.departmentId !== undefined && dto.departmentId !== before.departmentId) {
     parts.push(dto.departmentId ? 'department reassigned' : 'department cleared');
