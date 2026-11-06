@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Search } from "lucide-react";
 import { appClient } from "@/lib/api-client";
-import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
+import { useAuthStore } from "@/lib/store/auth-store";
 import type { Page, UserListItem } from "@smartbiotrack/types";
 import { ROLE_CREATION_MATRIX, ROLE_LABEL } from "@/lib/roleCreationMatrix";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
@@ -12,10 +12,7 @@ import { DataTable } from "@/app/components/dashboard/DataTable";
 import { AddPersonModal } from "@/app/components/dashboard/AddPersonModal";
 import { EditEmployeeModal } from "@/app/components/dashboard/EditEmployeeModal";
 import { DeleteEmployeeModal } from "@/app/components/dashboard/DeleteEmployeeModal";
-import {
-  EmployeeDetailModal,
-  type EmployeeDetail,
-} from "@/app/components/dashboard/EmployeeDetailModal";
+import { EmployeeDetailModal } from "@/app/components/dashboard/EmployeeDetailModal";
 import { ReinstateEmployeeModal } from "@/app/components/dashboard/ReinstateEmployeeModal";
 import { getInitials } from "@/lib/initials";
 
