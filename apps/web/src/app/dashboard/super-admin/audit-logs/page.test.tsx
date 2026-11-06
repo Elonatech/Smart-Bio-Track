@@ -5,6 +5,7 @@ import SuperAdminAuditLogsPage from './page';
 import { appClient } from '@/lib/api-client';
 import { renderWithProviders, signInAs, signOut, screen, waitFor, within } from '@/test/render';
 import userEvent from '@testing-library/user-event';
+import { resetOrgTimeZoneCache } from '@/lib/orgTime';
 
 /**
  * The audit trail (#22).
@@ -287,5 +288,42 @@ describe('staying in step with the server', () => {
 
     expect(desktop().getByText('Work rule changed')).toBeInTheDocument();
     expect(screen.queryByText('WORK_RULE_UPDATED')).not.toBeInTheDocument();
+  });
+});
+
+describe('time zone', () => {
+  // Found in the Phase 3 rehearsal: times were in the organisation's zone,
+  // but nothing on screen said which zone that was.
+  beforeEach(() => {
+    resetOrgTimeZoneCache();
+    mockGet.mockImplementation((url: string) =>
+      url === '/organization'
+        ? Promise.resolve({ data: { id: 'org-1', name: 'Acme', industry: 'Retail', timezone: 'Africa/Lagos' } })
+        : Promise.resolve({ data: { items: [entry()], page: 1, limit: 25, total: 1, totalPages: 1 } })
+    );
+  });
+  afterEach(() => resetOrgTimeZoneCache());
+
+  it('names the organisation zone once, in the Timestamp header', async () => {
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    expect(
+      await desktop().findByRole('columnheader', { name: 'Timestamp (Lagos time)' })
+    ).toBeInTheDocument();
+  });
+
+  it('shows the time in that zone: 09:41 UTC is 10:41 in Lagos', async () => {
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    await waitFor(() => expect(desktop().getByText(/10:41/)).toBeInTheDocument());
+  });
+
+  it('says the zone above the cards on phones, which have no header', async () => {
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    expect(await screen.findByText('Times are Lagos time.')).toBeInTheDocument();
   });
 });

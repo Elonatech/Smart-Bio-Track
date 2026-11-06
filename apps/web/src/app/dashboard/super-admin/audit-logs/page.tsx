@@ -5,7 +5,7 @@ import { Lock, Search } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
-import { useOrgTimeZone } from "@/lib/orgTime";
+import { useOrgTimeZone, zoneLabel } from "@/lib/orgTime";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { DataTable } from "@/app/components/dashboard/DataTable";
 
@@ -18,7 +18,7 @@ import { DataTable } from "@/app/components/dashboard/DataTable";
 // here and there should never be one. A trail anyone can edit is not a trail.
 interface AuditLogEntry {
   id: string;
-  /** ISO — formatted for the reader's own timezone below, not the server's. */
+  /** ISO (UTC) — shown in the organisation's time zone, see formatTimestamp. */
   createdAt: string;
   actorId: string | null;
   /** "System" for actions no person took. Never blank. */
@@ -77,11 +77,10 @@ const ACTION_LABEL: Record<string, string> = {
 };
 
 /**
- * Formatted in the reader's own timezone rather than the server's.
- *
- * The placeholder data had "WAT" baked into the string. A London auditor
- * reviewing a Lagos organization should see 09:41 in their own time, because
- * the question an audit trail answers is "where was I when this happened?".
+ * Formatted in the organisation's time zone (decision 1.1, 21 Oct 2026), the
+ * same as every other screen — not the reader's, and not the server's UTC.
+ * The zone is named once, in the Timestamp header (and above the cards on
+ * phones), rather than on every row.
  */
 function formatTimestamp(iso: string, timeZone: string | undefined): string {
   const date = new Date(iso);
@@ -228,6 +227,11 @@ export default function SuperAdminAuditLogsPage() {
         </p>
       )}
 
+      {/* Phones show cards, which have no column header to carry the zone. */}
+      {!isLoading && logs.length > 0 && timeZone && (
+        <p className="lg:hidden mb-2 text-xs text-neutral">Times are {zoneLabel(timeZone)}.</p>
+      )}
+
       {!isLoading && logs.length > 0 && (
         <DataTable
           rows={logs}
@@ -250,7 +254,9 @@ export default function SuperAdminAuditLogsPage() {
           columns={[
             {
               key: "createdAt",
-              header: "Timestamp",
+              // "Timestamp (Lagos time)" — until the zone has loaded, just
+              // "Timestamp", rather than naming a zone that may be wrong.
+              header: timeZone ? `Timestamp (${zoneLabel(timeZone)})` : "Timestamp",
               hideOnMobile: true,
               render: (log) => (
                 <span className="text-neutral whitespace-nowrap">
