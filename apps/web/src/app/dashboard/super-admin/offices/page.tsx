@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { MapPin, Plus } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
-import { appClient } from "@/lib/api-client";
+import { useOffices, useRefreshOffices } from "@/lib/officeQueries";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import {
   OfficeFormModal,
@@ -25,28 +25,21 @@ export default function SuperAdminOfficesPage() {
   const orgName =
     useAuthStore((state) => state.user?.organizationName) ??
     "Your organization";
-  const [offices, setOffices] = useState<Office[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Cached (lib/officeQueries.ts): a return visit shows the list at once
+  // and quietly re-checks the server behind it.
+  const officesQuery = useOffices();
+  const refreshOffices = useRefreshOffices();
+  const offices = officesQuery.data ?? [];
+  const isLoading = officesQuery.isPending;
+  const error = officesQuery.isError
+    ? "Couldn't load branches. Please try again."
+    : null;
 
   // Which modal is open, if any: "create", or the specific office
   // being edited. null = no modal. Shared between Add/Edit buttons so
   // there's only ever one OfficeFormModal instance on screen.
   const [modalMode, setModalMode] = useState<"create" | Office | null>(null);
   const [deletingOffice, setDeletingOffice] = useState<Office | null>(null);
-
-  const fetchOffices = useCallback(() => {
-    setIsLoading(true);
-    appClient
-      .get<Office[]>("/offices")
-      .then((res) => setOffices(res.data))
-      .catch(() => setError("Couldn't load branches. Please try again."))
-      .finally(() => setIsLoading(false));
-  }, []);
-
-  useEffect(() => {
-    fetchOffices();
-  }, [fetchOffices]);
 
   usePageHeader(
     "Branches & geo-fences",
@@ -170,7 +163,7 @@ export default function SuperAdminOfficesPage() {
         <OfficeFormModal
           office={modalMode === "create" ? undefined : modalMode}
           onClose={() => setModalMode(null)}
-          onSaved={fetchOffices}
+          onSaved={refreshOffices}
         />
       )}
 
@@ -178,7 +171,7 @@ export default function SuperAdminOfficesPage() {
         <DeleteOfficeModal
           office={deletingOffice}
           onClose={() => setDeletingOffice(null)}
-          onDeleted={fetchOffices}
+          onDeleted={refreshOffices}
         />
       )}
     </div>
