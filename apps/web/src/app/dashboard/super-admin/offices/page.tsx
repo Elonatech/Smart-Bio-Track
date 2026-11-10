@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { fetchWorkRules, type WorkRule } from "@/lib/workRules";
 import Link from "next/link";
 import { MapPin, Plus } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -21,6 +23,15 @@ function formatCoord(
   return `${Math.abs(value).toFixed(4)}° ${label}`;
 }
 
+// Which hours a branch follows. No rule of its own (null) means the
+// organisation's default — the server's rule, so say which one that is.
+function ruleLabel(workRuleId: string | null | undefined, rules: WorkRule[]) {
+  const own = workRuleId ? rules.find((rule) => rule.id === workRuleId) : undefined;
+  if (own) return own.name;
+  const fallback = rules.find((rule) => rule.isDefault);
+  return fallback ? `${fallback.name} (default)` : "No work rule yet";
+}
+
 export default function SuperAdminOfficesPage() {
   const orgName =
     useAuthStore((state) => state.user?.organizationName) ??
@@ -34,6 +45,11 @@ export default function SuperAdminOfficesPage() {
   const error = officesQuery.isError
     ? "Couldn't load branches. Please try again."
     : null;
+  // Only for naming each branch's hours on its card.
+  const workRulesQuery = useQuery({
+    queryKey: ["workRules"],
+    queryFn: fetchWorkRules,
+  });
 
   // Which modal is open, if any: "create", or the specific office
   // being edited. null = no modal. Shared between Add/Edit buttons so
@@ -130,11 +146,20 @@ export default function SuperAdminOfficesPage() {
                   <p className="text-sm font-semibold text-heading wrap-break-word">
                     {office.name}
                   </p>
-                  <p className="text-xs text-neutral mb-3">
+                  <p className="text-xs text-neutral">
                     {formatCoord(office.latitude, "N", "S")},{" "}
                     {formatCoord(office.longitude, "E", "W")} · radius{" "}
                     {office.geofenceRadiusMeters} m
                   </p>
+                  {/* Left out, not guessed, if the rules couldn't load. */}
+                  {workRulesQuery.data && (
+                    <p className="text-xs text-neutral mt-1 mb-3">
+                      Hours:{" "}
+                      <span className="font-medium text-heading">
+                        {ruleLabel(office.workRuleId, workRulesQuery.data)}
+                      </span>
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-4 shrink-0">
