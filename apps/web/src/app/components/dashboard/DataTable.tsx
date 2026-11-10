@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export interface DataTableColumn<T> {
@@ -43,7 +43,7 @@ export function DataTable<T>({
   pageSize,
   itemLabel = "rows",
 }: DataTableProps<T>) {
-  const [page, setPage] = useState(1);
+  const [requestedPage, setPage] = useState(1);
 
   const totalPages = pageSize
     ? Math.max(1, Math.ceil(rows.length / pageSize))
@@ -51,10 +51,9 @@ export function DataTable<T>({
 
   // Searching or filtering shrinks the list; without this you can be
   // stranded on page 4 of a result set that now has one page, staring at
-  // an empty table.
-  useEffect(() => {
-    setPage((current) => Math.min(current, totalPages));
-  }, [totalPages]);
+  // an empty table. Worked out on every render rather than corrected in
+  // an effect, so the wrong page is never drawn even for a moment.
+  const page = Math.min(requestedPage, totalPages);
 
   const visibleRows = useMemo(() => {
     if (!pageSize) return rows;
@@ -170,7 +169,7 @@ export function DataTable<T>({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              onClick={() => setPage(Math.max(1, page - 1))}
               disabled={page === 1}
               className="inline-flex items-center gap-1 rounded-md border border-neutral/30 px-3 py-2 text-sm font-medium text-heading hover:bg-neutral/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -183,7 +182,7 @@ export function DataTable<T>({
             <button
               type="button"
               onClick={() =>
-                setPage((current) => Math.min(totalPages, current + 1))
+                setPage(Math.min(totalPages, page + 1))
               }
               disabled={page === totalPages}
               className="inline-flex items-center gap-1 rounded-md border border-neutral/30 px-3 py-2 text-sm font-medium text-heading hover:bg-neutral/10 disabled:opacity-40 disabled:cursor-not-allowed"

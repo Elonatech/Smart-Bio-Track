@@ -1,21 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Sun, Moon } from "lucide-react";
 
 // Reads/writes the SAME 'theme' key the blocking script in layout.tsx
 // already checked before first paint — this component just needs to
 // reflect and toggle that existing state, not decide it from scratch.
-export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(false);
+//
+// The "dark" class on <html> is the truth, so the button reads it directly
+// (useSyncExternalStore) and watches it for changes, rather than copying it
+// into state after the first render. On the server it reads as light.
+function watchThemeClass(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+  return () => observer.disconnect();
+}
+const readIsDark = () => document.documentElement.classList.contains("dark");
+const serverIsDark = () => false;
 
-  useEffect(() => {
-    setIsDark(document.documentElement.classList.contains("dark"));
-  }, []);
+export function ThemeToggle() {
+  const isDark = useSyncExternalStore(watchThemeClass, readIsDark, serverIsDark);
 
   function toggle() {
     const next = !isDark;
-    setIsDark(next);
     document.documentElement.classList.toggle("dark", next);
     localStorage.setItem("theme", next ? "dark" : "light");
   }

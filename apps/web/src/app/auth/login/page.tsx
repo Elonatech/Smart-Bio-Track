@@ -3,6 +3,7 @@
 // useRouter, Zustand) — all client-only, same reasoning as providers.tsx.
 
 import { Suspense, useEffect, useState } from "react";
+import { useStoredValue } from "@/lib/useStoredValue";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -70,11 +71,8 @@ function LoginForm() {
   // and the first client render match exactly (localStorage doesn't
   // exist on the server) — we only know the real answer after mount,
   // same reasoning as `hydrate()` in auth-store.ts.
-  const [isDeviceRegistered, setIsDeviceRegistered] = useState(false);
-
-  useEffect(() => {
-    setIsDeviceRegistered(localStorage.getItem("deviceRegistered") === "true");
-  }, []);
+  const [deviceFlag] = useStoredValue("local", "deviceRegistered");
+  const isDeviceRegistered = deviceFlag === "true";
 
   // Forward anyone who already has a session.
   //
