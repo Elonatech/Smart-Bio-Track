@@ -93,7 +93,9 @@ export default function ContactPage() {
         .join("\n")
     );
 
-    window.location.href = `mailto:${topic.email}?subject=${subject}&body=${body}`;
+    // assign() opens the mailto: link the same way setting .href does, but
+    // as a method call — React's lint rule refuses assignments to globals.
+    window.location.assign(`mailto:${topic.email}?subject=${subject}&body=${body}`);
     setSentTo(topic.email);
     toast.success(
       "Message drafted successfully",

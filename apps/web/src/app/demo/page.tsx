@@ -91,7 +91,9 @@ export default function DemoPage() {
         .join("\n")
     );
 
-    window.location.href = `mailto:${SALES_EMAIL}?subject=${subject}&body=${body}`;
+    // assign() opens the mailto: link the same way setting .href does, but
+    // as a method call — React's lint rule refuses assignments to globals.
+    window.location.assign(`mailto:${SALES_EMAIL}?subject=${subject}&body=${body}`);
     setIsSent(true);
     toast.success(
       "Demo request drafted successfully",
