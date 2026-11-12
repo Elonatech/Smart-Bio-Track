@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useLayoutEffect } from "react";
 import { Search, LocateFixed } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -215,8 +215,15 @@ export function GeofenceMapPicker({
   // effect dependencies, so the map is created exactly once. Recreating
   // the whole Leaflet instance every time a form field changes would
   // reset the user's pan/zoom on every keystroke in the radius input.
+  //
+  // The ref is refreshed in a layout effect, not during render — React may
+  // render and throw away a draft, and a ref written then would hold props
+  // that never reached the screen. Layout effects run before the map's
+  // effect below, so the map still starts from the current values.
   const latestProps = useRef({ latitude, longitude, radiusMeters, onPositionChange });
-  latestProps.current = { latitude, longitude, radiusMeters, onPositionChange };
+  useLayoutEffect(() => {
+    latestProps.current = { latitude, longitude, radiusMeters, onPositionChange };
+  });
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -279,7 +286,6 @@ export function GeofenceMapPicker({
       circleRef.current = null;
     };
     // Deliberately empty — see latestProps above for why this only runs once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Keeps the pin in sync when latitude/longitude change from OUTSIDE the
