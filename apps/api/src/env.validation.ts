@@ -85,10 +85,16 @@ const envSchema = z.object({
    * Express reports the *proxy's* address unless it is told to read
    * X-Forwarded-For — which would put every user in one shared bucket.
    *
-   * Set to 1 in any environment that is actually behind a proxy. Leave unset
-   * (0) when the API is directly exposed: trusting the header while directly
-   * reachable lets an attacker forge X-Forwarded-For and mint unlimited
-   * rate-limit buckets, defeating the throttle entirely.
+   * Set it to the number of proxies actually in front of the API — measured,
+   * never guessed. Leave unset (0) when the API is directly exposed: trusting
+   * the header while directly reachable lets an attacker forge
+   * X-Forwarded-For and mint unlimited rate-limit buckets, defeating the
+   * throttle entirely. Each hop too many hands an attacker the same trick.
+   *
+   * Staging is 4, measured 13 Nov 2026 from two networks against
+   * whatismyip: browser → Vercel /api rewrite (AWS) → Cloudflare → Render's
+   * edge → API. 0 recorded Render's edge (10.x), 2 Cloudflare (172.71.x),
+   * 3 Vercel (AWS), 4 the real caller. Re-measure if the hosting changes.
    */
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).optional(),
 });
