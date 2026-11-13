@@ -25,13 +25,13 @@ export function DeleteOfficeModal({ office, onClose, onDeleted }: DeleteOfficeMo
     setIsDeleting(true);
     try {
       await appClient.delete(`/offices/${office.id}`);
-      toast.success(office.name + " deleted successfully", "Employees assigned to it will need a new office.");
+      toast.success(office.name + " deleted successfully", "Employees assigned to it will need a new branch.");
       onDeleted();
       onClose();
     } catch (err) {
       const message = extractErrorMessage(err);
       setError(message);
-      toast.error("Could not delete this office", message);
+      toast.error("Could not delete this branch", message);
     } finally {
       setIsDeleting(false);
     }
@@ -49,7 +49,7 @@ export function DeleteOfficeModal({ office, onClose, onDeleted }: DeleteOfficeMo
         aria-labelledby="delete-office-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-md max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start gap-4">
           <div className="shrink-0 h-10 w-10 rounded-full bg-alert/10 flex items-center justify-center">
@@ -70,7 +70,7 @@ export function DeleteOfficeModal({ office, onClose, onDeleted }: DeleteOfficeMo
               </button>
             </div>
             <p className="mt-2 text-sm text-neutral">
-              Employees assigned to this office will no longer be able to
+              Employees assigned to this branch will no longer be able to
               clock in until they are moved to another geo-fence. Existing
               attendance records are preserved.
             </p>
@@ -97,7 +97,7 @@ export function DeleteOfficeModal({ office, onClose, onDeleted }: DeleteOfficeMo
             disabled={isDeleting}
             className="rounded-md bg-alert text-white px-4 py-2 text-sm font-medium hover:bg-alert/90 disabled:opacity-60"
           >
-            {isDeleting ? "Deleting..." : "Delete office"}
+            {isDeleting ? "Deleting..." : "Delete branch"}
           </button>
         </div>
       </div>

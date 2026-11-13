@@ -29,6 +29,28 @@ export function setOnboardingIndustryHint(industry: string): void {
   }
 }
 
+/**
+ * Reads without clearing. For a component's initial state: React may run a
+ * state initializer twice in development, so reading must not destroy the
+ * value — pair it with clearOnboardingIndustryHint() in an effect.
+ */
+export function peekOnboardingIndustryHint(): string | null {
+  try {
+    return sessionStorage.getItem(KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Deletes the hint — see the file comment for why it's single-use. */
+export function clearOnboardingIndustryHint(): void {
+  try {
+    sessionStorage.removeItem(KEY);
+  } catch {
+    // Nothing to clear.
+  }
+}
+
 /** Reads and clears in one call — see the file comment for why. */
 export function consumeOnboardingIndustryHint(): string | null {
   try {

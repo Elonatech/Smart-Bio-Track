@@ -260,7 +260,7 @@ describe('EmployeesPageContent', () => {
       renderWithProviders(<EmployeesPageContent />);
       await loaded();
 
-      expect(desktop().getByText('HR Administrator')).toBeInTheDocument();
+      expect(desktop().getByText('HR Manager')).toBeInTheDocument();
       expect(screen.queryByText('HR_ADMIN')).not.toBeInTheDocument();
     });
   });

@@ -111,7 +111,7 @@ export function StepOffice({ defaultValues, onNext, onBack }: StepOfficeProps) {
             htmlFor="officeName"
             className="block text-sm font-medium text-heading mb-1"
           >
-            Office name
+            Branch name
           </label>
           <input
             id="officeName"
@@ -180,7 +180,7 @@ export function StepOffice({ defaultValues, onNext, onBack }: StepOfficeProps) {
           className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         />
         <p className="mt-1 text-xs text-neutral">
-          Helps field staff and drivers locate the office precisely.
+          Helps field staff and drivers locate the branch precisely.
         </p>
       </div>
 
@@ -194,7 +194,7 @@ export function StepOffice({ defaultValues, onNext, onBack }: StepOfficeProps) {
           onAddressResolved={handleAddressResolved}
         />
         <p className="mt-1 text-xs text-neutral">
-          Drag the pin or click anywhere on the map to set the office
+          Drag the pin or click anywhere on the map to set the branch
           location.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3">

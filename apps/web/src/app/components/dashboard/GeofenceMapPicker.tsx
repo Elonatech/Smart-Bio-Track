@@ -382,7 +382,7 @@ export function GeofenceMapPicker({
         // reader — the search box and coordinate inputs remain the
         // accessible way to set a location.
         role="application"
-        aria-label="Map for choosing the office location. Use the search box or the latitude and longitude fields to set the location precisely."
+        aria-label="Map for choosing the branch location. Use the search box or the latitude and longitude fields to set the location precisely."
       />
     </div>
   );

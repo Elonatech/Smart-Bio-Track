@@ -37,7 +37,7 @@ const SIGNALS = [
   { icon: ScanFace, label: "Platform biometrics", detail: "Matched on-device" },
   { icon: Smartphone, label: "Registered device", detail: "Known handset" },
   { icon: Fingerprint, label: "Device attestation", detail: "Not rooted or faked" },
-  { icon: MapPin, label: "Geo-fence", detail: "Inside the office radius" },
+  { icon: MapPin, label: "Geo-fence", detail: "Inside the branch radius" },
   { icon: Wifi, label: "Network context", detail: "Office gateway or not" },
   { icon: Target, label: "GPS accuracy", detail: "Within tolerance" },
   { icon: Clock, label: "Timestamp integrity", detail: "Replay protection" },
@@ -84,7 +84,7 @@ export default function AboutPage() {
             SmartBioTrack is built by Elonatech Nigeria Limited, a Lagos-based
             technology services company that has spent years deploying
             infrastructure, security and workforce systems for banks,
-            hospitals, manufacturers and multi-branch enterprises across the
+            hospitals, manufacturers and multi-office enterprises across the
             country.
           </p>
         </section>

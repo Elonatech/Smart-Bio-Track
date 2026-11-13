@@ -155,7 +155,7 @@ export function EditEmployeeModal({
         aria-labelledby="edit-employee-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start justify-between gap-4 mb-1">
           <h2 id="edit-employee-title" className="text-lg font-semibold text-heading">Edit employee</h2>
@@ -169,7 +169,7 @@ export function EditEmployeeModal({
           </button>
         </div>
 
-        <p className="text-sm text-neutral mb-5">
+        <p className="text-sm text-neutral mb-5 wrap-break-word">
           {employee.email} · {employee.employeeId}
         </p>
 
@@ -249,14 +249,14 @@ export function EditEmployeeModal({
                 htmlFor="edit-officeId"
                 className="block text-sm font-medium text-heading mb-1"
               >
-                Office
+                Branch
               </label>
               <select
                 id="edit-officeId"
                 {...register("officeId")}
                 className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
-                <option value="">No office</option>
+                <option value="">No branch</option>
                 {offices.map((office) => (
                   <option key={office.id} value={office.id}>
                     {office.name}

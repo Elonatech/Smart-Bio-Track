@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event';
 
 /**
  * Step two of organisation signup (#27), and the highest-consequence screen
- * in the product: it creates a tenant and its founding Org Super Admin.
+ * in the product: it creates a tenant and its founding Organization Owner.
  *
  * Two things are specific to this page rather than shared with the other
  * token screens:
@@ -187,6 +187,40 @@ describe('when it fails', () => {
     expect(error).toHaveBeenCalled();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('swaps the form for a resend when the API says the token is dead', async () => {
+    // The API's real wording (auth.service.ts). Retrying the form can never
+    // succeed with this token, so the page offers a fresh link instead.
+    mockPost.mockRejectedValueOnce(new Error('Invalid or expired verification token'));
+    renderPage('tok-abc');
+
+    await createOrg();
+
+    expect(
+      await screen.findByText('This link has expired or was already used')
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/organization name/i)).not.toBeInTheDocument();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+  });
+
+  it('resends to the email typed on the dead-link screen', async () => {
+    mockPost.mockRejectedValueOnce(new Error('Invalid or expired verification token'));
+    renderPage('tok-abc');
+    await createOrg();
+
+    const resend = await screen.findByRole('button', { name: 'Resend link' });
+    // Disabled until there's something that looks like an email.
+    expect(resend).toBeDisabled();
+
+    await userEvent.type(screen.getByLabelText(/work email/i), 'founder@acme.test');
+    await userEvent.click(resend);
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenCalledWith('/auth/resend-organization-verification', {
+        email: 'founder@acme.test',
+      })
+    );
   });
 
   it('does not sign anybody in when /auth/me fails after the org is created', async () => {

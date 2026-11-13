@@ -20,10 +20,7 @@ interface Signal {
   example: string; // matches the wording style of the hero's Live Clock-in Evaluation widget
 }
 
-// Deliberately the SAME eight signals shown in the hero's Live
-// Clock-in Evaluation widget — this section is meant to feel like a
-// zoomed-in explanation of that widget, not a separate, disconnected
-// feature list.
+
 const SIGNALS: Signal[] = [
   {
     icon: Fingerprint,
@@ -52,7 +49,7 @@ const SIGNALS: Signal[] = [
   {
     icon: MapPin,
     title: "Geo-Fence Validation",
-    plain: "Confirms you're physically inside the office's approved boundary.",
+    plain: "Confirms you're physically inside the branch's approved boundary.",
     example: "Inside Lagos HQ fence (120m radius)",
   },
   {
@@ -88,8 +85,7 @@ export function TrustSignalsSection() {
         Every attendance event, verified eight ways
       </h2>
       <p className="mt-3 max-w-2xl text-neutral">
-        These are the same eight checks shown in the live widget above. Each
-        one adds to a score out of 100 — no single check can approve a punch
+        Each one adds to a score out of 100 — no single check can approve a punch
         on its own. Select any signal to see what it actually means.
       </p>
 

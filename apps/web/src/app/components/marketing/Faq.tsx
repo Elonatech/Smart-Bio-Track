@@ -23,9 +23,9 @@ const FAQS: FaqItem[] = [
       "A weak signal doesn't cause an automatic rejection. It lowers the overall Trust Score, which routes the punch to your HR team's review queue instead of silently approving or rejecting it — a person makes the final call, with full context.",
   },
   {
-    question: "Can we use this across multiple office locations?",
+    question: "Can we use this across multiple branch locations?",
     answer:
-      "Yes. Every office gets its own geo-fence and can have its own time regulation and grace periods. Starter supports one office; Pro and above support multiple.",
+      "Yes. Every branch gets its own geo-fence and can have its own time regulation and grace periods. Starter supports one branch; Elite and above support multiple.",
   },
   {
     question: "How is pricing calculated?",

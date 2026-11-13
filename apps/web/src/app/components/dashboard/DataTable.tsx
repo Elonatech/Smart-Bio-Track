@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export interface DataTableColumn<T> {
@@ -8,6 +8,14 @@ export interface DataTableColumn<T> {
   header: string;
   render: (row: T) => ReactNode;
   align?: "left" | "right";
+  /**
+   * Optional Tailwind width class for the column, such as "w-1/5". Without
+   * one the browser sizes columns by their content, which leaves uneven gaps
+   * when a table's cells are short; giving every column a share makes the
+   * spacing even. Applied on the header, which is what sets the column's
+   * width for the whole table including any footer row.
+   */
+  widthClass?: string;
 
   hideOnMobile?: boolean;
 }
@@ -35,7 +43,7 @@ export function DataTable<T>({
   pageSize,
   itemLabel = "rows",
 }: DataTableProps<T>) {
-  const [page, setPage] = useState(1);
+  const [requestedPage, setPage] = useState(1);
 
   const totalPages = pageSize
     ? Math.max(1, Math.ceil(rows.length / pageSize))
@@ -43,10 +51,9 @@ export function DataTable<T>({
 
   // Searching or filtering shrinks the list; without this you can be
   // stranded on page 4 of a result set that now has one page, staring at
-  // an empty table.
-  useEffect(() => {
-    setPage((current) => Math.min(current, totalPages));
-  }, [totalPages]);
+  // an empty table. Worked out on every render rather than corrected in
+  // an effect, so the wrong page is never drawn even for a moment.
+  const page = Math.min(requestedPage, totalPages);
 
   const visibleRows = useMemo(() => {
     if (!pageSize) return rows;
@@ -82,7 +89,7 @@ export function DataTable<T>({
                     key={column.key}
                     className={`px-5 py-3 text-xs font-medium tracking-wide uppercase text-neutral whitespace-nowrap ${
                       column.align === "right" ? "text-right" : "text-left"
-                    }`}
+                    } ${column.widthClass ?? ""}`}
                   >
                     {column.header}
                   </th>
@@ -162,7 +169,7 @@ export function DataTable<T>({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              onClick={() => setPage(Math.max(1, page - 1))}
               disabled={page === 1}
               className="inline-flex items-center gap-1 rounded-md border border-neutral/30 px-3 py-2 text-sm font-medium text-heading hover:bg-neutral/10 disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -175,7 +182,7 @@ export function DataTable<T>({
             <button
               type="button"
               onClick={() =>
-                setPage((current) => Math.min(totalPages, current + 1))
+                setPage(Math.min(totalPages, page + 1))
               }
               disabled={page === totalPages}
               className="inline-flex items-center gap-1 rounded-md border border-neutral/30 px-3 py-2 text-sm font-medium text-heading hover:bg-neutral/10 disabled:opacity-40 disabled:cursor-not-allowed"

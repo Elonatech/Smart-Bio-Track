@@ -5,6 +5,7 @@ import SuperAdminAuditLogsPage from './page';
 import { appClient } from '@/lib/api-client';
 import { renderWithProviders, signInAs, signOut, screen, waitFor, within } from '@/test/render';
 import userEvent from '@testing-library/user-event';
+import { resetOrgTimeZoneCache } from '@/lib/orgTime';
 
 /**
  * The audit trail (#22).
@@ -61,7 +62,7 @@ const desktop = () => within(screen.getAllByRole('table')[0]);
  * Resolves once the first fetch has painted.
  *
  * A regex, not a string. The actor cell renders name and role as one text node
- * — "Ada Okafor (Org Super Admin)" — so an exact-match query finds nothing and
+ * — "Ada Okafor (Organization Owner)" — so an exact-match query finds nothing and
  * the test times out looking like a data problem rather than a query problem.
  */
 async function loaded(match: RegExp = /Ada Okafor/) {
@@ -94,7 +95,7 @@ describe('SuperAdminAuditLogsPage', () => {
     // them — the field exists on the API response (entry() above still
     // includes it, matching what the server actually sends) but this page
     // stopped rendering it; see the removal in this same session.
-    expect(desktop().getByText('Ada Okafor (Org Super Admin)')).toBeInTheDocument();
+    expect(desktop().getByText('Ada Okafor (Organization Owner)')).toBeInTheDocument();
     expect(desktop().getByText('Bola Eze (EMP-0042)')).toBeInTheDocument();
     expect(desktop().queryByText('102.89.33.14')).not.toBeInTheDocument();
   });
@@ -242,5 +243,87 @@ describe('SuperAdminAuditLogsPage', () => {
     await loaded();
 
     expect(screen.getByText(/of 412 entries/)).toBeInTheDocument();
+  });
+});
+
+describe('staying in step with the server', () => {
+  // The filter offers, and rows are labelled from, a list that mirrors
+  // AUDIT_ACTIONS on the server. When the server gained twelve Phase 3
+  // actions, this page kept showing them as raw codes ("WORK_RULE_UPDATED")
+  // and couldn't filter by them. This reads the server's own list, so the
+  // next action added there fails here until it has a label.
+  function serverActions(): string[] {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readFileSync } = require('fs') as typeof import('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { join } = require('path') as typeof import('path');
+    const source = readFileSync(
+      join(__dirname, '..', '..', '..', '..', '..', '..', 'api', 'src', 'audit', 'audit.service.ts'),
+      'utf8'
+    );
+    const list = source.slice(source.indexOf('AUDIT_ACTIONS = ['), source.indexOf('] as const'));
+    return [...list.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]);
+  }
+
+  it('offers every action the server records, and nothing else', async () => {
+    respondWith();
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    const offered = Array.from(
+      (screen.getByLabelText('Filter by action') as HTMLSelectElement).options
+    )
+      .map((o) => o.value)
+      .filter(Boolean);
+
+    const expected = serverActions();
+    expect(expected.length).toBeGreaterThan(15); // guards the parser itself
+    expect(offered.sort()).toEqual(expected.sort());
+  });
+
+  it('labels a Phase 3 action in words, not its code', async () => {
+    respondWith({ items: [entry({ action: 'WORK_RULE_UPDATED' })] });
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    expect(desktop().getByText('Work rule changed')).toBeInTheDocument();
+    expect(screen.queryByText('WORK_RULE_UPDATED')).not.toBeInTheDocument();
+  });
+});
+
+describe('time zone', () => {
+  // Found in the Phase 3 rehearsal: times were in the organisation's zone,
+  // but nothing on screen said which zone that was.
+  beforeEach(() => {
+    resetOrgTimeZoneCache();
+    mockGet.mockImplementation((url: string) =>
+      url === '/organization'
+        ? Promise.resolve({ data: { id: 'org-1', name: 'Acme', industry: 'Retail', timezone: 'Africa/Lagos' } })
+        : Promise.resolve({ data: { items: [entry()], page: 1, limit: 25, total: 1, totalPages: 1 } })
+    );
+  });
+  afterEach(() => resetOrgTimeZoneCache());
+
+  it('names the organisation zone once, in the Timestamp header', async () => {
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    expect(
+      await desktop().findByRole('columnheader', { name: 'Timestamp (Lagos time)' })
+    ).toBeInTheDocument();
+  });
+
+  it('shows the time in that zone: 09:41 UTC is 10:41 in Lagos', async () => {
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    await waitFor(() => expect(desktop().getByText(/10:41/)).toBeInTheDocument());
+  });
+
+  it('says the zone above the cards on phones, which have no header', async () => {
+    renderWithProviders(<SuperAdminAuditLogsPage />);
+    await loaded();
+
+    expect(await screen.findByText('Times are Lagos time.')).toBeInTheDocument();
   });
 });

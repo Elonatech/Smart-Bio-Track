@@ -5,8 +5,9 @@
 // localStorage, a browser-only API) — none of that can run on the
 // server, so this file has to opt out of server rendering.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { clearCacheOnSignOut, makeQueryClient } from '@/lib/queryClient';
 import { restoreSession } from '@/lib/session';
 import { ToastViewport } from './Toast';
 
@@ -16,10 +17,15 @@ import { ToastViewport } from './Toast';
 export function Providers({ children }: { children: React.ReactNode }) {
   // We create ONE QueryClient (React Query's cache/manager for all your
   // API data) and keep it stable across re-renders using useState's
-  // lazy initializer form: useState(() => new QueryClient()).
-  // Passing a function instead of `new QueryClient()` directly means
-  // it only ever runs once, on first render — not on every re-render.
-  const [queryClient] = useState(() => new QueryClient());
+  // lazy initializer form: useState(makeQueryClient).
+  // Passing the function instead of calling it means it only ever
+  // runs once, on first render — not on every re-render.
+  // Its shared settings live in lib/queryClient.ts.
+  const [queryClient] = useState(makeQueryClient);
+
+  // Signing out (or a session expiring) empties the cache, so the next
+  // person on a shared computer never sees the last one's data.
+  useEffect(() => clearCacheOnSignOut(queryClient), [queryClient]);
 
   // Runs once, right after this mounts in the browser: ask the server whether
   // the httpOnly refresh cookie still represents a session, and rebuild the

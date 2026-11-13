@@ -1017,7 +1017,7 @@ describe('UsersService', () => {
         expect(entry.targetId).toBe('u9');
         // The row holds the post-change state, so without this the trail
         // cannot say what the role was before.
-        expect(entry.targetLabel).toContain('EMPLOYEE to TEAM_LEAD');
+        expect(entry.targetLabel).toContain('role Employee to Team Lead');
         expect(entry.ipAddress).toBe('10.0.0.1');
       });
 
@@ -1035,7 +1035,7 @@ describe('UsersService', () => {
         );
 
         const label = auditedEntry().targetLabel ?? '';
-        expect(label).toContain('TEAM_LEAD');
+        expect(label).toContain('Team Lead');
         expect(label).not.toContain('name');
       });
     });

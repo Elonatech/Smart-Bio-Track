@@ -11,12 +11,12 @@ interface MobileNavProps {
 
 
 export function MobileNav({ links }: MobileNavProps) {
-  const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
-
-  useEffect(() => {
-    setIsOpen(false);
-  }, [pathname]);
+  // The page the menu was opened on. Moving to another page closes it
+  // without an effect: it's only "open" while we're still on that page.
+  const [openOn, setOpenOn] = useState<string | null>(null);
+  const isOpen = openOn === pathname;
+  const setIsOpen = (open: boolean) => setOpenOn(open ? pathname : null);
 
 
   useEffect(() => {
@@ -31,7 +31,7 @@ export function MobileNav({ links }: MobileNavProps) {
   useEffect(() => {
     if (!isOpen) return;
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setIsOpen(false);
+      if (event.key === "Escape") setOpenOn(null);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -41,7 +41,7 @@ export function MobileNav({ links }: MobileNavProps) {
     <>
       <button
         type="button"
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={() => setIsOpen(!isOpen)}
         aria-label={isOpen ? "Close menu" : "Open menu"}
         aria-expanded={isOpen}
         aria-controls="mobile-nav-panel"

@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,6 +10,7 @@ import { z } from "zod";
 import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import { useModalA11y } from "@/lib/useModalA11y";
+import { fetchWorkRules, type WorkRule } from "@/lib/workRules";
 
 // ssr:false, not just a static import: Leaflet touches `window` at
 // module-evaluation time, which breaks the moment ANY page importing this
@@ -50,6 +52,8 @@ export interface Office {
   latitude: number;
   longitude: number;
   geofenceRadiusMeters: number;
+  /** Its own work rule, or null to follow the organization's default. */
+  workRuleId?: string | null;
 }
 
 interface OfficeFormModalProps {
@@ -65,6 +69,35 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
   const [isSubmitting, setIsSubmitting] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   useModalA11y(panelRef, onClose);
+
+  // The branch's work rule lives outside react-hook-form: it isn't part of
+  // the office body the API validates on create (see onSubmit), and "" is
+  // how the select spells "follow the default" (sent as null).
+  const [workRuleId, setWorkRuleId] = useState(office?.workRuleId ?? "");
+  const [rules, setRules] = useState<WorkRule[] | null>(null);
+  const [rulesError, setRulesError] = useState(false);
+
+  useEffect(() => {
+    let isActive = true;
+    fetchWorkRules()
+      .then((data) => {
+        if (isActive) setRules(data);
+      })
+      .catch(() => {
+        // Non-fatal: the branch can still be saved; only the rule picker
+        // is unavailable, and it says so.
+        if (isActive) setRulesError(true);
+      });
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const defaultRule = rules?.find((r) => r.isDefault);
+  // The default is offered as "Organization default", not by name, so it
+  // keeps following the default if that changes. Listed by name only if
+  // this branch was explicitly pinned to it, so the current value shows.
+  const ruleOptions = (rules ?? []).filter((r) => !r.isDefault || r.id === workRuleId);
 
   const {
     register,
@@ -98,10 +131,29 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
     setServerError(null);
     setIsSubmitting(true);
     try {
+      const chosenRule = workRuleId || null;
       if (isEditing) {
-        await appClient.put(`/offices/${office!.id}`, values);
+        await appClient.put(`/offices/${office!.id}`, { ...values, workRuleId: chosenRule });
       } else {
-        await appClient.post("/offices", values);
+        // The API only takes workRuleId on update (an office can exist
+        // before any rule does), so a new branch is created, then pointed
+        // at its rule.
+        const { data: created } = await appClient.post<Office>("/offices", values);
+        if (chosenRule) {
+          try {
+            await appClient.put(`/offices/${created.id}`, { workRuleId: chosenRule });
+          } catch (ruleError) {
+            // The branch exists — don't present that as a failure. Say what
+            // didn't stick and how to fix it.
+            toast.error(
+              `${values.name} was created, but its work rule wasn't set`,
+              `${extractErrorMessage(ruleError)} Edit the branch to set it again.`
+            );
+            onSaved();
+            onClose();
+            return;
+          }
+        }
       }
       // Names the office rather than saying "Office created" — after
       // adding several in a row, which one succeeded matters.
@@ -117,7 +169,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
       const message = extractErrorMessage(error);
       setServerError(message);
       toast.error(
-        office ? "Could not update this office" : "Could not create this office",
+        office ? "Could not update this branch" : "Could not create this branch",
         message
       );
     } finally {
@@ -137,11 +189,11 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
         aria-labelledby="office-form-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-lg bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start justify-between mb-1">
           <h2 id="office-form-title" className="cursor-pointer text-lg font-semibold text-heading">
-            {isEditing ? "Edit office" : "Add office"}
+            {isEditing ? "Edit branch" : "Add branch"}
           </h2>
           <button
             type="button"
@@ -153,7 +205,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
           </button>
         </div>
         <p className="text-sm text-neutral mb-4">
-          Set the office name and geo-fence radius. Coordinates default to
+          Set the branch name and geo-fence radius. Coordinates default to
           Lagos — adjust to the real location.
         </p>
 
@@ -166,7 +218,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-heading mb-1">
-              Office name
+              Branch name
             </label>
             <input
               id="name"
@@ -197,7 +249,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="latitude" className="block text-sm font-medium text-heading mb-1">
                 Latitude
@@ -256,6 +308,55 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
             )}
           </div>
 
+          <div>
+            <label htmlFor="workRuleId" className="block text-sm font-medium text-heading mb-1">
+              Work rule
+            </label>
+            <select
+              id="workRuleId"
+              value={workRuleId}
+              onChange={(event) => setWorkRuleId(event.target.value)}
+              disabled={rules === null}
+              className="w-full rounded-md border border-neutral/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+            >
+              <option value="">
+                {defaultRule
+                  ? `Organization default (${defaultRule.name})`
+                  : "Organization default"}
+              </option>
+              {ruleOptions.map((rule) => (
+                <option key={rule.id} value={rule.id}>
+                  {rule.name} — {rule.startTime}–{rule.endTime}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-neutral">
+              {rulesError ? (
+                "Couldn't load work rules — the branch will keep its current rule."
+              ) : rules === null ? (
+                "Loading work rules…"
+              ) : rules.length === 0 ? (
+                <>
+                  No work rules yet, so nobody here is marked late.{" "}
+                  <Link href="/dashboard/super-admin/time-regulation" className="text-primary hover:underline">
+                    Create one in Time Regulation
+                  </Link>
+                  .
+                </>
+              ) : ruleOptions.length === 0 ? (
+                <>
+                  Everyone follows the default. To give this branch different hours,{" "}
+                  <Link href="/dashboard/super-admin/time-regulation" className="text-primary hover:underline">
+                    add another rule
+                  </Link>
+                  .
+                </>
+              ) : (
+                "Staff at this branch are judged by this rule's hours and grace period."
+              )}
+            </p>
+          </div>
+
           <div className="flex items-center justify-end gap-3 pt-2">
             <button
               type="button"
@@ -269,7 +370,7 @@ export function OfficeFormModal({ office, onClose, onSaved }: OfficeFormModalPro
               disabled={isSubmitting}
               className="cursor-pointer rounded-md bg-primary text-white px-4 py-2 text-sm font-medium hover:bg-primary/90 disabled:opacity-60"
             >
-              {isSubmitting ? "Saving..." : "Save office"}
+              {isSubmitting ? "Saving..." : "Save branch"}
             </button>
           </div>
         </form>

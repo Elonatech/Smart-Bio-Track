@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { Lock, Search } from "lucide-react";
 import { appClient } from "@/lib/api-client";
 import { useAuthStore, type UserRole } from "@/lib/store/auth-store";
 import { ROLE_LABEL } from "@/lib/roleCreationMatrix";
+import { useOrgTimeZone, zoneLabel } from "@/lib/orgTime";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
 import { DataTable } from "@/app/components/dashboard/DataTable";
 
@@ -17,7 +18,7 @@ import { DataTable } from "@/app/components/dashboard/DataTable";
 // here and there should never be one. A trail anyone can edit is not a trail.
 interface AuditLogEntry {
   id: string;
-  /** ISO — formatted for the reader's own timezone below, not the server's. */
+  /** ISO (UTC) — shown in the organisation's time zone, see formatTimestamp. */
   createdAt: string;
   actorId: string | null;
   /** "System" for actions no person took. Never blank. */
@@ -45,33 +46,50 @@ const PAGE_SIZE = 25;
  * Mirrors AUDIT_ACTIONS in apps/api/src/audit/audit.service.ts.
  *
  * The API validates `action` against its own copy and 400s on anything else,
- * so this list only decides what the dropdown offers. Phase 3 adds CLOCK_IN,
- * PUNCH_APPROVED and DEVICE_REVOKED; add them on the server first, then here.
+ * so this list only decides what the dropdown offers — and how a row reads: an
+ * action missing here shows as its raw code ("WORK_RULE_UPDATED"). Keep it in
+ * step with the server's list, in the same order. Phase 4 will add more
+ * (punch review, devices); add them on the server first, then here.
  */
 const ACTION_LABEL: Record<string, string> = {
   USER_PROVISIONED: "Person added",
   USER_SUSPENDED: "Person suspended",
   USER_RESTORED: "Person restored",
   USER_DELETED: "Person removed",
+  INVITATION_RESENT: "Invitation resent",
   USER_UPDATED: "Details changed",
   USER_REINSTATED: "Person reinstated",
-  INVITATION_RESENT: "Invitation resent",
+  USER_LOCKED_OUT: "Locked out after failed sign-ins",
+  // Phase 3 — attendance and the settings it's judged against.
+  CLOCK_IN: "Clocked in",
+  CLOCK_OUT: "Clocked out",
+  BREAK_START: "Break started",
+  BREAK_END: "Break ended",
+  WORK_RULE_CREATED: "Work rule created",
+  WORK_RULE_UPDATED: "Work rule changed",
+  WORK_RULE_DELETED: "Work rule deleted",
+  HOLIDAY_CREATED: "Holiday added",
+  HOLIDAY_UPDATED: "Holiday changed",
+  HOLIDAY_DELETED: "Holiday deleted",
+  ORGANIZATION_UPDATED: "Organization settings changed",
+  // Written by the end-of-day job, with "System" as the actor.
+  ATTENDANCE_DAY_CLOSED: "Day closed (absences marked)",
 };
 
 /**
- * Formatted in the reader's own timezone rather than the server's.
- *
- * The placeholder data had "WAT" baked into the string. A London auditor
- * reviewing a Lagos organization should see 09:41 in their own time, because
- * the question an audit trail answers is "where was I when this happened?".
+ * Formatted in the organisation's time zone (decision 1.1, 21 Oct 2026), the
+ * same as every other screen — not the reader's, and not the server's UTC.
+ * The zone is named once, in the Timestamp header (and above the cards on
+ * phones), rather than on every row.
  */
-function formatTimestamp(iso: string): string {
+function formatTimestamp(iso: string, timeZone: string | undefined): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
 
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "medium",
+    timeZone,
   }).format(date);
 }
 
@@ -80,8 +98,8 @@ export default function SuperAdminAuditLogsPage() {
     useAuthStore((state) => state.user?.organizationName) ?? "Your organization";
 
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const timeZone = useOrgTimeZone();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [action, setAction] = useState("");
@@ -94,21 +112,31 @@ export default function SuperAdminAuditLogsPage() {
   // once the trail outgrows one page it would search 25 entries and report
   // "no matching entries" for everything before them — which, on an audit
   // screen, reads as "it never happened".
+  //
+  // A new search or filter starts at page 1, or you ask for page 7 of a much
+  // shorter result and get an empty table. Done where the change happens —
+  // here and in the action filter's onChange — not in an effect watching
+  // for it, which costs an extra render and is what React's lint flags.
+  const lastSearchRef = useRef("");
   useEffect(() => {
-    const id = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    const id = setTimeout(() => {
+      const next = search.trim();
+      if (next === lastSearchRef.current) return;
+      lastSearchRef.current = next;
+      setDebouncedSearch(next);
+      setPage(1);
+    }, 300);
     return () => clearTimeout(id);
   }, [search]);
 
-  // A new search or filter starts at the beginning, or you ask for page 7 of a
-  // much shorter result and get an empty table.
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, action]);
+  // Loading = the query on screen isn't the one last answered. Derived, so
+  // nothing has to be set synchronously when a fetch starts.
+  const queryKey = `${page}|${debouncedSearch}|${action}`;
+  const [answeredKey, setAnsweredKey] = useState<string | null>(null);
+  const isLoading = answeredKey !== queryKey;
 
   const fetchLogs = useCallback(() => {
-    setIsLoading(true);
-    setError(null);
-
+    const key = `${page}|${debouncedSearch}|${action}`;
     appClient
       .get<AuditLogPage>("/audit-logs", {
         params: {
@@ -122,9 +150,10 @@ export default function SuperAdminAuditLogsPage() {
         setLogs(res.data.items);
         setTotal(res.data.total);
         setTotalPages(res.data.totalPages);
+        setError(null);
       })
       .catch(() => setError("Couldn't load the audit trail. Please try again."))
-      .finally(() => setIsLoading(false));
+      .finally(() => setAnsweredKey(key));
   }, [page, debouncedSearch, action]);
 
   useEffect(() => {
@@ -152,7 +181,10 @@ export default function SuperAdminAuditLogsPage() {
 
         <select
           value={action}
-          onChange={(e) => setAction(e.target.value)}
+          onChange={(e) => {
+            setAction(e.target.value);
+            setPage(1);
+          }}
           aria-label="Filter by action"
           className="rounded-md border border-neutral/40 px-3 py-2 text-sm text-heading focus:outline-none focus:ring-2 focus:ring-primary"
         >
@@ -195,6 +227,11 @@ export default function SuperAdminAuditLogsPage() {
         </p>
       )}
 
+      {/* Phones show cards, which have no column header to carry the zone. */}
+      {!isLoading && logs.length > 0 && timeZone && (
+        <p className="lg:hidden mb-2 text-xs text-neutral">Times are {zoneLabel(timeZone)}.</p>
+      )}
+
       {!isLoading && logs.length > 0 && (
         <DataTable
           rows={logs}
@@ -210,18 +247,20 @@ export default function SuperAdminAuditLogsPage() {
                 {log.actorRole ? ` (${ROLE_LABEL[log.actorRole]})` : ""}
               </p>
               <p className="text-[12px] text-neutral">
-                {formatTimestamp(log.createdAt)}
+                {formatTimestamp(log.createdAt, timeZone)}
               </p>
             </div>
           )}
           columns={[
             {
               key: "createdAt",
-              header: "Timestamp",
+              // "Timestamp (Lagos time)" — until the zone has loaded, just
+              // "Timestamp", rather than naming a zone that may be wrong.
+              header: timeZone ? `Timestamp (${zoneLabel(timeZone)})` : "Timestamp",
               hideOnMobile: true,
               render: (log) => (
                 <span className="text-neutral whitespace-nowrap">
-                  {formatTimestamp(log.createdAt)}
+                  {formatTimestamp(log.createdAt, timeZone)}
                 </span>
               ),
             },
@@ -263,7 +302,7 @@ export default function SuperAdminAuditLogsPage() {
       {/* Server-driven, so the counts describe the whole trail rather than
           what happens to be loaded. */}
       {!isLoading && total > 0 && (
-        <div className="flex items-center justify-between gap-3 mt-4 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm">
           <p className="text-neutral">
             Showing {firstShown}&ndash;{lastShown} of {total} entr
             {total === 1 ? "y" : "ies"}

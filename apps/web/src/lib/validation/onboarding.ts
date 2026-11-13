@@ -21,7 +21,7 @@ export const orgProfileSchema = z.object({
 export type OrgProfileValues = z.infer<typeof orgProfileSchema>;
 
 export const officeSchema = z.object({
-  officeName: z.string().min(2, { message: "Office name is required" }),
+  officeName: z.string().min(2, { message: "Branch name is required" }),
   address: z.string().min(5, { message: "Address is required" }),
   landmark: z.string().optional(),
   // Real latitude/longitude bounds, not an arbitrary restriction — see
@@ -41,6 +41,10 @@ export const officeSchema = z.object({
 });
 export type OfficeValues = z.infer<typeof officeSchema>;
 
+// .refine below: no overnight shifts (Phase 3 Manual, decision 8). The API
+// refuses an end at or before the start; checking it here means the person
+// sees it on this step, not as an error on the wizard's final screen.
+// "HH:MM" strings compare correctly as plain text.
 export const workRulesSchema = z.object({
   startTime: z.string().min(1, { message: "Start time is required" }), // "08:00"
   endTime: z.string().min(1, { message: "End time is required" }),     // "17:00"
@@ -52,6 +56,9 @@ export const workRulesSchema = z.object({
   // Pay rate multiplier applied once overtimeAfterHours is exceeded,
   // e.g. 1.5 = "time and a half". 1 = no extra pay, just tracked hours.
   overtimeMultiplier: z.number().min(1).max(3),
+}).refine((v) => v.endTime > v.startTime, {
+  message: "The end time must be after the start time. Overnight shifts are not supported yet.",
+  path: ["endTime"],
 });
 export type WorkRulesValues = z.infer<typeof workRulesSchema>;
 
@@ -83,11 +90,10 @@ export const inviteTeamSchema = z.object({
         // being filled in. onboarding/page.tsx maps name -> id after
         // POST /departments and before POST /users.
         department: z.string().optional(),
-        // UI-only, like Time Regulation: CreateUserDto and the User model
-        // have no salary column, so this is collected but never sent to
-        // POST /users. Kept as a string so the field accepts free-form
-        // input (currency symbols, "negotiable", etc.) without a parser.
-        salary: z.string().optional(),
+        // No salary here, on purpose. This product exports hours and leaves
+        // pay to the client's own payroll tool, and salary is sensitive
+        // personal data we have no reason to collect — it used to be asked
+        // for and then thrown away.
       })
       .superRefine((invite, ctx) => {
         // A Team Lead with no department is a broken account, not merely

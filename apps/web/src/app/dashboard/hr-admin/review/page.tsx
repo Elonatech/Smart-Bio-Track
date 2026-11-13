@@ -10,7 +10,9 @@ import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 // dashboard/team-lead/exceptions.
 export default function HRAdminReviewQueuePage() {
   usePageHeader(
-    "Attendance review queue",
+    // Matches the sidebar label, and fits the phone header — the longer
+    // "Attendance review queue" truncated at 375px.
+    "Review queue",
     "Flagged punch events awaiting manual review"
   );
 

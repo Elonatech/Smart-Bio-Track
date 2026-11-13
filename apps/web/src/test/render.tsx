@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PageHeaderProvider } from '@/app/components/dashboard/PageHeaderContext';
 import { useAuthStore, type AuthUser } from '@/lib/store/auth-store';
 import type { UserRole } from '@smartbiotrack/types';
@@ -49,11 +50,24 @@ export function signOut() {
   useAuthStore.getState().clearSession();
 }
 
-function Providers({ children }: { children: React.ReactNode }) {
-  return <PageHeaderProvider>{children}</PageHeaderProvider>;
+/**
+ * A fresh TanStack Query cache per render, so no test sees answers cached by
+ * the one before. No retries: a test that makes a request fail wants the
+ * error shown now, not after a retry.
+ */
+export function makeTestQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
 export function renderWithProviders(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {
+  const queryClient = makeTestQueryClient();
+  function Providers({ children }: { children: React.ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <PageHeaderProvider>{children}</PageHeaderProvider>
+      </QueryClientProvider>
+    );
+  }
   return render(ui, { wrapper: Providers, ...options });
 }
 

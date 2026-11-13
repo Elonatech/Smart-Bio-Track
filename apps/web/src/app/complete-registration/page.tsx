@@ -2,10 +2,11 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ShieldCheck } from "lucide-react";
 import { PasswordInput } from "@/app/components/PasswordInput";
+import { PasswordRequirements } from "@/app/components/PasswordRequirements";
 import {
   activateAccountSchema,
   type ActivateAccountFormValues,
@@ -48,10 +49,14 @@ function ActivateAccountForm() {
   const {
     register,
     handleSubmit,
+    control,
     formState: { errors },
   } = useForm<ActivateAccountFormValues>({
     resolver: zodResolver(activateAccountSchema),
   });
+
+  // Drives the live checklist under the password field; empty until typing.
+  const password = useWatch({ control, name: "password" }) ?? "";
 
   const onSubmit = async (values: ActivateAccountFormValues) => {
     if (!token) return;
@@ -125,7 +130,15 @@ function ActivateAccountForm() {
                 >
                   Password
                 </label>
-                <PasswordInput id="password" registration={register("password")} />
+                <PasswordInput
+                  id="password"
+                  registration={register("password")}
+                  describedBy="password-requirements"
+                />
+                <PasswordRequirements
+                  id="password-requirements"
+                  password={password}
+                />
                 {errors.password && (
                   <p className="mt-1 text-sm text-alert">{errors.password.message}</p>
                 )}

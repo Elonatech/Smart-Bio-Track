@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
@@ -58,42 +59,50 @@ async function fetchAllUsers(): Promise<UserRow[]> {
   ];
 }
 
+const DEPARTMENTS_KEY = ["departments", "withHeadcount"] as const;
+const NO_DEPARTMENTS: Department[] = [];
+const NO_USERS: UserRow[] = [];
+
+async function fetchDepartmentsWithUsers() {
+  const [departmentsRes, users] = await Promise.all([
+    appClient.get<Department[]>("/departments"),
+    fetchAllUsers(),
+  ]);
+  // Sorted by name: the API returns creation order, which turns into an
+  // arbitrary shuffle as soon as more than a handful exist.
+  const departments = [...departmentsRes.data].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+  return { departments, users };
+}
+
 export default function SuperAdminDepartmentsPage() {
   const orgName =
     useAuthStore((state) => state.user?.organizationName) ??
     "Your organization";
 
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [users, setUsers] = useState<UserRow[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Cached (see lib/queryClient.ts): a return visit shows the table at once
+  // and quietly re-checks the server behind it. Departments and headcounts
+  // are one entry because the page needs both before it can show anything.
+  const queryClient = useQueryClient();
+  const departmentsQuery = useQuery({
+    queryKey: DEPARTMENTS_KEY,
+    queryFn: fetchDepartmentsWithUsers,
+  });
+  const departments = departmentsQuery.data?.departments ?? NO_DEPARTMENTS;
+  const users = departmentsQuery.data?.users ?? NO_USERS;
+  const isLoading = departmentsQuery.isPending;
+  const error = departmentsQuery.isError
+    ? "Couldn't load departments. Please try again."
+    : null;
+
+  // After an add, edit or delete: mark the entry out of date so it re-reads.
+  const refresh = () =>
+    void queryClient.invalidateQueries({ queryKey: DEPARTMENTS_KEY });
 
   const [modalMode, setModalMode] = useState<"create" | Department | null>(null);
   const [deletingDepartment, setDeletingDepartment] =
     useState<Department | null>(null);
-
-  const fetchAll = useCallback(() => {
-    setIsLoading(true);
-    setError(null);
-    Promise.all([
-      appClient.get<Department[]>("/departments"),
-      fetchAllUsers(),
-    ])
-      .then(([departmentsRes, allUsers]) => {
-        // Sorted by name: the API returns creation order, which turns into
-        // an arbitrary shuffle as soon as more than a handful exist.
-        setDepartments(
-          [...departmentsRes.data].sort((a, b) => a.name.localeCompare(b.name))
-        );
-        setUsers(allUsers);
-      })
-      .catch(() => setError("Couldn't load departments. Please try again."))
-      .finally(() => setIsLoading(false));
-  }, []);
-
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
 
   function countEmployees(departmentId: string) {
     return users.filter((user) => user.departmentId === departmentId).length;
@@ -235,7 +244,7 @@ export default function SuperAdminDepartmentsPage() {
         <DepartmentFormModal
           department={modalMode === "create" ? undefined : modalMode}
           onClose={() => setModalMode(null)}
-          onSaved={fetchAll}
+          onSaved={refresh}
         />
       )}
 
@@ -244,7 +253,7 @@ export default function SuperAdminDepartmentsPage() {
           department={deletingDepartment}
           employeeCount={countEmployees(deletingDepartment.id)}
           onClose={() => setDeletingDepartment(null)}
-          onDeleted={fetchAll}
+          onDeleted={refresh}
         />
       )}
     </div>

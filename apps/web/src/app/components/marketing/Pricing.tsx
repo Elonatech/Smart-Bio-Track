@@ -19,11 +19,12 @@ const TIERS: Tier[] = [
   {
     name: "Starter",
     price: "₦1,200",
+    priceNote: "Indicative price — confirm before launch",
     cap: "Up to 20 employees",
-    description: "Core attendance and geo-fencing for a single office.",
+    description: "Core attendance and geo-fencing for a single branch.",
     features: [
       "Biometric + geo-fenced clock-in",
-      "Single office & geo-fence",
+      "Single branch & geo-fence",
       "Attendance history",
       "Basic reports",
     ],
@@ -37,9 +38,9 @@ const TIERS: Tier[] = [
     description: "Exception review and Payroll export for growing teams.",
     features: [
       "Everything in Starter",
-      "HR exception review queue",
+      "HR attendance review queue",
       "Payroll export (PDF/Excel/CSV)",
-      "Departments",
+      "Multiple departments",
     ],
     cta: { label: "Start Free Trial", href: "/auth/register" },
     highlighted: true,
@@ -49,11 +50,11 @@ const TIERS: Tier[] = [
     price: "₦2,800",
     priceNote: "Indicative price — confirm before launch",
     cap: "Up to 100 employees",
-    description: "Advanced reporting and Multi-office support for established operations.",
+    description: "Advanced reporting and Multi-branch support for established operations.",
     features: [
-      "Everything in Pro",
+      "Everything in Core",
       "Advanced reports",
-      "Multi-office support",
+      "Multi-branch support",
       "Team Lead dashboards",
     ],
     cta: { label: "Start Free Trial", href: "/auth/register" },
@@ -62,11 +63,11 @@ const TIERS: Tier[] = [
     name: "Enterprise",
     price: "Custom",
     cap: "100+ employees",
-    description: "Multi-branch deployments with SSO, audit tooling, and dedicated support.",
+    description: "Multi-office deployments with Single Sign-On, audit tooling, and dedicated support.",
     features: [
-      "Everything in Professional",
-      "Multi-branch / multi-tenant",
-      "SSO & custom password policy",
+      "Everything in Elite",
+      "Multi-office support",
+      "Single Sign-On & custom password policy",
       "Dedicated support",
     ],
     cta: { label: "Contact Sales", href: "/contact" },
@@ -101,10 +102,22 @@ export function Pricing() {
             className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
               billingPeriod === "annual"
                 ? "bg-primary text-white"
-                : "bg-neutral/10 text-neutral hover:bg-neutral/20"
+                : "bg-neutral/10 text-neutral ring-1 ring-success hover:bg-neutral/20"
             }`}
           >
-            Annual <span className="ml-1 text-xs">(20% off)</span>
+            Annual{" "}
+            {/* Was plain small grey text, "(20% off)", inside the button —
+                someone shown this page didn't notice the discount until it
+                was pointed out. A solid green pill is the one element on
+                the toggle that isn't blue or grey, so it reads as an offer
+                in both themes and in both selected and unselected states.
+                Green on purpose, not red: red says "loss" or "warning",
+                and this is a saving. The thin green ring on the unselected
+                button above is the same colour for the same reason, so the
+                two read as one signal. */}
+            <span className="ml-1.5 rounded-full bg-success px-2 py-0.5 text-xs font-semibold text-white">
+              Save 20%
+            </span>
           </button>
         </div>
 
@@ -114,11 +127,23 @@ export function Pricing() {
             const annualPrice = Math.floor(monthlyPrice * 12 * 0.8); // 20% discount for annual
             const displayPrice = billingPeriod === "monthly" ? monthlyPrice : annualPrice;
 
+            // One set of classes for both themes. These used to carry
+            // dark: overrides that flattened Starter/Elite/Enterprise to
+            // slate and turned Core solid blue, so dark mode lost the
+            // per-tier tints the light design is built on. The colour
+            // tokens (surface, heading, neutral, primary...) already
+            // adapt to dark on their own, so nothing needs overriding.
+            //
+            // The exception is Core. Tinted-over-dark, its see-through blue
+            // read almost the same as Starter's dark surface, so the
+            // "Most Popular" card stopped standing out. In dark mode it
+            // goes back to solid primary, with the white text and slate
+            // button/badge that need (the `dark:` classes on Core below).
             const cardStyle = {
-              Starter: "border-neutral/20 bg-surface dark:bg-slate-800",
+              Starter: "border-neutral/20 bg-surface",
               Core: "border-primary bg-primary/10 shadow-2xl dark:bg-primary dark:text-white dark:border-primary",
-              Elite: "border-success bg-success/10 dark:bg-slate-800 dark:border-neutral/20",
-              Enterprise: "border-warning bg-warning/10 dark:bg-slate-800 dark:border-neutral/20",
+              Elite: "border-success bg-success/10",
+              Enterprise: "border-warning bg-warning/10",
             }[tier.name] || "border-neutral/20 bg-surface";
 
             return (
@@ -171,11 +196,11 @@ export function Pricing() {
                   href={tier.cta.href}
                   className={`mt-6 rounded-md px-4 py-2 text-center text-sm font-medium transition-colors ${
                     {
-                      Starter: "border border-neutral/30 text-heading hover:bg-neutral/10 dark:hover:bg-slate-700 dark:text-white",
+                      Starter: "border border-neutral/30 text-heading hover:bg-neutral/10",
                       Core: "bg-primary text-white hover:bg-primary/90 dark:bg-slate-800 dark:text-white dark:border dark:border-slate-600 dark:hover:bg-slate-700",
-                      Elite: "border border-success text-heading hover:bg-success/10 dark:hover:bg-slate-700 dark:text-white",
-                      Enterprise: "border border-warning text-heading hover:bg-warning/10 dark:hover:bg-slate-700 dark:text-white",
-                    }[tier.name] || "border border-neutral/30 text-heading hover:bg-neutral/10 dark:hover:bg-slate-700 dark:text-white"
+                      Elite: "border border-success text-heading hover:bg-success/10",
+                      Enterprise: "border border-warning text-heading hover:bg-warning/10",
+                    }[tier.name] || "border border-neutral/30 text-heading hover:bg-neutral/10"
                   }`}
                 >
                   {tier.cta.label}

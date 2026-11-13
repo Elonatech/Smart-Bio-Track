@@ -24,7 +24,7 @@ import userEvent from '@testing-library/user-event';
  */
 
 jest.mock('@/lib/api-client', () => ({
-  appClient: { post: jest.fn(), put: jest.fn() },
+  appClient: { get: jest.fn(), post: jest.fn(), put: jest.fn() },
   extractErrorMessage: (err: unknown) =>
     err instanceof Error ? err.message : 'Something went wrong',
 }));
@@ -45,6 +45,12 @@ jest.mock('@/app/components/dashboard/GeofenceMapPicker', () => ({
 
 const mockPost = appClient.post as jest.Mock;
 const mockPut = appClient.put as jest.Mock;
+const mockGet = appClient.get as jest.Mock;
+
+const RULES = [
+  { id: 'rule-std', name: 'Standard hours', isDefault: true, startTime: '08:00', endTime: '17:00', workingDays: [1, 2, 3, 4, 5], gracePeriodMinutes: 15, overtimeAfterMinutes: 540, overtimeMultiplier: 1.5, offices: [] },
+  { id: 'rule-night', name: 'Night ops', isDefault: false, startTime: '12:00', endTime: '20:00', workingDays: [1, 2, 3], gracePeriodMinutes: 10, overtimeAfterMinutes: null, overtimeMultiplier: 1, offices: [] },
+];
 
 const EXISTING = {
   id: 'office-1',
@@ -61,7 +67,7 @@ function renderModal(office?: typeof EXISTING) {
   return { onClose, onSaved };
 }
 
-const save = () => userEvent.click(screen.getByRole('button', { name: 'Save office' }));
+const save = () => userEvent.click(screen.getByRole('button', { name: 'Save branch' }));
 
 async function setField(label: RegExp, value: string) {
   const input = screen.getByLabelText(label);
@@ -70,6 +76,7 @@ async function setField(label: RegExp, value: string) {
 }
 
 beforeEach(() => {
+  mockGet.mockResolvedValue({ data: RULES });
   mockPost.mockResolvedValue({ data: {} });
   mockPut.mockResolvedValue({ data: {} });
 });
@@ -78,7 +85,7 @@ describe('creating an office', () => {
   it('POSTs the name, coordinates and radius', async () => {
     const { onSaved, onClose } = renderModal();
 
-    await setField(/office name/i, 'Abuja Branch');
+    await setField(/branch name/i, 'Abuja Branch');
     await save();
 
     await waitFor(() => expect(mockPost).toHaveBeenCalled());
@@ -102,7 +109,7 @@ describe('creating an office', () => {
     // expects a number.
     renderModal();
 
-    await setField(/office name/i, 'Abuja Branch');
+    await setField(/branch name/i, 'Abuja Branch');
     await setField(/latitude/i, '9.0579');
     await save();
 
@@ -124,7 +131,7 @@ describe('editing an office', () => {
   it('PUTs to the office being edited, not POSTing a duplicate', async () => {
     const { onSaved } = renderModal(EXISTING);
 
-    await setField(/office name/i, 'Lagos Head Office');
+    await setField(/branch name/i, 'Lagos Head Office');
     await save();
 
     await waitFor(() => expect(mockPut).toHaveBeenCalled());
@@ -138,7 +145,7 @@ describe('editing an office', () => {
     // manager changing only the name moves the office to Lagos.
     renderModal({ ...EXISTING, latitude: 9.0579, longitude: 7.4951, geofenceRadiusMeters: 500 });
 
-    expect(screen.getByLabelText(/office name/i)).toHaveValue('Lagos HQ');
+    expect(screen.getByLabelText(/branch name/i)).toHaveValue('Lagos HQ');
     expect(screen.getByLabelText(/latitude/i)).toHaveValue(9.0579);
     expect(screen.getByLabelText(/longitude/i)).toHaveValue(7.4951);
   });
@@ -155,7 +162,7 @@ describe('the coordinate bounds', () => {
   ])('refuses an out-of-range %s (%s)', async (_field, label, value) => {
     renderModal();
 
-    await setField(/office name/i, 'Somewhere');
+    await setField(/branch name/i, 'Somewhere');
     await setField(label, value);
     await save();
 
@@ -168,7 +175,7 @@ describe('the coordinate bounds', () => {
     // off-by-one that only a test finds.
     renderModal();
 
-    await setField(/office name/i, 'Edge Case');
+    await setField(/branch name/i, 'Edge Case');
     await setField(/latitude/i, '-90');
     await setField(/longitude/i, '180');
     await save();
@@ -222,7 +229,7 @@ describe('validation and failure', () => {
   it('refuses a name shorter than three characters', async () => {
     renderModal();
 
-    await setField(/office name/i, 'HQ');
+    await setField(/branch name/i, 'HQ');
     await save();
 
     expect(await screen.findByText('Name must be at least 3 characters')).toBeInTheDocument();
@@ -233,7 +240,7 @@ describe('validation and failure', () => {
     mockPost.mockRejectedValueOnce(new Error('An office with this name already exists'));
     const { onSaved, onClose } = renderModal();
 
-    await setField(/office name/i, 'Lagos HQ');
+    await setField(/branch name/i, 'Lagos HQ');
     await save();
 
     expect(
@@ -253,5 +260,77 @@ describe('validation and failure', () => {
     expect(mockPut).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe("the branch's work rule", () => {
+  // Phase 3: a branch can follow the organization's default rule (null) or
+  // have its own. The API only accepts workRuleId on update, so a new branch
+  // is created first and then pointed at its rule.
+
+  it('offers the default by role, not by name, and the other rules by name', async () => {
+    renderModal();
+
+    const select = (await screen.findByLabelText('Work rule')) as HTMLSelectElement;
+    await waitFor(() => expect(select).toBeEnabled());
+    const labels = Array.from(select.options).map((o) => o.textContent);
+    expect(labels).toEqual(['Organization default (Standard hours)', 'Night ops — 12:00–20:00']);
+  });
+
+  it('sends the chosen rule when editing, and null for the default', async () => {
+    renderModal({ ...EXISTING, workRuleId: 'rule-night' } as typeof EXISTING);
+    const select = await screen.findByLabelText('Work rule');
+    await waitFor(() => expect(select).toHaveValue('rule-night'));
+
+    await userEvent.selectOptions(select, '');
+    await save();
+
+    await waitFor(() => expect(mockPut).toHaveBeenCalled());
+    expect(mockPut.mock.calls[0][1]).toMatchObject({ workRuleId: null });
+  });
+
+  it('creates a new branch, then sets its rule', async () => {
+    mockPost.mockResolvedValueOnce({ data: { ...EXISTING, id: 'office-new' } });
+    renderModal();
+    await setField(/branch name/i, 'Abuja Branch');
+    const select = await screen.findByLabelText('Work rule');
+    await waitFor(() => expect(select).toBeEnabled());
+    await userEvent.selectOptions(select, 'rule-night');
+
+    await save();
+
+    await waitFor(() =>
+      expect(mockPut).toHaveBeenCalledWith('/offices/office-new', { workRuleId: 'rule-night' })
+    );
+    // The create itself never carries workRuleId — the API would reject it.
+    expect(mockPost.mock.calls[0][1]).not.toHaveProperty('workRuleId');
+  });
+
+  it("doesn't call it a failure when the branch was created but the rule didn't stick", async () => {
+    mockPost.mockResolvedValueOnce({ data: { ...EXISTING, id: 'office-new' } });
+    mockPut.mockRejectedValueOnce(new Error('Invalid work rule ID'));
+    const { onSaved, onClose } = renderModal();
+    await setField(/branch name/i, 'Abuja Branch');
+    const select = await screen.findByLabelText('Work rule');
+    await waitFor(() => expect(select).toBeEnabled());
+    await userEvent.selectOptions(select, 'rule-night');
+
+    await save();
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(onClose).toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(
+      "Abuja Branch was created, but its work rule wasn't set",
+      expect.stringContaining('Edit the branch')
+    );
+  });
+
+  it('still lets the branch be saved when rules fail to load', async () => {
+    mockGet.mockRejectedValueOnce(new Error('Network Error'));
+    renderModal(EXISTING);
+
+    expect(await screen.findByText(/Couldn't load work rules/)).toBeInTheDocument();
+    await save();
+    await waitFor(() => expect(mockPut).toHaveBeenCalled());
   });
 });

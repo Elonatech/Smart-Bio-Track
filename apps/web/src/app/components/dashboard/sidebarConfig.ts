@@ -39,15 +39,21 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
     { label: "Overview", href: SUPER_ADMIN_ROOT, icon: LayoutDashboard },
     { label: "Employees", href: `${SUPER_ADMIN_ROOT}/employees`, icon: Users },
     { label: "Departments", href: `${SUPER_ADMIN_ROOT}/departments`, icon: Network, requiredPlan: "CORE" },
-    { label: "Offices & Geo-Fences", href: `${SUPER_ADMIN_ROOT}/offices`, icon: Building2 },
+    { label: "Branches & Geo-Fences", href: `${SUPER_ADMIN_ROOT}/offices`, icon: Building2 },
     { label: "Time Regulation", href: `${SUPER_ADMIN_ROOT}/time-regulation`, icon: Clock },
     { label: "Holiday Calendar", href: `${SUPER_ADMIN_ROOT}/holidays`, icon: Calendar },
     { label: "Audit Logs", href: `${SUPER_ADMIN_ROOT}/audit-logs`, icon: ClipboardList },
-    { label: "Organization Settings", href: `${SUPER_ADMIN_ROOT}/settings`, icon: Settings, requiredPlan: "ENTERPRISE" },
+    // Every plan: the organization profile on this page (name, industry,
+    // timezone) is something every organization must be able to change.
+    // Enterprise-only parts are locked inside the page instead.
+    { label: "Organization Settings", href: `${SUPER_ADMIN_ROOT}/settings`, icon: Settings },
     { label: "Profile", href: `${SUPER_ADMIN_ROOT}/profile`, icon: User },
   ],
   HR_ADMIN: [
     { label: "Overview", href: HR_ADMIN_ROOT, icon: LayoutDashboard },
+    // Their OWN days — HR clocks in like everyone else. Other people's
+    // attendance belongs to Reports.
+    { label: "My Attendance", href: `${HR_ADMIN_ROOT}/attendance`, icon: Clock },
     { label: "Review Queue", href: `${HR_ADMIN_ROOT}/review`, icon: ClipboardList, requiredPlan: "CORE" },
     { label: "Employees", href: `${HR_ADMIN_ROOT}/employees`, icon: Users },
     { label: "Reports", href: `${HR_ADMIN_ROOT}/reports`, icon: FileText },
@@ -57,6 +63,7 @@ export const SIDEBAR_ITEMS: Record<UserRole, SidebarItem[]> = {
   ],
   TEAM_LEAD: [
     { label: "Team Today", href: TEAM_LEAD_ROOT, icon: Users },
+    { label: "My Attendance", href: `${TEAM_LEAD_ROOT}/attendance`, icon: Clock },
     { label: "Pending Exceptions", href: `${TEAM_LEAD_ROOT}/exceptions`, icon: AlertTriangle },
     { label: "Department Reports", href: `${TEAM_LEAD_ROOT}/reports`, icon: FileText },
     { label: "Leave Requests", href: `${TEAM_LEAD_ROOT}/leave`, icon: CalendarClock },

@@ -48,7 +48,7 @@ export function ConfirmDialog({
         aria-labelledby="confirm-dialog-title"
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
+        className="w-full max-w-md max-h-[90dvh] overflow-y-auto bg-surface rounded-xl border border-neutral/20 p-6 outline-none"
       >
         <div className="flex items-start gap-4">
           <div className="shrink-0 h-10 w-10 rounded-full bg-alert/10 flex items-center justify-center">

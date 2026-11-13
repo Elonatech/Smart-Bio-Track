@@ -5,6 +5,11 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      // Turbo runs builds in strict env mode: a variable not listed here is
+      // stripped before `next build` sees it. NEXT_PUBLIC_* pass automatically;
+      // API_PROXY_TARGET does not, and without it next.config.ts registers no
+      // /api rewrite — so Vercel answered /api/* with its own 404.
+      "env": ["API_PROXY_TARGET"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", "!.next/dev/**"]
     },
     "lint": {

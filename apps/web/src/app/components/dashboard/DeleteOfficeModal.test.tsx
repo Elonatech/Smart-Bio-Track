@@ -51,7 +51,7 @@ function renderModal() {
 }
 
 const confirm = () =>
-  userEvent.click(screen.getByRole('button', { name: 'Delete office' }));
+  userEvent.click(screen.getByRole('button', { name: 'Delete branch' }));
 
 beforeEach(() => {
   mockDelete.mockResolvedValue({ data: {} });
@@ -100,7 +100,7 @@ describe('the warning', () => {
     await confirm();
 
     await waitFor(() => expect(success).toHaveBeenCalled());
-    expect(success.mock.calls[0][1]).toMatch(/will need a new office/i);
+    expect(success.mock.calls[0][1]).toMatch(/will need a new branch/i);
   });
 });
 
@@ -128,6 +128,6 @@ describe('when the server refuses', () => {
     await confirm();
 
     await screen.findByText('Network error');
-    expect(screen.getByRole('button', { name: 'Delete office' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete branch' })).toBeEnabled();
   });
 });

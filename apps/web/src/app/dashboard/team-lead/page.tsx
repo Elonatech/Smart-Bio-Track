@@ -12,7 +12,9 @@ import {
 import { useAuthStore } from "@/lib/store/auth-store";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { formatOrgToday, useOrgTimeZone, zoneLabel } from "@/lib/orgTime";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
+import { getInitials } from "@/lib/initials";
 
 // The Team Lead's root page. Their overview IS the team roster for
 // today — there's no separate "dashboard" worth showing above it, which
@@ -99,12 +101,6 @@ const TEAM: TeamMember[] = [
 
 const PENDING_EXCEPTIONS = 1;
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return name.slice(0, 2).toUpperCase();
-}
-
 export default function TeamLeadDashboardPage() {
   const orgName = useAuthStore((state) => state.user?.organizationName);
   // The lead's real department, straight off /auth/me. Falls back rather than
@@ -112,16 +108,14 @@ export default function TeamLeadDashboardPage() {
   // "Engineering", which every Sales lead in the product also saw.
   const teamName =
     useAuthStore((state) => state.user?.departmentName) ?? "Your team";
-  const today = new Date().toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  // The organisation's date and zone, not the browser's (decision 1.1).
+  const timeZone = useOrgTimeZone();
+  const today = formatOrgToday(timeZone);
+  const zone = timeZone ? ` · ${zoneLabel(timeZone)}` : "";
 
   usePageHeader(
     `${teamName} — today`,
-    `${orgName ? `${orgName} · ` : ""}${today} · WAT`
+    `${orgName ? `${orgName} · ` : ""}${today}${zone}`
   );
 
   // Counted off the roster rather than hardcoded, so the cards can't

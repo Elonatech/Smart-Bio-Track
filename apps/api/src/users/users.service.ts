@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, UserRole, UserStatus } from '@prisma/client';
+import { ROLE_LABEL, ROLE_LABEL_PLURAL as ROLES } from '../common/role-labels';
 import { PrismaService } from '../prisma/prisma.service';
 import type { UserListItemKey } from '@smartbiotrack/types';
 import { MailService } from '../mail/mail.service';
@@ -99,7 +100,7 @@ function describeUserChanges(
     parts.push(`name "${before.name}" to "${dto.name}"`);
   }
   if (dto.role !== undefined && dto.role !== before.role) {
-    parts.push(`role ${before.role} to ${dto.role}`);
+    parts.push(`role ${ROLE_LABEL[before.role]} to ${ROLE_LABEL[dto.role]}`);
   }
   if (dto.departmentId !== undefined && dto.departmentId !== before.departmentId) {
     parts.push(dto.departmentId ? 'department reassigned' : 'department cleared');
@@ -133,7 +134,7 @@ export class UsersService {
 
     if (!allowedRoles.includes(dto.role)) {
       throw new ForbiddenException(
-        `A ${callerRole} may not create a user with the role ${dto.role}`,
+        `${ROLES[callerRole]} can't add ${ROLES[dto.role]}.`,
       );
     }
 
@@ -326,7 +327,7 @@ export class UsersService {
 
     if (!(ROLE_AUTHORITY_MATRIX[caller.role] ?? []).includes(user.role)) {
       throw new ForbiddenException(
-        `A ${caller.role} may not ${action} a user with the role ${user.role}`,
+        `${ROLES[caller.role]} can't ${action} ${ROLES[user.role]}.`,
       );
     }
 
@@ -598,7 +599,7 @@ export class UsersService {
     if (dto.role !== undefined && dto.role !== user.role) {
       if (!(ROLE_AUTHORITY_MATRIX[caller.role] ?? []).includes(dto.role)) {
         throw new ForbiddenException(
-          `A ${caller.role} may not assign the role ${dto.role}`,
+          `${ROLES[caller.role]} can't make someone one of the ${ROLES[dto.role]}.`,
         );
       }
     }

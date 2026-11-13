@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AuthGuard } from "@/app/components/AuthGuard";
 import { RoleGuard } from "@/app/components/RoleGuard";
 import { Sidebar } from "@/app/components/dashboard/Sidebar";
@@ -8,6 +8,7 @@ import { DashboardNavbar } from "@/app/components/dashboard/DashboardNavbar";
 import { SIDEBAR_ITEMS } from "@/app/components/dashboard/sidebarConfig";
 import { PageHeaderProvider } from "@/app/components/dashboard/PageHeaderContext";
 import { useAuthStore } from "@/lib/store/auth-store";
+import { useStoredValue } from "@/lib/useStoredValue";
 
 const COLLAPSED_STORAGE_KEY = "dashboard-sidebar-collapsed";
 
@@ -31,18 +32,11 @@ export default function DashboardLayout({
 
   // Desktop icons-only collapse — persisted so it survives a refresh,
   // same as the theme toggle does with localStorage.
-  const [isCollapsed, setIsCollapsed] = useState(false);
-
-  useEffect(() => {
-    setIsCollapsed(localStorage.getItem(COLLAPSED_STORAGE_KEY) === "true");
-  }, []);
+  const [collapsed, setCollapsed] = useStoredValue("local", COLLAPSED_STORAGE_KEY);
+  const isCollapsed = collapsed === "true";
 
   function toggleCollapse() {
-    setIsCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem(COLLAPSED_STORAGE_KEY, String(next));
-      return next;
-    });
+    setCollapsed(String(!isCollapsed));
   }
 
   return (
@@ -61,7 +55,7 @@ export default function DashboardLayout({
               rather than crashing on a missing lookup. */}
             <Sidebar
               items={(role && SIDEBAR_ITEMS[role]) ?? []}
-              isMobileOpen={isMobileOpen}
+              isMobileOpen={isMobileOpen} 
               onCloseMobile={() => setIsMobileOpen(false)}
               isCollapsed={isCollapsed}
               onToggleCollapse={toggleCollapse}

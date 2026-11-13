@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Rocket, X } from "lucide-react";
 import { appClient } from "@/lib/api-client";
+import { useStoredValue } from "@/lib/useStoredValue";
 import type { Office } from "@/app/components/dashboard/OfficeFormModal";
 
 // The way back into the setup wizard.
@@ -32,18 +33,14 @@ export function SetupReminderBanner() {
   // otherwise a fully-configured org gets a flash of "finish setting up"
   // on every page load.
   const [needsSetup, setNeedsSetup] = useState(false);
-  const [isDismissed, setIsDismissed] = useState(true);
+  // Read from sessionStorage once the page is in the browser (it doesn't
+  // exist during server rendering). Until then it's null — not dismissed —
+  // but the banner stays hidden anyway until the offices answer arrives.
+  const [dismissed, setDismissed] = useStoredValue("session", DISMISS_KEY);
+  const isDismissed = dismissed === "true";
 
   useEffect(() => {
     let isActive = true;
-
-    // Read inside the effect because sessionStorage doesn't exist during
-    // server rendering.
-    try {
-      setIsDismissed(sessionStorage.getItem(DISMISS_KEY) === "true");
-    } catch {
-      setIsDismissed(false);
-    }
 
     appClient
       .get<Office[]>("/offices")
@@ -59,14 +56,9 @@ export function SetupReminderBanner() {
     };
   }, []);
 
+  // If storage is blocked, useStoredValue keeps it for this page view.
   function handleDismiss() {
-    setIsDismissed(true);
-    try {
-      sessionStorage.setItem(DISMISS_KEY, "true");
-    } catch {
-      // Private browsing with storage blocked — dismissing for this
-      // page view only is fine.
-    }
+    setDismissed("true");
   }
 
   if (!needsSetup || isDismissed) return null;
@@ -77,7 +69,7 @@ export function SetupReminderBanner() {
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium">Finish setting up your workspace</p>
         <p className="text-[12px] opacity-80">
-          You haven&apos;t added an office yet — nobody can clock in until you
+          You haven&apos;t added a branch yet — nobody can clock in until you
           do.
         </p>
       </div>

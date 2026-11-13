@@ -1,0 +1,207 @@
+import { appClient, extractErrorMessage } from "@/lib/api-client";
+
+// The attendance API (apps/api/src/attendance), Phase 3. Every route acts on
+// the signed-in caller only — there is no user id to pass.
+//
+// Shapes mirror attendance.service.ts (PUNCH_SELECT, SUMMARY_SELECT and what
+// today()/punch() return). Move them into packages/types once the backend
+// exports them there.
+
+export type AttendanceState = "NOT_STARTED" | "CLOCKED_IN" | "ON_BREAK" | "CLOCKED_OUT";
+
+export type PunchType = "CLOCK_IN" | "CLOCK_OUT" | "BREAK_START" | "BREAK_END";
+
+export interface Punch {
+  id: string;
+  type: PunchType;
+  /** Server time, UTC ISO string. Never the browser's clock. */
+  occurredAt: string;
+}
+
+export interface TodayAttendance {
+  /** The organisation's local date, "YYYY-MM-DD". */
+  workDate: string;
+  timeZone: string;
+  state: AttendanceState;
+  /** Oldest first. */
+  punches: Punch[];
+}
+
+export interface PunchResult {
+  state: AttendanceState;
+  punch: Punch;
+}
+
+/** What the browser says about where the person is. Optional by design. */
+export interface PunchLocation {
+  latitude: number;
+  longitude: number;
+  accuracyMeters?: number;
+}
+
+export type AttendanceStatus = "PRESENT" | "ABSENT" | "ON_HOLIDAY" | "REST_DAY";
+
+/** One day's summary — SUMMARY_SELECT in attendance.service.ts. */
+export interface AttendanceDay {
+  /** The organisation's local date, "YYYY-MM-DD". */
+  workDate: string;
+  status: AttendanceStatus;
+  /** UTC ISO strings, or null. */
+  firstClockIn: string | null;
+  lastClockOut: string | null;
+  workedMinutes: number;
+  breakMinutes: number;
+  overtimeMinutes: number;
+  isLate: boolean;
+  lateMinutes: number;
+  /** Only true once the day has closed with a session still open. */
+  isIncomplete: boolean;
+}
+
+export interface AttendanceHistory {
+  from: string;
+  to: string;
+  timeZone: string;
+  /** Newest first. Days with no punches may simply be absent from the list. */
+  days: AttendanceDay[];
+}
+
+// What a day means to the person, derived from the server's summary. Shared
+// by the History page and the Overview charts so "late" or "no clock-out"
+// can never mean different things on the two.
+export type DayKind = "ON_TIME" | "LATE" | "IN_PROGRESS" | "INCOMPLETE" | "ABSENT" | "HOLIDAY" | "REST_DAY";
+
+export function kindOf(day: AttendanceDay): DayKind {
+  if (day.status === "ABSENT") return "ABSENT";
+  if (day.status === "ON_HOLIDAY") return "HOLIDAY";
+  if (day.status === "REST_DAY") return "REST_DAY";
+  // PRESENT from here on.
+  if (day.isIncomplete) return "INCOMPLETE";
+  // Lateness before "in progress": the server knows someone is late the
+  // moment they clock in, and checking the open shift first hid it all day
+  // (found in the Phase 3 exit-demo rehearsal). A late day still in
+  // progress also gets an "In progress" tag — see KindBadge.
+  if (day.isLate) return "LATE";
+  if (!day.lastClockOut) return "IN_PROGRESS";
+  return "ON_TIME";
+}
+
+/** The server caps a request at 93 days. */
+export const MAX_HISTORY_DAYS = 93;
+
+export async function fetchHistory(from?: string): Promise<AttendanceHistory> {
+  const { data } = await appClient.get<AttendanceHistory>("/attendance/history", {
+    params: from ? { from } : undefined,
+  });
+  return data;
+}
+
+const PUNCH_PATH: Record<PunchType, string> = {
+  CLOCK_IN: "/attendance/clock-in",
+  CLOCK_OUT: "/attendance/clock-out",
+  BREAK_START: "/attendance/break-start",
+  BREAK_END: "/attendance/break-end",
+};
+
+export async function fetchToday(): Promise<TodayAttendance> {
+  const { data } = await appClient.get<TodayAttendance>("/attendance/today");
+  return data;
+}
+
+/**
+ * Records a punch. Location is sent when known — the server records it but
+ * doesn't refuse on it yet (Phase 3 decision 6). A refusal from the state
+ * machine ("You are already clocked in.") comes back as a 409 whose message is
+ * written for the person, so callers can show it as-is.
+ */
+export async function recordPunch(
+  type: PunchType,
+  location?: PunchLocation | null,
+): Promise<PunchResult> {
+  const { data } = await appClient.post<PunchResult>(PUNCH_PATH[type], location ?? {});
+  return data;
+}
+
+/**
+ * Worked and break time so far today, in seconds, from the punch list.
+ *
+ * Computed from punches rather than the server's summary minutes so the timer
+ * can tick by the second between punches. `now` closes whatever interval is
+ * still open (clocked in, or on a break).
+ */
+export function timeFromPunches(punches: readonly Punch[], now: Date) {
+  let workedMs = 0;
+  let breakMs = 0;
+  let workingSince: number | null = null;
+  let breakSince: number | null = null;
+
+  for (const punch of punches) {
+    const at = Date.parse(punch.occurredAt);
+    switch (punch.type) {
+      case "CLOCK_IN":
+      case "BREAK_END":
+        if (breakSince !== null) breakMs += at - breakSince;
+        breakSince = null;
+        workingSince = at;
+        break;
+      case "BREAK_START":
+        if (workingSince !== null) workedMs += at - workingSince;
+        workingSince = null;
+        breakSince = at;
+        break;
+      case "CLOCK_OUT":
+        if (workingSince !== null) workedMs += at - workingSince;
+        workingSince = null;
+        break;
+    }
+  }
+
+  const end = now.getTime();
+  if (workingSince !== null) workedMs += Math.max(0, end - workingSince);
+  if (breakSince !== null) breakMs += Math.max(0, end - breakSince);
+
+  return { workedSeconds: workedMs / 1000, breakSeconds: breakMs / 1000 };
+}
+
+/**
+ * The browser's position, or null — never throws, never waits long.
+ *
+ * For clock-out and breaks, where location is useful for the audit trail but
+ * must never be the reason a punch fails. (Clock-in does its own, stricter
+ * location step in ClockInFlow.)
+ */
+export function readPositionQuietly(timeoutMs = 4000): Promise<PunchLocation | null> {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) =>
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracyMeters: position.coords.accuracy,
+        }),
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 60_000 },
+    );
+  });
+}
+
+/** Shown when a punch never reached the server (Phase 3 Manual §8.2). */
+export const NOT_RECORDED_MESSAGE = "Not recorded — check your connection and try again.";
+
+/**
+ * What to tell someone when a punch fails.
+ *
+ * No response at all means the request never arrived — so say plainly that
+ * nothing was recorded, rather than "Network Error". A response means the
+ * server decided (a 409 like "You are already on a break."), and its
+ * message is written for the person, so it's shown as-is.
+ */
+export function punchErrorMessage(error: unknown): string {
+  const isAxiosLike = typeof error === "object" && error !== null && "isAxiosError" in error;
+  if (isAxiosLike && !(error as { response?: unknown }).response) return NOT_RECORDED_MESSAGE;
+  return extractErrorMessage(error);
+}

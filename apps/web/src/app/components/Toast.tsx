@@ -64,7 +64,7 @@ function render(
         strokeWidth={2}
       />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-heading">{title}</p>
+        <p className="text-sm font-medium text-heading wrap-break-word">{title}</p>
         {description && (
           <p className="mt-1 text-[13px] text-neutral wrap-break-word">
             {description}

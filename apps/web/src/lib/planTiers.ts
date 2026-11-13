@@ -16,7 +16,7 @@ export const PLAN_LABEL: Record<PlanTier, string> = {
   ENTERPRISE: "Enterprise",
 };
 
-export const CURRENT_PLAN: PlanTier = "STARTER";
+export const CURRENT_PLAN: PlanTier = "CORE"; 
 
 export function isPlanUnlocked(required: PlanTier, current: PlanTier): boolean {
   return PLAN_ORDER.indexOf(current) >= PLAN_ORDER.indexOf(required);

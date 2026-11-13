@@ -6,7 +6,8 @@ import { appClient, extractErrorMessage } from "@/lib/api-client";
 import { useToast } from "@/app/components/Toast";
 import { getDashboardPath } from "@/lib/roleRoutes";
 import { useAuthStore } from "@/lib/store/auth-store";
-import { consumeOnboardingIndustryHint } from "@/lib/onboarding-hint";
+import { DEFAULT_TIMEZONE, normalizeTimezone, updateOrganization } from "@/lib/organization";
+import { clearOnboardingIndustryHint, peekOnboardingIndustryHint } from "@/lib/onboarding-hint";
 import { PartyPopper } from "lucide-react";
 import { StepProgress } from "@/app/components/onboarding/StepProgress";
 import { StepOrgProfile } from "@/app/components/onboarding/StepOrgProfile";
@@ -34,34 +35,89 @@ function getProgressKey(userId: string) {
   return `onboarding-progress:${userId}`;
 }
 
+const STARTER_RULE_NAME = "Standard hours";
+
+
 interface SavedProgress {
   currentStep: number;
   payload: Partial<OnboardingPayload>;
 }
 
+/** What the wizard starts with: saved progress, else the signup prefill. */
+function initialWizardState(userId: string | undefined, organizationName: string | undefined) {
+  if (userId) {
+    try {
+      const raw = localStorage.getItem(getProgressKey(userId));
+      if (raw) {
+        const saved = JSON.parse(raw) as SavedProgress;
+        return {
+          payload: saved.payload ?? {},
+          // Clamp: a saved step from an older build with a different
+          // number of steps shouldn't strand someone on a blank screen.
+          currentStep: Math.min(Math.max(saved.currentStep ?? 1, 1), 6),
+          fromSavedProgress: true,
+        };
+      }
+    } catch {
+      // Corrupt or unreadable — start fresh rather than crash.
+    }
+  }
+
+  // First time reaching this wizard, not a resumed one (no saved progress
+  // at all): step 1 asks for the organization name and industry again even
+  // though verify-organization just collected both. Prefill them instead of
+  // asking twice.
+  //
+  // Only when there's NO saved progress — someone who left step 1 with
+  // different values and came back to "Continue setup" must see THEIR edit,
+  // not have it silently replaced by what they typed at signup.
+  const industryHint = peekOnboardingIndustryHint();
+  const payload: Partial<OnboardingPayload> =
+    organizationName || industryHint
+      ? {
+          orgProfile: {
+            timezone: DEFAULT_TIMEZONE,
+            organizationName: organizationName ?? "",
+            industry: industryHint ?? "",
+          },
+        }
+      : {};
+  return { payload, currentStep: 1, fromSavedProgress: false };
+}
+
+// Waits for the session restore so it knows WHOSE progress to load, then
+// mounts the wizard — which reads that progress while it's being created
+// (useState initializers) rather than in an effect afterwards. Keyed by user:
+// a different person signing in on the same browser gets a fresh wizard.
 export default function OnboardingPage() {
+  const userId = useAuthStore((state) => state.user?.id);
+  const hasRestored = useAuthStore((state) => state.hasRestored);
+  // Nothing to show until we know who this is: rendering first would flash
+  // step 1 before jumping to the restored step.
+  if (!hasRestored) return null;
+  return <OnboardingWizard key={userId ?? "signed-out"} />;
+}
+
+function OnboardingWizard() {
   const toast = useToast();
   const router = useRouter();
   const userId = useAuthStore((state) => state.user?.id);
   const organizationName = useAuthStore((state) => state.user?.organizationName);
-  const hasRestored = useAuthStore((state) => state.hasRestored);
 
-  // Gates both restoring and saving. Without it the save effect fires on
-  // first render with the empty initial state and wipes the very
-  // progress we're about to read back.
-  const [isRestored, setIsRestored] = useState(false);
+  // Read once, when the wizard is created — see initialWizardState.
+  const [initial] = useState(() => initialWizardState(userId, organizationName));
 
   // 1-indexed to match StepProgress and the spec's "Step 1 of 6"
   // framing. Going "back" is just decrementing this; going forward is
   // incrementing it — no routing involved, which is why back/forward
   // never loses data (see below).
-  const [currentStep, setCurrentStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(initial.currentStep);
 
   // Accumulates every step's validated data as the user moves forward.
   // It's a Partial<OnboardingPayload> because, until step 6, most of
   // these keys are still undefined — TypeScript makes us handle that
   // explicitly rather than pretending the data exists before it does.
-  const [payload, setPayload] = useState<Partial<OnboardingPayload>>({});
+  const [payload, setPayload] = useState<Partial<OnboardingPayload>>(initial.payload);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -80,62 +136,17 @@ export default function OnboardingPage() {
     router.push(`/onboarding/welcome?org=${encodeURIComponent(orgName)}`);
   }
 
-  // Restore once the auth store has settled, so we know whose progress
-  // to look for.
+  // The signup industry hint is single-use (see lib/onboarding-hint.ts).
+  // Read above without clearing, cleared here — an effect, so React running
+  // the initializer twice in development can't lose it. No state changes.
   useEffect(() => {
-    if (!hasRestored) return;
-
-    let restoredFromSavedProgress = false;
-
-    if (userId) {
-      try {
-        const raw = localStorage.getItem(getProgressKey(userId));
-        if (raw) {
-          const saved = JSON.parse(raw) as SavedProgress;
-          setPayload(saved.payload ?? {});
-          // Clamp: a saved step from an older build with a different
-          // number of steps shouldn't strand someone on a blank screen.
-          setCurrentStep(Math.min(Math.max(saved.currentStep ?? 1, 1), 6));
-          restoredFromSavedProgress = true;
-        }
-      } catch {
-        // Corrupt or unreadable — start fresh rather than crash.
-      }
-    }
-
-    // First time reaching this wizard, not a resumed one (no saved
-    // progress at all): step 1 asks for the organization name and
-    // industry again even though verify-organization just collected
-    // both. Prefill them instead of asking twice.
-    //
-    // Gated on `!restoredFromSavedProgress` specifically — someone who
-    // left step 1 with different values and came back to "Continue
-    // setup" must see THEIR edit, not have it silently replaced by
-    // whatever they originally typed at signup.
-    if (!restoredFromSavedProgress) {
-      const industryHint = consumeOnboardingIndustryHint();
-      if (organizationName || industryHint) {
-        setPayload((prev) => ({
-          ...prev,
-          orgProfile: {
-            // Same fallback StepOrgProfile uses on its own — the only
-            // option today, so there's nothing to prefill it FROM yet.
-            timezone: "WAT",
-            organizationName: organizationName ?? "",
-            industry: industryHint ?? "",
-            ...prev.orgProfile,
-          },
-        }));
-      }
-    }
-
-    setIsRestored(true);
-  }, [hasRestored, userId, organizationName]);
+    clearOnboardingIndustryHint();
+  }, []);
 
   // Save on every change, so progress survives a closed tab, not just an
   // in-app navigation.
   useEffect(() => {
-    if (!isRestored || !userId) return;
+    if (!userId) return;
     try {
       localStorage.setItem(
         getProgressKey(userId),
@@ -145,7 +156,7 @@ export default function OnboardingPage() {
       // Storage full or blocked — the wizard still works, it just won't
       // resume.
     }
-  }, [isRestored, userId, currentStep, payload]);
+  }, [userId, currentStep, payload]);
 
   // Called by a step's onNext. Merges that step's data into the
   // accumulated payload under the given key, then advances the step.
@@ -191,10 +202,14 @@ export default function OnboardingPage() {
   //
   //   office       -> POST /offices       (real)
   //   departments  -> POST /departments   (real, one call each)
-  //   orgProfile   -> nowhere. The Organization was already created at
-  //                   /verify-organization, and there's no PATCH
-  //                   /organizations to rename it or set a logo.
-  //   workRules    -> nowhere. No WorkRule model or module exists.
+  //   orgProfile   -> PATCH /organization (real since Phase 3): name,
+  //                   industry and timezone. Sent first — the timezone
+  //                   decides which day every later punch belongs to.
+  //                   Idempotent by nature: it sets values, so a retry
+  //                   just sets them again. (Logo has no field yet.)
+  //   workRules    -> POST /work-rules (real since Phase 3), as the org's
+  //                   default rule. The step has no day picker, so Mon–Fri;
+  //                   it can be changed on the Time Regulation page.
   //   inviteTeam   -> POST /users        (real, one call each)
   //
   // Requests run in sequence rather than Promise.all so a failure points
@@ -210,7 +225,20 @@ export default function OnboardingPage() {
       // exists", with no way to move forward or back.
       //
       // So: read what's already there, and only create what's missing.
-      const [existingOffices, existingDepartments, existingUsers] =
+      if (payload.orgProfile) {
+        const saved = await updateOrganization({
+          name: payload.orgProfile.organizationName,
+          industry: payload.orgProfile.industry,
+          timezone: normalizeTimezone(payload.orgProfile.timezone),
+        });
+        // The sidebar and header read the name from the session, which was
+        // filled at sign-in — keep it in step with a rename made here.
+        useAuthStore.setState((state) =>
+          state.user ? { user: { ...state.user, organizationName: saved.name } } : state
+        );
+      }
+
+      const [existingOffices, existingDepartments, existingUsers, existingRules] =
         await Promise.all([
           appClient
             .get<{ name: string }[]>("/offices")
@@ -230,6 +258,9 @@ export default function OnboardingPage() {
             })
             .then((res) => ({ data: res.data.items }))
             .catch(() => ({ data: [] as { email: string }[] })),
+          appClient
+            .get<{ name: string }[]>("/work-rules")
+            .catch(() => ({ data: [] as { name: string }[] })),
         ]);
 
       const officeNames = new Set(
@@ -254,6 +285,26 @@ export default function OnboardingPage() {
           latitude: payload.office.latitude,
           longitude: payload.office.longitude,
           geofenceRadiusMeters: payload.office.geofenceRadiusMeters,
+        });
+      }
+
+      // Skipped if a rule already exists at all: either this is a retry
+      // after a partial failure, or the org set its hours up elsewhere —
+      // and a second "default" would quietly replace theirs.
+      if (payload.workRules && existingRules.data.length === 0) {
+        const rule = payload.workRules;
+        await appClient.post("/work-rules", {
+          name: STARTER_RULE_NAME,
+          workingDays: [1, 2, 3, 4, 5],
+          startTime: rule.startTime,
+          endTime: rule.endTime,
+          gracePeriodMinutes: rule.gracePeriodMinutes,
+          // The step means "overtime starts at the end time", which is
+          // END_TIME (decided 27 Oct 2026). Sent explicitly rather than
+          // relying on the server's default, with the rate chosen here.
+          overtimeBasis: "END_TIME",
+          overtimeMultiplier: rule.overtimeMultiplier,
+          isDefault: true,
         });
       }
 
@@ -307,10 +358,10 @@ export default function OnboardingPage() {
       toast.success(
         "Workspace set up successfully",
         invitedCount > 0
-          ? `Your office and departments are saved, and ${invitedCount} activation ${
+          ? `Your setup is saved, and ${invitedCount} activation ${
               invitedCount === 1 ? "email has" : "emails have"
             } been sent.`
-          : "Your office and departments have been saved."
+          : "Your setup has been saved."
       );
 
       goToWelcome();
@@ -323,16 +374,11 @@ export default function OnboardingPage() {
     }
   }
 
-  // Saved progress is read in an effect, so the first render always has
-  // the empty initial state. Rendering it would flash step 1 before
-  // jumping to the restored step.
-  if (!isRestored) return null;
-
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4 sm:p-8">
       <div className="w-full max-w-4xl bg-surface rounded-xl border border-neutral/20 p-4 sm:p-8">
         <p className="text-xs font-medium tracking-wide text-neutral uppercase mb-1">
-          Org Super Admin · First Login
+          Organization Owner · First Login
         </p>
         <h1 className="text-xl sm:text-2xl font-semibold text-heading mb-6">
           Set up your workspace
@@ -445,7 +491,7 @@ export default function OnboardingPage() {
             </h2>
             <p className="text-sm text-neutral mb-6">
               {payload.orgProfile?.organizationName ?? "Your organization"} is
-              configured with 1 office, {payload.departments?.departments.length ?? 0}{" "}
+              configured with 1 branch, {payload.departments?.departments.length ?? 0}{" "}
               {payload.departments?.departments.length === 1 ? "department" : "departments"} and{" "}
               {payload.inviteTeam?.invites.length ?? 0} pending{" "}
               {payload.inviteTeam?.invites.length === 1 ? "invite" : "invites"}.

@@ -1,23 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import {
-  ArrowRight,
-  ClipboardCheck,
-  Clock4,
-  Info,
-  Users,
-  UserX,
-} from "lucide-react";
-import { useAuthStore } from "@/lib/store/auth-store";
+import { ArrowRight } from "lucide-react";
 import { TodayStatusCard } from "@/app/components/dashboard/TodayStatusCard";
+import { OrgTodayPanel } from "@/app/components/dashboard/OrgTodayPanel";
 import { usePageHeader } from "@/app/components/dashboard/PageHeaderContext";
+import { formatOrgToday, useOrgTimeZone, zoneLabel } from "@/lib/orgTime";
 import { SampleDataBanner } from "@/app/components/dashboard/SampleDataBanner";
 
-// HR Admin's overview. UI only — there is no attendance backend yet
-// (prisma/schema.prisma has just Organization / Department / Office /
-// User + the token tables), so every figure here is example data and
-// Clock In is disabled rather than wired to nothing.
+// HR Admin's overview. HR clocks in like everyone else, so its own
+// TodayStatusCard (real, Phase 3) comes first; then the organisation's day
+// (OrgTodayPanel — sample until the summary endpoint exists, see
+// lib/orgToday.ts). The charts below are still example data: org-wide
+// reports are Phase 5.
 //
 // The four charts are hand-built with CSS and inline SVG on purpose:
 // apps/web has no charting dependency, and adding Recharts for one page
@@ -78,17 +73,12 @@ const SERIES = [
 ] as const;
 
 export default function HRAdminDashboardPage() {
-  const orgName =
-    useAuthStore((state) => state.user?.organizationName) ??
-    "Your organization";
-  const today = new Date().toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  // The organisation's date and zone, not the browser's (decision 1.1).
+  const timeZone = useOrgTimeZone();
+  const today = formatOrgToday(timeZone);
+  const zone = timeZone ? ` · ${zoneLabel(timeZone)}` : "";
 
-  usePageHeader("HR dashboard", `${today} · WAT`);
+  usePageHeader("HR dashboard", `${today}${zone}`);
 
   return (
     <div>
@@ -96,42 +86,17 @@ export default function HRAdminDashboardPage() {
       {/* Today's status — HR admins clock in like everyone else. */}
       <TodayStatusCard />
 
-  
-
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
-        <StatCard
-          icon={Users}
-          tone="bg-success/15 text-success"
-          label="Present today"
-          value="171"
-          hint="of 203 active employees"
-        />
-        <StatCard
-          icon={Clock4}
-          tone="bg-warning/15 text-warning"
-          label="Late today"
-          value="24"
-          hint="Grace period 15 min"
-        />
-        <StatCard
-          icon={UserX}
-          tone="bg-alert/10 text-alert"
-          label="Absent today"
-          value="8"
-          hint="2 on approved leave"
-        />
-        <StatCard
-          icon={ClipboardCheck}
-          tone="bg-warning/15 text-warning"
-          label="Pending reviews"
-          value="2"
-          hint="Flagged punches"
-        />
+      {/* The organisation's day. Replaces four sample tiles (present, late,
+          absent, pending reviews): the panel covers the first three with
+          lists and a branch filter, and the review-queue shortcut at the
+          bottom already carries the pending count. */}
+      <div className="mt-6">
+        <OrgTodayPanel />
       </div>
 
       {/* Row 2 — daily attendance + department breakdown */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-6">
-        <ChartCard title="Daily attendance" subtitle="This week, all offices">
+        <ChartCard title="Daily attendance" subtitle="This week, all branches">
           <div className="mt-6 flex gap-3">
             {/* Y axis. Rendered high-to-low so it reads top-down. */}
             <div className="flex flex-col justify-between h-56 w-9 shrink-0 text-right text-[11px] text-neutral tabular-nums">
@@ -304,41 +269,6 @@ export default function HRAdminDashboardPage() {
   );
 }
 
-function StatCard({
-  icon: Icon,
-  tone,
-  label,
-  value,
-  hint,
-}: {
-  icon: typeof Users;
-  tone: string;
-  label: string;
-  value: string;
-  hint: string;
-}) {
-  return (
-    // Icon in its own left column, all text stacked beside it — same
-    // shape as the Team Lead and Super Admin cards.
-    <div className="flex items-start gap-3 bg-surface border border-neutral/20 p-5 rounded-xl">
-      <div
-        className={`flex items-center justify-center h-9 w-9 rounded-lg shrink-0 ${tone}`}
-      >
-        <Icon className="h-4.5 w-4.5" strokeWidth={1.75} />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold tracking-wide uppercase text-neutral">
-          {label}
-        </p>
-        <p className="mt-1 text-[28px] leading-none font-semibold text-heading tabular-nums">
-          {value}
-        </p>
-        <p className="mt-2 text-[12px] text-neutral">{hint}</p>
-      </div>
-    </div>
-  );
-}
-
 function ChartCard({
   title,
   subtitle,
@@ -463,17 +393,22 @@ function TrendChart() {
 // Donut drawn with a single circle per slice: stroke-dasharray sets how
 // much of the ring that slice covers, stroke-dashoffset rotates it to
 // start where the previous slice ended.
-function TrustDonut() {
-  const RADIUS = 70;
-  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+// Worked out once, outside render: the data is fixed, and a running total
+// reassigned inside a render function is what React's lint rule flags. Each
+// slice starts where the ones before it end.
+const RADIUS = 70;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const DONUT_SLICES = TRUST_OUTCOMES.map((outcome, index) => ({
+  ...outcome,
+  length: (outcome.value / 100) * CIRCUMFERENCE,
+  offset: TRUST_OUTCOMES.slice(0, index).reduce(
+    (sum, previous) => sum + (previous.value / 100) * CIRCUMFERENCE,
+    0
+  ),
+}));
 
-  let offset = 0;
-  const slices = TRUST_OUTCOMES.map((outcome) => {
-    const length = (outcome.value / 100) * CIRCUMFERENCE;
-    const slice = { ...outcome, length, offset };
-    offset += length;
-    return slice;
-  });
+function TrustDonut() {
+  const slices = DONUT_SLICES;
 
   return (
     <div className="mt-6 flex items-center justify-center h-56">

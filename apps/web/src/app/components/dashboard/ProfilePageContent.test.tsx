@@ -65,10 +65,10 @@ describe('what it shows', () => {
 
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'));
     expect(await screen.findByText('Ada Okafor')).toBeInTheDocument();
-    // Email is an editable input; the name is read-only text. The split is the
-    // page's own: only some fields have anywhere to be saved to, and even
-    // those do not save yet.
-    expect(screen.getByDisplayValue('ada@example.com')).toBeInTheDocument();
+    // Every identity field is read-only text now, email included: it's the
+    // login identifier and PATCH /users/:id never changes it.
+    expect(screen.getByText('ada@example.com')).toBeInTheDocument();
+    expect(screen.getByText('Engineering')).toBeInTheDocument();
   });
 
   it('keeps the stored copy on screen when the fetch fails', async () => {
@@ -94,19 +94,18 @@ describe('nothing on this page saves', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('disables Save and says why', async () => {
-    // Note where the disabling lives: the *button*, not the fields. The
-    // fields are editable — somebody can type into them — and the save has
-    // nowhere to go. A first draft of this test assumed disabled inputs and
-    // passed vacuously, because `getAllByRole('textbox').filter(disabled)`
-    // was an empty list and an empty loop asserts nothing.
+  it('offers no editing and points to HR instead', async () => {
+    // PATCH /users/:id is admin-only and refuses self-edits, so there is no
+    // Save to disable: no text inputs, no Save button, and a note saying who
+    // can make changes. Checked as "none exist" rather than "all disabled" —
+    // a filter over an empty list would pass vacuously.
     renderWithProviders(<ProfilePageContent />);
     await screen.findByText('Ada Okafor');
 
-    const save = screen.getByRole('button', { name: 'Save changes' });
-
-    expect(save).toBeDisabled();
-    expect(save).toHaveAttribute('title', expect.stringContaining('No endpoint'));
+    expect(screen.queryAllByRole('textbox')).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
+    // "managed by HR" alone also matches the card's subtitle.
+    expect(screen.getByText(/Ask an admin to change/i)).toBeInTheDocument();
   });
 
   it('explains which fields the server does not even return', async () => {

@@ -14,8 +14,8 @@ export const ROLE_CREATION_MATRIX: Record<UserRole, UserRole[]> = {
 };
 
 export const ROLE_LABEL: Record<UserRole, string> = {
-  SUPER_ADMIN: "Org Super Admin",
-  HR_ADMIN: "HR Administrator",
+  SUPER_ADMIN: "Organization Owner",
+  HR_ADMIN: "HR Manager",
   TEAM_LEAD: "Team Lead",
   EMPLOYEE: "Employee",
 };

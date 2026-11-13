@@ -224,7 +224,7 @@ describe('what the modal shows', () => {
   it('shows the human role label rather than the enum value', () => {
     renderModal({ role: 'HR_ADMIN' });
 
-    expect(screen.getByText('HR Administrator')).toBeInTheDocument();
+    expect(screen.getByText('HR Manager')).toBeInTheDocument();
     expect(screen.queryByText('HR_ADMIN')).not.toBeInTheDocument();
   });
 });
