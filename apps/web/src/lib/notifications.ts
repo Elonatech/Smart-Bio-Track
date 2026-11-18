@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useStoredValue } from "./useStoredValue";
 import { appClient } from "./api-client";
 import { useAuthStore, type AuthUser } from "./store/auth-store";
 import { getDashboardPath } from "./roleRoutes";
@@ -206,62 +208,45 @@ function readStorageKey(userId: string) {
   return `notifications-read:${userId}`;
 }
 
-function loadReadIds(userId: string): Set<string> {
+// The stored list of read ids, turned back into a Set. Damaged or missing
+// data just means "nothing read yet".
+function parseReadIds(raw: string | null): Set<string> {
+  if (!raw) return new Set();
   try {
-    const raw = localStorage.getItem(readStorageKey(userId));
-    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+    return new Set(JSON.parse(raw) as string[]);
   } catch {
     return new Set();
   }
 }
 
-function saveReadIds(userId: string, ids: Set<string>) {
-  try {
-    localStorage.setItem(readStorageKey(userId), JSON.stringify([...ids]));
-  } catch {
-    // Read-state is a convenience, not a source of truth — losing it
-    // (private browsing, storage disabled) just means everything shows
-    // unread again next load, which is safe to ignore.
-  }
-}
+const NO_NOTIFICATIONS: AppNotification[] = [];
 
 export function useNotifications() {
   const user = useAuthStore((state) => state.user);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    if (!user) {
-      setNotifications([]);
-      return;
-    }
+  // Cached per user and role (see lib/queryClient.ts), so opening the bell
+  // again shows the list at once. Only runs once someone is signed in.
+  const query = useQuery({
+    queryKey: ["notifications", user?.id, user?.role],
+    queryFn: async () => {
+      const items = await buildNotificationsForUser(user!);
+      // Newest first — matches how every other "recent activity" list
+      // in the app already orders things.
+      return [...items].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    },
+    enabled: Boolean(user),
+  });
+  const notifications = user ? (query.data ?? NO_NOTIFICATIONS) : NO_NOTIFICATIONS;
+  const isLoading = Boolean(user) && query.isPending;
 
-    setReadIds(loadReadIds(user.id));
-
-    let isActive = true;
-    setIsLoading(true);
-
-    Promise.resolve(buildNotificationsForUser(user))
-      .then((items) => {
-        if (!isActive) return;
-        // Newest first — matches how every other "recent activity" list
-        // in the app already orders things.
-        setNotifications(
-          [...items].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-        );
-      })
-      .finally(() => {
-        if (isActive) setIsLoading(false);
-      });
-
-    return () => {
-      isActive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-runs only
-    // when the signed-in user changes, not on every render of a component
-    // that calls this hook.
-  }, [user?.id, user?.role]);
+  // Read-state is a convenience, not a source of truth. It lives in
+  // localStorage per user; if storage is blocked, useStoredValue keeps it
+  // for this page view, and everything shows unread again next load.
+  const [rawReadIds, writeReadIds] = useStoredValue(
+    "local",
+    readStorageKey(user?.id ?? "signed-out")
+  );
+  const readIds = useMemo(() => parseReadIds(rawReadIds), [rawReadIds]);
 
   const unreadCount = useMemo(
     () => notifications.filter((n) => !readIds.has(n.id)).length,
@@ -272,19 +257,17 @@ export function useNotifications() {
     if (!user) return;
     const next = new Set(readIds);
     notifications.forEach((n) => next.add(n.id));
-    setReadIds(next);
-    saveReadIds(user.id, next);
-  }, [user, notifications, readIds]);
+    writeReadIds(JSON.stringify([...next]));
+  }, [user, notifications, readIds, writeReadIds]);
 
   const markRead = useCallback(
     (id: string) => {
       if (!user) return;
       const next = new Set(readIds);
       next.add(id);
-      setReadIds(next);
-      saveReadIds(user.id, next);
+      writeReadIds(JSON.stringify([...next]));
     },
-    [user, readIds]
+    [user, readIds, writeReadIds]
   );
 
   return {

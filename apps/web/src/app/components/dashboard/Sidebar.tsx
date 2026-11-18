@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ShieldCheck, LogOut, PanelLeftClose, PanelLeftOpen, X, ChevronsRight, ChevronsLeft, Crown } from "lucide-react";
+import { ShieldCheck, LogOut, PanelLeftClose, PanelLeftOpen, X, Crown } from "lucide-react";
 import { useAuthStore } from "@/lib/store/auth-store";
 import { signOut } from "@/lib/session";
 import { useToast } from "@/app/components/Toast";
