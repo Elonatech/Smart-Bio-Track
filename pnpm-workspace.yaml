@@ -1,6 +1,11 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # The Phase 4 device-key trial installs with npm on its own: React Native
+  # and pnpm's symlinked node_modules don't mix, and the usual fix
+  # (node-linker=hoisted) would change how api and web install too. It joins
+  # the workspace in M5, once the trial has settled the approach.
+  - "!apps/mobile"
 allowBuilds:
   '@prisma/engines': true
   # Analytics ping from a transitive dependency — no build step we need.
