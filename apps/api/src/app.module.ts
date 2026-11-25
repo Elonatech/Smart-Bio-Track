@@ -14,6 +14,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { WorkRulesModule } from './work-rules/work-rules.module';
 import { HolidaysModule } from './holidays/holidays.module';
 import { OrganizationModule } from './organization/organization.module';
+import { DevicesModule } from './devices/devices.module';
 import { THROTTLE_DEFAULT } from './common/throttle.config';
 
 @Module({
@@ -44,6 +45,7 @@ import { THROTTLE_DEFAULT } from './common/throttle.config';
     WorkRulesModule,
     HolidaysModule,
     OrganizationModule,
+    DevicesModule,
   ],
   controllers: [AppController],
   providers: [

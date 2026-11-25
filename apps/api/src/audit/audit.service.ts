@@ -56,6 +56,12 @@ export const AUDIT_ACTIONS = [
   // changed, with no actor ("System"). The label carries the counts — how many
   // were marked absent, how many left a day unfinished.
   'ATTENDANCE_DAY_CLOSED',
+  // A phone bound to an employee, and released from them (Phase 4, D4).
+  // targetType is Device; the label names the person and the phone, because
+  // "whose phone, and which one" is the question a buddy-punching dispute
+  // turns on.
+  'DEVICE_REGISTERED',
+  'DEVICE_REVOKED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

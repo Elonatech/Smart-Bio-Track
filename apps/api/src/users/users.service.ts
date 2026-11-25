@@ -35,7 +35,7 @@ import { AuditService } from '../audit/audit.service';
  * an HR_ADMIN who cannot make a SUPER_ADMIN but can suspend every existing one
  * has taken the organization over by the back door.
  */
-const ROLE_AUTHORITY_MATRIX: Record<UserRole, UserRole[]> = {
+export const ROLE_AUTHORITY_MATRIX: Record<UserRole, UserRole[]> = {
   SUPER_ADMIN: ['SUPER_ADMIN', 'HR_ADMIN', 'TEAM_LEAD', 'EMPLOYEE'],
   HR_ADMIN: ['TEAM_LEAD', 'EMPLOYEE'],
   TEAM_LEAD: [],

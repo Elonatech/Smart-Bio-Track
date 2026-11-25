@@ -26,6 +26,7 @@ export interface CleanupResult {
   activationTokens: number;
   passwordResetTokens: number;
   pendingOrganizationSignups: number;
+  deviceChallenges: number;
 }
 
 /**
@@ -94,13 +95,15 @@ export class TokenCleanupService implements OnModuleInit, OnModuleDestroy {
         result.refreshTokens +
         result.activationTokens +
         result.passwordResetTokens +
-        result.pendingOrganizationSignups;
+        result.pendingOrganizationSignups +
+        result.deviceChallenges;
 
       if (total > 0) {
         this.logger.log(
           `Token cleanup removed ${total} expired row(s): ` +
             `${result.refreshTokens} refresh, ${result.activationTokens} activation, ` +
-            `${result.passwordResetTokens} reset, ${result.pendingOrganizationSignups} pending signup.`,
+            `${result.passwordResetTokens} reset, ${result.pendingOrganizationSignups} pending signup, ` +
+            `${result.deviceChallenges} device challenge.`,
         );
       }
     } catch (error) {
@@ -117,7 +120,8 @@ export class TokenCleanupService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Removes every expired row across the four token tables.
+   * Removes every expired row across the four token tables and the device
+   * challenges.
    *
    * Public and returning counts so it can be driven directly from a test, or
    * later from an admin endpoint, without waiting on the timer.
@@ -133,6 +137,10 @@ export class TokenCleanupService implements OnModuleInit, OnModuleDestroy {
         'pendingOrganizationSignup',
         now,
       ),
+      // Phase 4 one-time codes, two minutes each. Not evidence — the punch
+      // records what was signed — so they go once expired, used or not. The
+      // single-use trigger blocks UPDATEs only; DELETE is allowed for this.
+      deviceChallenges: await this.deleteExpired('deviceChallenge', now),
     };
   }
 
@@ -148,7 +156,8 @@ export class TokenCleanupService implements OnModuleInit, OnModuleDestroy {
       | 'refreshToken'
       | 'activationToken'
       | 'passwordResetToken'
-      | 'pendingOrganizationSignup',
+      | 'pendingOrganizationSignup'
+      | 'deviceChallenge',
     now: Date,
   ): Promise<number> {
     const model = this.prisma[table] as {

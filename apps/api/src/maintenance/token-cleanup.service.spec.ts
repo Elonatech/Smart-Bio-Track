@@ -15,6 +15,7 @@ describe('TokenCleanupService', () => {
     activationToken: table(),
     passwordResetToken: table(),
     pendingOrganizationSignup: table(),
+    deviceChallenge: table(),
   };
 
   beforeEach(async () => {
@@ -24,6 +25,7 @@ describe('TokenCleanupService', () => {
       'activationToken',
       'passwordResetToken',
       'pendingOrganizationSignup',
+      'deviceChallenge',
     ] as const) {
       mockPrisma[name].findMany.mockResolvedValue([]);
       mockPrisma[name].deleteMany.mockResolvedValue({ count: 0 });
@@ -39,13 +41,14 @@ describe('TokenCleanupService', () => {
     service = module.get(TokenCleanupService);
   });
 
-  it('sweeps all four token tables', async () => {
+  it('sweeps all five tables, including device challenges', async () => {
     await service.cleanupExpiredTokens();
 
     expect(mockPrisma.refreshToken.findMany).toHaveBeenCalled();
     expect(mockPrisma.activationToken.findMany).toHaveBeenCalled();
     expect(mockPrisma.passwordResetToken.findMany).toHaveBeenCalled();
     expect(mockPrisma.pendingOrganizationSignup.findMany).toHaveBeenCalled();
+    expect(mockPrisma.deviceChallenge.findMany).toHaveBeenCalled();
   });
 
   it('selects on expiry alone, never on revoked', async () => {
@@ -116,6 +119,7 @@ describe('TokenCleanupService', () => {
       activationTokens: 0,
       passwordResetTokens: 0,
       pendingOrganizationSignups: 0,
+      deviceChallenges: 0,
     });
   });
 
