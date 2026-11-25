@@ -45,11 +45,11 @@ model PendingOrganizationSignup {
 }
 
 model Organization {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
 
   /// The address the organization signed up with. Still unique — it is what
   /// stops one inbox owning two organizations by accident.
-  email     String   @unique
+  email String @unique
 
   /// Deliberately NOT unique.
   ///
@@ -60,8 +60,8 @@ model Organization {
   /// many — and nothing here needs the name to be a key: organizations are
   /// addressed by `id` everywhere, tenants never see each other, and sign-in is
   /// by email or employee ID, never by organization name.
-  name      String
-  industry  String?
+  name     String
+  industry String?
 
   /// IANA zone name, e.g. "Africa/Lagos". Phase 3 decision 1: one per
   /// organisation, with a per-office override possible later.
@@ -73,7 +73,22 @@ model Organization {
   ///
   /// Not CHECK-constrained: Postgres cannot validate a zone name in a CHECK
   /// (the lookup is not immutable). The API validates with Intl before writing.
-  timezone  String   @default("Africa/Lagos")
+  timezone String @default("Africa/Lagos")
+
+  /// Phase 4 trust settings (plan §3 D1, §5). Columns rather than a JSON blob
+  /// so the database can CHECK each one; defaults are the plan's starting
+  /// values, to be tuned with real staging data.
+  ///
+  /// EITHER: inside the geo-fence OR on an office network approves.
+  /// BOTH:   both are required. The API refuses BOTH until at least one office
+  ///         network exists (D11) — a cross-table rule, so it lives there.
+  locationPolicy         LocationPolicy @default(EITHER)
+  /// A GPS fix worse than this is "weak": flagged, never trusted outright.
+  trustMaxAccuracyMeters Int            @default(50)
+  /// Outside the radius by no more than this is "weak" (flag), not "fail".
+  trustFenceMarginMeters Int            @default(25)
+  /// Faster than this between consecutive punches is "weak" (impossible travel).
+  trustMaxSpeedKmh       Int            @default(300)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -87,15 +102,20 @@ model Organization {
   holidays            Holiday[]
   punchEvents         PunchEvent[]
   attendanceSummaries AttendanceSummary[]
+
+  devices            Device[]
+  officeNetworks     OfficeNetwork[]
+  attendanceAttempts AttendanceAttempt[]
+  attendanceReviews  AttendanceReview[]
 }
 
 model Department {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   name           String
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   employees User[]
 
@@ -103,11 +123,11 @@ model Department {
 }
 
 model Office {
-  id                   String   @id @default(uuid())
+  id                   String       @id @default(uuid())
   name                 String
   latitude             Float
   longitude            Float
-  geofenceRadiusMeters Int      @default(100)
+  geofenceRadiusMeters Int          @default(100)
   organizationId       String
   organization         Organization @relation(fields: [organizationId], references: [id])
 
@@ -116,13 +136,14 @@ model Office {
   ///
   /// SetNull on delete, so removing a rule drops the office back to the
   /// default rather than refusing the delete or leaving a dangling id.
-  workRuleId           String?
-  workRule             WorkRule? @relation(fields: [workRuleId], references: [id], onDelete: SetNull)
+  workRuleId String?
+  workRule   WorkRule? @relation(fields: [workRuleId], references: [id], onDelete: SetNull)
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   employees User[]
+  networks  OfficeNetwork[]
 
   @@unique([organizationId, name])
   @@index([workRuleId])
@@ -143,18 +164,18 @@ model User {
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
 
-  officeId     String?
-  office       Office?    @relation(fields: [officeId], references: [id])
+  officeId String?
+  office   Office? @relation(fields: [officeId], references: [id])
 
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   /// When the account was removed. Null for everyone else.
   ///
   /// `status` drives the behaviour; this records the date, which is what a
   /// retention policy is actually written against ("destroy seven years after
   /// leaving"). updatedAt cannot serve — any later edit overwrites it.
-  deletedAt    DateTime?
+  deletedAt DateTime?
 
   /// Consecutive failed sign-ins, reset to zero by any successful one.
   ///
@@ -180,6 +201,12 @@ model User {
 
   punchEvents         PunchEvent[]
   attendanceSummaries AttendanceSummary[]
+
+  devices            Device[]            @relation("DeviceOwner")
+  revokedDevices     Device[]            @relation("DeviceRevoker")
+  deviceChallenges   DeviceChallenge[]
+  attendanceAttempts AttendanceAttempt[]
+  reviewsGiven       AttendanceReview[]
 
   /// Postgres indexes a primary key and a UNIQUE column automatically. It does
   /// NOT index a foreign key. All three below were sequential scans of the
@@ -210,13 +237,13 @@ model User {
 /// TokenCleanupService does not touch it — audit rows outlive the records they
 /// describe, and should be kept for as long as the payroll data they explain.
 model AuditLog {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
   /// Null for actions the system takes on its own — a scheduled job, or the
   /// automated punch flagging Phase 3 adds.
-  actorId        String?
+  actorId String?
 
   /// The actor and target as they read AT THE TIME, not a join done later.
   ///
@@ -224,25 +251,25 @@ model AuditLog {
   /// change role, and leave; resolving names at read time would make a
   /// three-year-old entry describe today's org chart rather than what actually
   /// happened. Storing the label costs a few bytes and keeps the record true.
-  actorName      String
-  actorRole      UserRole?
+  actorName String
+  actorRole UserRole?
 
   /// e.g. USER_SUSPENDED. A string rather than a Prisma enum on purpose:
   /// Phase 3 adds CLOCK_IN, PUNCH_APPROVED, DEVICE_REVOKED and more, and an
   /// enum would mean a database migration for each one. The write side is
   /// still type-safe — see AuditAction in audit.service.ts.
-  action         String
+  action String
 
-  targetType     String?
-  targetId       String?
-  targetLabel    String?
+  targetType  String?
+  targetId    String?
+  targetLabel String?
 
   /// Nullable because it is not always knowable — behind a proxy without
   /// TRUST_PROXY_HOPS set, Express reports the proxy rather than the caller,
   /// and a wrong address in an audit trail is worse than none.
-  ipAddress      String?
+  ipAddress String?
 
-  createdAt      DateTime @default(now())
+  createdAt DateTime @default(now())
 
   /// Every read is "this organization's entries, newest first", which is
   /// exactly what this composite serves.
@@ -271,7 +298,7 @@ model AuditLog {
 /// cannot express a partial index, so it lives only in SQL — do not "tidy" it
 /// away because it is missing here.
 model WorkRule {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
@@ -332,7 +359,7 @@ enum HolidayType {
 /// A day nobody is expected to work. An organisation-wide calendar for now;
 /// per-office holidays can come with per-office timezones.
 model Holiday {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
@@ -373,7 +400,7 @@ enum PunchType {
 /// TRUNCATE is not blocked (row triggers do not fire on it), which keeps the
 /// e2e reset working. Nothing in the application truncates.
 model PunchEvent {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
@@ -404,13 +431,263 @@ model PunchEvent {
   longitude      Float?
   accuracyMeters Float?
 
+  /// ── Phase 4: the trust evidence (FR-010) ──
+  ///
+  /// All nullable or defaulted, because every punch before Phase 4 has none
+  /// of it — and this table is append-only, so it can never be backfilled.
+  /// Null `decision` reads as "recorded before trust checks existed".
+
+  /// WEB for every pre-Phase-4 row (the only client there was). HR marks a
+  /// punch created by accepting a rejected attempt (D7); its reviewer is on
+  /// the AttendanceReview that created it.
+  source PunchSource @default(WEB)
+
+  /// The registered device whose key signed this punch. Null for web punches
+  /// (always flagged, D14) and for HR-created ones.
+  deviceId String?
+  device   Device? @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+
+  /// The caller's address as the API saw it (real since TRUST_PROXY_HOPS = 4).
+  /// Text, matching AuditLog.ipAddress.
+  ipAddress String?
+
+  /// APPROVED or FLAGGED. Rejected attempts never become punches (D6): they
+  /// are AttendanceAttempt rows.
+  decision     TrustDecision?
+  /// 0–100, for reporting only (D8). The reasons decide; the score summarises.
+  trustScore   Int?
+  /// [{ signal, result: PASS|WEAK|FAIL, reason }] — what the engine saw.
+  trustReasons Json?
+
   createdAt DateTime @default(now())
+
+  review          AttendanceReview? @relation("ReviewedPunch")
+  /// Set when this punch was created by HR accepting a rejected attempt.
+  createdByReview AttendanceReview? @relation("CreatedPunch")
 
   /// "This user's punches today, in order" — the state-machine read on every
   /// punch, and the summary recompute.
   @@index([userId, workDate, occurredAt])
   /// Organisation-wide day views (Phase 5 reports, the end-of-day job).
   @@index([organizationId, workDate])
+  /// HR's queue: this organisation's flagged punches.
+  @@index([organizationId, decision])
+  @@index([deviceId])
+}
+
+// ─── Phase 4: trust score ───────────────────────────────────────────────────
+//
+// Plan and the decisions behind these models:
+// docs/phase-notes/phase-4-trust-score-plan.md
+//
+// The shape in one line: a Device holds the public half of a key that only
+// the employee's fingerprint unlocks; a DeviceChallenge is the one-time code
+// it signs; every attempt ends as a PunchEvent (approved or flagged) or an
+// AttendanceAttempt (rejected); HR's rulings on either are AttendanceReviews.
+// None of these tables is ever edited after the fact except where noted.
+
+enum LocationPolicy {
+  EITHER
+  BOTH
+}
+
+enum PunchSource {
+  WEB
+  MOBILE
+  HR
+}
+
+enum TrustDecision {
+  APPROVED
+  FLAGGED
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+}
+
+enum ChallengePurpose {
+  REGISTER
+  ATTENDANCE
+}
+
+enum ReviewOutcome {
+  /// A flagged punch is confirmed. It already counted; now it is settled.
+  UPHELD
+  /// A flagged punch is ruled invalid: the summary is rebuilt without it.
+  /// The punch itself is untouched (append-only) — this row is the ruling.
+  REJECTED
+  /// A rejected attempt is accepted: HR creates a new punch (source HR).
+  ACCEPTED
+}
+
+/// An employee's registered phone: the PUBLIC half of a key pair whose
+/// private half never leaves the phone's secure hardware and only unlocks with
+/// the employee's fingerprint, face or device PIN (plan §4).
+///
+/// **One active device per employee** (D4), enforced by a partial unique index
+/// in the migration (`WHERE "revokedAt" IS NULL`) — the schema language can't
+/// express it. A lost phone is revoked by HR (logged), never deleted: punches
+/// point at the device that signed them, so the row is evidence.
+model Device {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  userId String
+  user   User   @relation("DeviceOwner", fields: [userId], references: [id], onDelete: Restrict)
+
+  platform DevicePlatform
+
+  /// Base64 DER, X.509 SubjectPublicKeyInfo — what the phone hands over and
+  /// what Node's crypto verifies against. Unique: one key, one device.
+  publicKey    String @unique
+  /// e.g. RSA_2048_SHA256 (the Android trial, 25 Nov). Recorded so a later
+  /// algorithm change doesn't leave old rows ambiguous.
+  keyAlgorithm String
+
+  /// What App Attest / Play Integrity / key attestation said at registration,
+  /// as returned. Null until those checks exist (M3; paid accounts).
+  attestation Json?
+
+  /// Shown to HR: "Samsung Galaxy A54". Self-reported, so never trusted.
+  label String?
+
+  registeredAt DateTime @default(now())
+
+  revokedAt    DateTime?
+  revokedById  String?
+  revokedBy    User?     @relation("DeviceRevoker", fields: [revokedById], references: [id], onDelete: Restrict)
+  revokeReason String?
+
+  punchEvents        PunchEvent[]
+  challenges         DeviceChallenge[]
+  attendanceAttempts AttendanceAttempt[]
+
+  @@index([userId])
+  @@index([organizationId])
+}
+
+/// A one-time code for the phone to sign (replay protection, plan §5).
+///
+/// **Single use is enforced by the database:** a trigger refuses any update
+/// that touches a row whose `usedAt` is already set, so "spent" can't be
+/// undone — not by a bug, not by a race. Expired rows are deleted by a sweep;
+/// unlike punches, these are not evidence.
+model DeviceChallenge {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Null for REGISTER (no device yet); the device being asked for ATTENDANCE.
+  deviceId String?
+  device   Device? @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  purpose   ChallengePurpose
+  /// Random, base64. Unique so a collision can never make two rows valid.
+  challenge String           @unique
+
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// An office's approved network: an IP range the API checks the caller's
+/// address against (PRTS Module 5). `inet` rather than text so Postgres does
+/// the containment test (`caller <<= range`) and refuses malformed input.
+model OfficeNetwork {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  /// Cascade: a network means nothing without its office.
+  officeId String
+  office   Office @relation(fields: [officeId], references: [id], onDelete: Cascade)
+
+  /// e.g. 105.127.12.0/24, or a single address as /32.
+  cidr  String  @db.Inet
+  label String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([officeId, cidr])
+  @@index([organizationId])
+}
+
+/// A rejected clock-in, clock-out or break (D6). Not a punch — the punch
+/// history stays "what actually happened" and the Phase 3 state machine never
+/// sees these — but kept, with the same evidence, and shown in HR's queue.
+///
+/// **Append-only, like PunchEvent** (trigger in the migration). HR's answer is
+/// an AttendanceReview, never an edit.
+model AttendanceAttempt {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  type       PunchType
+  occurredAt DateTime  @default(now())
+  workDate   DateTime  @db.Date
+
+  source   PunchSource
+  deviceId String?
+  device   Device?     @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+
+  latitude       Float?
+  longitude      Float?
+  accuracyMeters Float?
+  ipAddress      String?
+
+  trustScore   Int
+  trustReasons Json
+
+  createdAt DateTime @default(now())
+
+  review AttendanceReview? @relation("ReviewedAttempt")
+
+  @@index([organizationId, workDate])
+  @@index([userId, workDate])
+  @@index([deviceId])
+}
+
+/// HR's ruling on one flagged punch or one rejected attempt (FR-007, D7).
+///
+/// Exactly one of `punchEventId` / `attendanceAttemptId` is set, and the
+/// outcome must fit it (CHECKs in the migration). One ruling per item, and
+/// rulings are append-only — final for the MVP. Reversing one is a deliberate
+/// later feature, not an edit.
+model AttendanceReview {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  punchEventId String?     @unique
+  punchEvent   PunchEvent? @relation("ReviewedPunch", fields: [punchEventId], references: [id], onDelete: Restrict)
+
+  attendanceAttemptId String?            @unique
+  attendanceAttempt   AttendanceAttempt? @relation("ReviewedAttempt", fields: [attendanceAttemptId], references: [id], onDelete: Restrict)
+
+  outcome ReviewOutcome
+  note    String?
+
+  reviewerId String
+  reviewer   User   @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  /// ACCEPTED only: the punch HR created from the attempt.
+  createdPunchId String?     @unique
+  createdPunch   PunchEvent? @relation("CreatedPunch", fields: [createdPunchId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, createdAt])
 }
 
 enum AttendanceStatus {
@@ -436,14 +713,14 @@ enum AttendanceStatus {
 /// (Phase 3 decision 3 — pending management confirmation; the rule lives in
 /// the summary function only, so changing it is one line plus a recompute).
 model AttendanceSummary {
-  id             String   @id @default(uuid())
+  id             String       @id @default(uuid())
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
 
-  workDate DateTime @db.Date
+  workDate DateTime         @db.Date
   status   AttendanceStatus
 
   firstClockIn DateTime?
@@ -482,11 +759,11 @@ model AttendanceSummary {
 /// invitee; only its SHA-256 hash is stored here, so a leak of this table
 /// does not yield usable tokens.
 model ActivationToken {
-  id        String    @id @default(uuid())
+  id String @id @default(uuid())
 
   /// Still unique — this is what completeRegistration looks a redeemed link up
   /// by, and two users must never share one.
-  tokenHash String    @unique
+  tokenHash String @unique
 
   /// Deliberately NOT unique.
   ///
@@ -501,8 +778,8 @@ model ActivationToken {
   /// survives. Superseded tokens are retired by stamping usedAt rather than
   /// deleted, which is the same single-use check completeRegistration already
   /// applies.
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   expiresAt DateTime
   usedAt    DateTime?
@@ -516,10 +793,10 @@ model ActivationToken {
 /// Stores only the SHA-256 hash of each refresh token, never the token itself,
 /// so a leak of this table yields nothing directly usable.
 model RefreshToken {
-  id        String   @id @default(uuid())
-  tokenHash String   @unique
+  id        String @id @default(uuid())
+  tokenHash String @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// Every token descended from one sign-in shares this id. Rotation carries it
   /// forward, so a chain of tokens stays identifiable as one session.
@@ -529,7 +806,7 @@ model RefreshToken {
   /// refuse the one request — the holder has a token the rightful owner also
   /// had, and there is no way to tell which of the two is asking. Revoking the
   /// family logs both out and forces a real sign-in.
-  familyId  String
+  familyId String
 
   expiresAt DateTime
   revoked   Boolean  @default(false)
@@ -552,7 +829,6 @@ model RefreshToken {
   /// `familyId` for the theft response above.
   @@index([userId])
   @@index([familyId])
-
   /// For the cleanup sweep (TokenCleanupService), which selects expired rows
   /// every six hours. This is much the largest of the token tables — one row
   /// per refresh, so ~96 per active user per day — and without this the sweep
