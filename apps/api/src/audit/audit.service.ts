@@ -62,6 +62,9 @@ export const AUDIT_ACTIONS = [
   // turns on.
   'DEVICE_REGISTERED',
   'DEVICE_REVOKED',
+  // A punch the Trust Score Engine refused (Phase 4 M3, D6). targetType is
+  // AttendanceAttempt, which holds the evidence; the punch never existed.
+  'ATTENDANCE_REJECTED',
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

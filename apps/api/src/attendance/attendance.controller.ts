@@ -11,7 +11,7 @@ import { UserRole } from '@prisma/client';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { PunchLocationDto } from './dto/punch-location.dto';
+import { PunchRequestDto } from './dto/punch-request.dto';
 import { QueryAttendanceHistoryDto } from './dto/query-attendance-history.dto';
 
 /**
@@ -43,35 +43,23 @@ export class AttendanceController {
   constructor(private readonly attendance: AttendanceService) {}
 
   @Post('clock-in')
-  clockIn(
-    @Req() req: AuthenticatedRequest,
-    @Body() location: PunchLocationDto,
-  ) {
-    return this.attendance.clockIn(req.user, location, req.ip);
+  clockIn(@Req() req: AuthenticatedRequest, @Body() punch: PunchRequestDto) {
+    return this.attendance.clockIn(req.user, punch, req.ip);
   }
 
   @Post('clock-out')
-  clockOut(
-    @Req() req: AuthenticatedRequest,
-    @Body() location: PunchLocationDto,
-  ) {
-    return this.attendance.clockOut(req.user, location, req.ip);
+  clockOut(@Req() req: AuthenticatedRequest, @Body() punch: PunchRequestDto) {
+    return this.attendance.clockOut(req.user, punch, req.ip);
   }
 
   @Post('break-start')
-  startBreak(
-    @Req() req: AuthenticatedRequest,
-    @Body() location: PunchLocationDto,
-  ) {
-    return this.attendance.startBreak(req.user, location, req.ip);
+  startBreak(@Req() req: AuthenticatedRequest, @Body() punch: PunchRequestDto) {
+    return this.attendance.startBreak(req.user, punch, req.ip);
   }
 
   @Post('break-end')
-  endBreak(
-    @Req() req: AuthenticatedRequest,
-    @Body() location: PunchLocationDto,
-  ) {
-    return this.attendance.endBreak(req.user, location, req.ip);
+  endBreak(@Req() req: AuthenticatedRequest, @Body() punch: PunchRequestDto) {
+    return this.attendance.endBreak(req.user, punch, req.ip);
   }
 
   @Get('today')
